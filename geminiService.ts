@@ -1,53 +1,53 @@
-
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, SchemaType } from "@google/genai";
 import { SiteConfig } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// CORRECTION : Utilisation de import.meta.env pour Vite/GitHub
+const apiKey = import.meta.env.VITE_API_KEY || ""; 
+const ai = new GoogleGenAI({ apiKey });
 
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
-      contents: `Tu es l'Architecte Visuel de l'application familiale 'Chaud devant'.
-      Ta mission est de modifier l'apparence du site selon les désirs de l'utilisateur.
-      
-      CONSIGNES IMPORTANTES:
-      1. Propose des couleurs (primaryColor, backgroundColor) harmonieuses.
-      2. Si on te demande un thème (ex: 'luxueux', 'moderne', 'nature'), change RADICALEMENT les couleurs et polices.
-      3. Utilise des codes hexadécimaux valides.
-      4. navigationLabels doit rester lisible.
-      
-      CONFIG ACTUELLE: ${JSON.stringify(currentConfig)}
-      DEMANDE DE L'UTILISATEUR: ${prompt}
-      
-      Réponds UNIQUEMENT par l'objet JSON complet mis à jour.`,
-      config: {
+    // Note: Adaptation pour la version stable du SDK ou utilisation générique
+    // Si ce modèle précis n'existe pas, il faudra utiliser "gemini-1.5-flash"
+    const model = ai.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.OBJECT,
+          type: SchemaType.OBJECT,
           properties: {
-            primaryColor: { type: Type.STRING },
-            backgroundColor: { type: Type.STRING },
-            fontFamily: { type: Type.STRING },
-            welcomeTitle: { type: Type.STRING },
-            welcomeText: { type: Type.STRING },
-            welcomeImage: { type: Type.STRING },
+            primaryColor: { type: SchemaType.STRING },
+            backgroundColor: { type: SchemaType.STRING },
+            fontFamily: { type: SchemaType.STRING },
+            welcomeTitle: { type: SchemaType.STRING },
+            welcomeText: { type: SchemaType.STRING },
+            welcomeImage: { type: SchemaType.STRING },
             navigationLabels: {
-              type: Type.OBJECT,
+              type: SchemaType.OBJECT,
               properties: {
-                home: { type: Type.STRING },
-                journal: { type: Type.STRING },
-                cooking: { type: Type.STRING },
-                calendar: { type: Type.STRING }
+                home: { type: SchemaType.STRING },
+                journal: { type: SchemaType.STRING },
+                cooking: { type: SchemaType.STRING },
+                calendar: { type: SchemaType.STRING }
               }
             },
-            homeHtml: { type: Type.STRING },
-            cookingHtml: { type: Type.STRING }
+            homeHtml: { type: SchemaType.STRING },
+            cookingHtml: { type: SchemaType.STRING }
           }
         }
       }
     });
-    return JSON.parse(response.text) as SiteConfig;
+
+    const result = await model.generateContent(`
+      Tu es l'Architecte Visuel de l'application 'Chaud devant'.
+      Modifie l'apparence selon: "${prompt}".
+      
+      CONFIG ACTUELLE: ${JSON.stringify(currentConfig)}
+      
+      Renvoie l'objet JSON complet mis à jour.
+    `);
+
+    return JSON.parse(result.response.text()) as SiteConfig;
   } catch (error) {
     console.error("Erreur Architecte:", error);
     return null;
@@ -56,15 +56,18 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
 
 export const askAIChat = async (history: { role: string, text: string }[]) => {
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: history.map(h => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.text }] })),
-      config: {
-        systemInstruction: "Tu es le majordome de la famille Chaud devant. Tu es raffiné, dévoué et un peu pince-sans-rire. Tu aides la famille à s'organiser."
-      }
+    const model = ai.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      systemInstruction: "Tu es le majordome de la famille Chaud devant. Raffiné, serviable, un peu british."
     });
-    return response.text;
+
+    const chat = model.startChat({
+      history: history.map(h => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.text }] }))
+    });
+
+    const result = await chat.sendMessage("Réponds à la dernière demande.");
+    return result.response.text();
   } catch (error) {
-    return "Désolé, j'ai eu une petite absence...";
+    return "Désolé, mes circuits sont encombrés.";
   }
 };
