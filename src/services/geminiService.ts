@@ -3,13 +3,16 @@ import { SiteConfig } from "../types";
 const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
 
 async function callGeminiAPI(payload: any) {
+  // ESPION : On vérifie quelle clé est utilisée
   if (!apiKey) {
-    alert("Clé API manquante dans GitHub.");
+    alert("⛔ ALERTE : Aucune clé trouvée dans le code.");
     return null;
   }
-
+  
+  // On affiche les 4 premières lettres pour voir si c'est la nouvelle
+  const debutCle = apiKey.substring(0, 4) + "...";
+  
   try {
-    // On utilise le modèle standard 1.5 Flash
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
@@ -21,9 +24,9 @@ async function callGeminiAPI(payload: any) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      // Si c'est 404 ici avec la NOUVELLE clé, c'est un problème temporaire de Google
-      console.error("Erreur Google:", errorText);
-      alert(`Erreur IA (${response.status}). Vérifiez la console pour le détail.`);
+      // On affiche l'erreur exacte
+      alert(`❌ ERREUR GOOGLE (Code ${response.status}) :\nClé utilisée : ${debutCle}\nMessage : ${errorText}`);
+      console.error("Détail:", errorText);
       return null;
     }
 
@@ -31,26 +34,21 @@ async function callGeminiAPI(payload: any) {
     return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
 
   } catch (error) {
-    console.error(error);
-    alert("Erreur réseau (Internet).");
+    alert("❌ Erreur de connexion Internet.");
     return null;
   }
 }
 
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
-  const fullPrompt = `
-    Tu es un expert JSON. Modifie la config selon : "${prompt}".
-    Config actuelle : ${JSON.stringify(currentConfig)}
-    RENVOIE UNIQUEMENT LE JSON. PAS DE MARKDOWN.
-  `;
-
+  const fullPrompt = `Modifie ce JSON : ${JSON.stringify(currentConfig)} selon : "${prompt}". Renvoie JSON uniquement.`;
+  
   const text = await callGeminiAPI({ contents: [{ parts: [{ text: fullPrompt }] }] });
   if (!text) return null;
 
   try {
     return JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim()) as SiteConfig;
   } catch (e) {
-    alert("L'IA a mal formaté la réponse.");
+    alert("L'IA a répondu mais le format est mauvais.");
     return null;
   }
 };
