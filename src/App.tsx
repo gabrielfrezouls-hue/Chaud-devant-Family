@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { auth, googleProvider, db } from './firebase';
-import { signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
-import { LogIn, LogOut, Send, Sparkles, Trash2, User as UserIcon } from 'lucide-react';
+import { LogIn, LogOut, Send, Sparkles, Trash2, User as UserIcon, Loader2 } from 'lucide-react';
 
 // Types pour TypeScript
 interface Message {
@@ -16,25 +16,31 @@ interface Message {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  useEffect(() => {
-  // Cette fonction vérifie si on revient d'une connexion Google
-  getRedirectResult(auth).catch((error) => {
-    console.error("Erreur lors du retour de Google:", error);
-  });
-}, []);
+  // NOUVEAU : On commence à "true" pour dire qu'on attend la réponse de Firebase
+  const [isInitializing, setIsInitializing] = useState(true);
+  
   const [messages, setMessages] = useState<Message[]>([]);
   const [newText, setNewText] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // Celui-ci sert pour l'envoi de message
 
-  // 1. Gérer la connexion Google
+  // 1. Gérer le retour de Google (Redirection)
+  useEffect(() => {
+    getRedirectResult(auth).catch((error) => {
+      console.error("Erreur lors du retour de Google:", error);
+    });
+  }, []);
+
+  // 2. Écouter l'état de l'utilisateur (Le Gardien)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      // C'est ICI la clé : on dit "C'est bon, Firebase a fini de vérifier"
+      setIsInitializing(false);
     });
     return () => unsubscribe();
   }, []);
 
-  // 2. Lire les messages Firebase en temps réel
+  // 3. Lire les messages Firebase en temps réel
   useEffect(() => {
     if (!user) return;
     
@@ -50,9 +56,10 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
-// REMPLACE L'ANCIEN handleLogin PAR CELUI-CI :
+  // Actions
   const handleLogin = () => {
     try {
+      // On utilise bien Redirect ici pour éviter les bugs de popup
       signInWithRedirect(auth, googleProvider);
     } catch (error) {
       console.error("Erreur de redirection", error);
@@ -90,7 +97,18 @@ export default function App() {
     }
   };
 
-  // ÉCRAN DE CONNEXION
+  // --- NOUVEAU : ÉCRAN DE CHARGEMENT INITIAL ---
+  // Tant que Firebase réfléchit, on affiche ça au lieu du Login
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center text-amber-500">
+        <Loader2 className="w-12 h-12 animate-spin mb-4" />
+        <p className="text-slate-400 font-sans animate-pulse">Vérification de l'identité...</p>
+      </div>
+    );
+  }
+
+  // ÉCRAN DE CONNEXION (Seulement si on est sûr que user est null)
   if (!user) {
     return (
       <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center p-4 text-white font-sans">
@@ -166,7 +184,6 @@ export default function App() {
                     <p className="text-amber-500 text-sm font-bold mb-1">{m.userName}</p>
                     <p className="text-slate-300 leading-relaxed">{m.text}</p>
                   </div>
-                  {/* Seul celui qui a posté (ou toi si tu es admin) peut voir le bouton supprimer */}
                   {user.uid === m.userId && (
                     <button 
                       onClick={() => deleteMessage(m.id)}
