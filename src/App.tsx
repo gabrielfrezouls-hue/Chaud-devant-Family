@@ -5,7 +5,7 @@ import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy,
 import { 
   Lock, Menu, X, Home, BookHeart, UtensilsCrossed, ChefHat,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
-  Image as ImageIcon, MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw
+  Image as ImageIcon, MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft
 } from 'lucide-react';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -113,7 +113,44 @@ const App: React.FC = () => {
 
   if (isInitializing) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-12 h-12 animate-spin"/></div>;
   if (!user) return <div className="fixed inset-0 flex items-center justify-center p-6 bg-[#f5ede7]"><button onClick={handleLogin} className="bg-[#a85c48] text-white p-6 rounded-2xl font-bold">CONNEXION FAMILLE</button></div>;
-  if (!isAuthorized) return <div className="min-h-screen flex items-center justify-center p-6 bg-red-50 text-red-800 font-bold">ACCÈS INTERDIT ({user.email})</div>;
+  
+  // --- ÉCRAN ACCÈS INTERDIT AVEC BOUTON RETOUR ---
+  if (!isAuthorized) return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-red-50 text-center space-y-8">
+      <div className="relative">
+        <div className="absolute inset-0 bg-red-200 rounded-full animate-ping opacity-20"></div>
+        <ShieldAlert className="text-red-500 w-20 h-20 relative z-10" />
+      </div>
+      
+      <div className="space-y-2">
+        <h2 className="text-3xl font-bold text-red-800 font-cinzel">ACCÈS RESTREINT</h2>
+        <p className="text-red-400 font-bold tracking-widest text-xs uppercase">Zone Familiale Privée</p>
+      </div>
+
+      <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-red-100 max-w-md w-full transform hover:scale-105 transition-transform duration-500">
+        <p className="text-gray-600 mb-4 text-lg">Bonjour <strong>{user.displayName}</strong>,</p>
+        <p className="text-gray-500 leading-relaxed">
+          Ton adresse email <span className="bg-red-50 text-red-600 px-2 py-1 rounded-lg font-mono text-sm font-bold">{user.email}</span> ne fait pas partie de la liste des invités autorisés.
+        </p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-4 w-full max-w-md">
+        <button 
+          onClick={handleLogout} 
+          className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-white border-2 border-red-100 text-red-800 font-bold rounded-2xl hover:bg-red-50 hover:border-red-200 transition-all shadow-sm group"
+        >
+          <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform"/> Retour
+        </button>
+        
+        <button 
+          onClick={handleLogout} 
+          className="flex-1 px-6 py-4 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 hover:shadow-lg hover:shadow-red-200 transition-all shadow-md"
+        >
+          Déconnexion
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen pb-24 md:pb-0 transition-colors duration-700" style={{ backgroundColor: config.backgroundColor, fontFamily: config.fontFamily }}>
