@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { auth, googleProvider, db } from './firebase';
-import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User, GoogleAuthProvider } from 'firebase/auth';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
 import { LogIn, LogOut, Send, Sparkles, Trash2, User as UserIcon } from 'lucide-react';
 
@@ -16,6 +16,12 @@ interface Message {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  useEffect(() => {
+  // Cette fonction vérifie si on revient d'une connexion Google
+  getRedirectResult(auth).catch((error) => {
+    console.error("Erreur lors du retour de Google:", error);
+  });
+}, []);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newText, setNewText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,12 +50,12 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // Actions
-  const handleLogin = async () => {
+// REMPLACE L'ANCIEN handleLogin PAR CELUI-CI :
+  const handleLogin = () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      signInWithRedirect(auth, googleProvider);
     } catch (error) {
-      console.error("Erreur de connexion", error);
+      console.error("Erreur de redirection", error);
     }
   };
 
