@@ -1,13 +1,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { SiteConfig } from "../types";
 
-// Utilisation de la clé API sécurisée via Vite
-const apiKey = import.meta.env.VITE_GEMINI_KEY || ""; 
+// CORRECTION : On utilise le nouveau nom VITE_GEMINI_KEY
+const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
 const ai = new GoogleGenAI({ apiKey });
 
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
-  // Sécurité : si pas de clé, on ne fait rien
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.error("Clé API Gemini manquante");
+    return null;
+  }
 
   try {
     const model = ai.getGenerativeModel({ 
@@ -15,7 +17,7 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.OBJECT, // Correction ici : Type au lieu de SchemaType
+          type: Type.OBJECT,
           properties: {
             primaryColor: { type: Type.STRING },
             backgroundColor: { type: Type.STRING },
@@ -29,7 +31,8 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
                 home: { type: Type.STRING },
                 journal: { type: Type.STRING },
                 cooking: { type: Type.STRING },
-                calendar: { type: Type.STRING }
+                calendar: { type: Type.STRING },
+                recipes: { type: Type.STRING } // Ajout pour éviter les bugs
               }
             },
             homeHtml: { type: Type.STRING },
@@ -42,16 +45,14 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
     const result = await model.generateContent(`
       Tu es l'Architecte Visuel de l'application 'Chaud devant'.
       Modifie l'apparence selon: "${prompt}".
-      
       CONFIG ACTUELLE: ${JSON.stringify(currentConfig)}
-      
       Renvoie l'objet JSON complet mis à jour.
     `);
 
     const text = result.response.text();
     if (!text) return null;
-
     return JSON.parse(text) as SiteConfig;
+
   } catch (error) {
     console.error("Erreur Architecte:", error);
     return null;
@@ -59,7 +60,7 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
 };
 
 export const askAIChat = async (history: { role: string, text: string }[]) => {
-  if (!apiKey) return "Je n'ai pas accès à ma clé API pour le moment.";
+  if (!apiKey) return "Je n'ai pas ma clé API...";
 
   try {
     const model = ai.getGenerativeModel({ 
