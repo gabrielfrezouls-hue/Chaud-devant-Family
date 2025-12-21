@@ -2,19 +2,43 @@ import { SiteConfig } from "../types";
 
 const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
 
-async function callGeminiAPI(payload: any) {
-  // ESPION : On vérifie quelle clé est utilisée
-  if (!apiKey) {
-    alert("⛔ ALERTE : Aucune clé trouvée dans le code.");
-    return null;
-  }
-  
-  // On affiche les 4 premières lettres pour voir si c'est la nouvelle
-  const debutCle = apiKey.substring(0, 4) + "...";
-  
+// 1. Fonction qui demande à Google : "Quels modèles as-tu pour moi ?"
+async function getAvailableModel() {
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+    );
+    const data = await response.json();
+    
+    // On cherche un modèle qui s'appelle 'gemini' et qui sait générer du contenu
+    const model = data.models?.find((m: any) => 
+      m.name.includes('gemini') && m.supportedGenerationMethods?.includes('generateContent')
+    );
+
+    if (model) return model.name; // Ex: "models/gemini-1.5-flash-001"
+    return "models/gemini-pro"; // Fallback au cas où
+
+  } catch (e) {
+    return "models/gemini-pro";
+  }
+}
+
+// 2. Fonction principale d'appel
+async function callGeminiAPI(payload: any) {
+  if (!apiKey) {
+    alert("Clé API manquante.");
+    return null;
+  }
+
+  // ÉTAPE MAGIQUE : On récupère le BON nom de modèle dynamiquement
+  const modelName = await getAvailableModel();
+  
+  // On enlève le préfixe "models/" s'il est déjà là pour éviter les doublons
+  const cleanModelName = modelName.replace("models/", "");
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelName}:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -24,9 +48,7 @@ async function callGeminiAPI(payload: any) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      // On affiche l'erreur exacte
-      alert(`❌ ERREUR GOOGLE (Code ${response.status}) :\nClé utilisée : ${debutCle}\nMessage : ${errorText}`);
-      console.error("Détail:", errorText);
+      alert(`ERREUR (${cleanModelName}) : ${errorText}`);
       return null;
     }
 
@@ -34,21 +56,25 @@ async function callGeminiAPI(payload: any) {
     return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
 
   } catch (error) {
-    alert("❌ Erreur de connexion Internet.");
+    alert("Erreur réseau.");
     return null;
   }
 }
 
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
-  const fullPrompt = `Modifie ce JSON : ${JSON.stringify(currentConfig)} selon : "${prompt}". Renvoie JSON uniquement.`;
-  
+  const fullPrompt = `
+    Tu es un expert JSON. Modifie la config selon : "${prompt}".
+    Config actuelle : ${JSON.stringify(currentConfig)}
+    RENVOIE UNIQUEMENT LE JSON. PAS DE MARKDOWN.
+  `;
+
   const text = await callGeminiAPI({ contents: [{ parts: [{ text: fullPrompt }] }] });
   if (!text) return null;
 
   try {
     return JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim()) as SiteConfig;
   } catch (e) {
-    alert("L'IA a répondu mais le format est mauvais.");
+    alert("L'IA a mal formaté la réponse.");
     return null;
   }
 };
