@@ -15,6 +15,15 @@ import { JournalEntry, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './
 import { askAIArchitect, askAIChat } from './services/geminiService';
 import Background from './components/Background';
 
+// --- CONFIGURATION ---
+// Ajoute ici les adresses Gmail de ta famille
+const FAMILY_EMAILS = [
+  "axisman705@gmail.com",
+  "valentin.frezouls@gmail.com",
+  "eau.fraise.fille@gmail.com"
+  // Ajoute les autres ici...
+];
+
 // CONFIG PAR DÉFAUT (Si la base de données est vide)
 const ORIGINAL_CONFIG: SiteConfig = {
   primaryColor: '#a85c48',
