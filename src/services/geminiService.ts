@@ -1,16 +1,19 @@
 import { SiteConfig } from "../types";
 
+// On récupère la clé
 const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
 
-// Fonction universelle (fetch) avec le modèle 1.5 Flash
+// Fonction universelle pour parler à l'API Google
 async function callGeminiAPI(payload: any) {
-  if (!apiKey) {
-    console.error("Clé API manquante");
+  // TEST 1 : Est-ce que la clé est là ?
+  if (!apiKey || apiKey.length < 10) {
+    alert("ERREUR DE CLÉ : Le site ne trouve pas la clé 'VITE_GEMINI_KEY'.\n\nSolution : Vérifie que le secret existe dans GitHub Settings et qu'il est bien écrit dans le fichier deploy.yml.");
+    console.error("Clé manquante ou trop courte");
     return null;
   }
 
   try {
-    // ON UTILISE LE MODÈLE ACTUEL : gemini-1.5-flash
+    // TEST 2 : Appel réseau
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
@@ -21,13 +24,25 @@ async function callGeminiAPI(payload: any) {
     );
 
     if (!response.ok) {
-      console.error("Erreur API Google:", await response.text());
+      const errorText = await response.text();
+      // TEST 3 : Erreur de Google (404, 400, etc.)
+      alert(`ERREUR GOOGLE (${response.status}) :\n${errorText}`);
+      console.error("Erreur API:", errorText);
       return null;
     }
 
     const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (!text) {
+        alert("ERREUR : Google a répondu, mais le texte est vide.");
+        return null;
+    }
+    
+    return text;
+
   } catch (error) {
+    alert(`ERREUR RÉSEAU : ${error}`);
     console.error("Erreur réseau:", error);
     return null;
   }
@@ -35,15 +50,9 @@ async function callGeminiAPI(payload: any) {
 
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
   const fullPrompt = `
-    Tu es un expert JSON. Modifie cette configuration de site web selon la demande : "${prompt}".
-    
-    Données actuelles (JSON) :
-    ${JSON.stringify(currentConfig)}
-    
-    Instructions strictes :
-    1. Renvoie UNIQUEMENT le JSON valide mis à jour.
-    2. Pas de texte avant, pas de texte après.
-    3. Pas de balises markdown.
+    Tu es un expert JSON. Modifie cette configuration : "${prompt}".
+    Données actuelles : ${JSON.stringify(currentConfig)}
+    Renvoie UNIQUEMENT le JSON valide mis à jour. Pas de markdown.
   `;
 
   const resultText = await callGeminiAPI({
@@ -53,10 +62,11 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
   if (!resultText) return null;
 
   try {
+    // Nettoyage agressif
     const cleanJson = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
     return JSON.parse(cleanJson) as SiteConfig;
   } catch (e) {
-    console.error("Erreur lecture JSON:", e);
+    alert("ERREUR JSON : L'IA a répondu, mais le format n'est pas bon.\n" + e);
     return null;
   }
 };
@@ -66,11 +76,9 @@ export const askAIChat = async (history: { role: string, text: string }[]) => {
     role: h.role === 'user' ? 'user' : 'model',
     parts: [{ text: h.text }]
   }));
+  
+  // Petit contexte système
+  const systemMsg = { role: "user", parts: [{ text: "Tu es un majordome serviable." }] };
 
-  const contextMessage = {
-    role: "user",
-    parts: [{ text: "Tu es le majordome de la famille. Poli, bref et serviable." }]
-  };
-
-  return await callGeminiAPI({ contents: [contextMessage, ...contents] });
+  return await callGeminiAPI({ contents: [systemMsg, ...contents] });
 };
