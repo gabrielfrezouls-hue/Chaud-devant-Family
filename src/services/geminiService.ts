@@ -5,17 +5,16 @@ const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
 
 // Fonction universelle pour parler à l'API Google
 async function callGeminiAPI(payload: any) {
-  // TEST 1 : Est-ce que la clé est là ?
+  // TEST 1 : Clé présente ?
   if (!apiKey || apiKey.length < 10) {
-    alert("ERREUR DE CLÉ : Le site ne trouve pas la clé 'VITE_GEMINI_KEY'.\n\nSolution : Vérifie que le secret existe dans GitHub Settings et qu'il est bien écrit dans le fichier deploy.yml.");
-    console.error("Clé manquante ou trop courte");
+    alert("ERREUR CLÉ : La clé VITE_GEMINI_KEY est introuvable ou trop courte.");
     return null;
   }
 
   try {
-    // TEST 2 : Appel réseau
+    // CORRECTION ICI : On utilise "gemini-1.5-flash-latest" pour éviter l'erreur 404
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -25,7 +24,6 @@ async function callGeminiAPI(payload: any) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      // TEST 3 : Erreur de Google (404, 400, etc.)
       alert(`ERREUR GOOGLE (${response.status}) :\n${errorText}`);
       console.error("Erreur API:", errorText);
       return null;
@@ -35,7 +33,7 @@ async function callGeminiAPI(payload: any) {
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     
     if (!text) {
-        alert("ERREUR : Google a répondu, mais le texte est vide.");
+        alert("Google a répondu vide.");
         return null;
     }
     
@@ -43,7 +41,6 @@ async function callGeminiAPI(payload: any) {
 
   } catch (error) {
     alert(`ERREUR RÉSEAU : ${error}`);
-    console.error("Erreur réseau:", error);
     return null;
   }
 }
@@ -62,11 +59,10 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
   if (!resultText) return null;
 
   try {
-    // Nettoyage agressif
     const cleanJson = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
     return JSON.parse(cleanJson) as SiteConfig;
   } catch (e) {
-    alert("ERREUR JSON : L'IA a répondu, mais le format n'est pas bon.\n" + e);
+    alert("L'IA a répondu mais le format JSON est invalide.");
     return null;
   }
 };
@@ -77,7 +73,6 @@ export const askAIChat = async (history: { role: string, text: string }[]) => {
     parts: [{ text: h.text }]
   }));
   
-  // Petit contexte système
   const systemMsg = { role: "user", parts: [{ text: "Tu es un majordome serviable." }] };
 
   return await callGeminiAPI({ contents: [systemMsg, ...contents] });
