@@ -290,6 +290,33 @@ const App: React.FC = () => {
     );
   }
 
+  // --- SÉCURITÉ : VÉRIFICATION DE LA LISTE ---
+  // Si l'utilisateur est connecté MAIS n'est pas dans la liste
+  if (user && user.email && !FAMILY_EMAILS.includes(user.email)) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-4 text-center bg-[#f5ede7]">
+        <div className="bg-white p-10 rounded-3xl shadow-xl space-y-6 max-w-md border border-red-100">
+          <div className="mx-auto w-20 h-20 bg-red-100 rounded-full flex items-center justify-center">
+            <Lock className="text-red-500 w-10 h-10" />
+          </div>
+          <h1 className="text-2xl font-cinzel font-black text-red-800">Accès Réservé</h1>
+          <p className="text-gray-600">
+            Désolé <strong>{user.displayName}</strong>, cette application est privée et réservée à la famille.
+          </p>
+          <div className="p-4 bg-gray-50 rounded-xl text-sm font-mono text-gray-500 break-all">
+            {user.email}
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="w-full py-4 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-colors"
+          >
+            Se déconnecter
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // 3. Application Complète (Une fois connecté)
   return (
     <div className="min-h-screen transition-all duration-1000 pb-24 md:pb-0" style={{ backgroundColor: config.backgroundColor, fontFamily: config.fontFamily }}>
