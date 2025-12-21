@@ -1,37 +1,41 @@
 name: Deploy to GitHub Pages
+
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
+
 permissions:
   contents: read
   pages: write
   id-token: write
+
 jobs:
-  build:
+  build_site:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install & Build
-        run: |
-          npm install
-          npm run build
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        # C'EST CETTE PARTIE QUI MANQUE PROBABLEMENT :
         env:
-          API_KEY: ${{ secrets.API_KEY }}
-      - name: Upload artifact
+          VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
+        run: npm run build
+
+      - name: Upload Artifacts
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist'
+          path: dist
+
   deploy:
+    needs: build_site
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
