@@ -2,9 +2,11 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
+// CORRECTION : On utilise le nouveau nom défini dans GitHub
+const apiKey = import.meta.env.VITE_FIREBASE_KEY;
+
 const firebaseConfig = {
-  // C'est ici que GitHub injectera ta clé secrète
-  apiKey: import.meta.env.VITE_API_KEY, 
+  apiKey: apiKey,
   authDomain: "chaud-devant-81afb.firebaseapp.com",
   projectId: "chaud-devant-81afb",
   storageBucket: "chaud-devant-81afb.firebasestorage.app",
