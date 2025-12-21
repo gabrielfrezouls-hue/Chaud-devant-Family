@@ -1,48 +1,59 @@
 import { SiteConfig } from "../types";
 
-// On récupère la clé
 const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
 
-// Fonction universelle pour parler à l'API Google
+// LISTE DES MODÈLES À TESTER (Dans l'ordre)
+const MODELS_TO_TRY = [
+  "gemini-1.5-flash",
+  "gemini-1.5-flash-001",
+  "gemini-pro"
+];
+
 async function callGeminiAPI(payload: any) {
-  // TEST 1 : Clé présente ?
   if (!apiKey || apiKey.length < 10) {
-    alert("ERREUR CLÉ : La clé VITE_GEMINI_KEY est introuvable ou trop courte.");
+    alert("ERREUR CLÉ : Clé API absente ou invalide.");
     return null;
   }
 
-  try {
-    // CORRECTION ICI : On utilise "gemini-1.5-flash-latest" pour éviter l'erreur 404
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+  // On essaie les modèles un par un
+  for (const modelName of MODELS_TO_TRY) {
+    try {
+      console.log(`Tentative avec le modèle : ${modelName}...`);
+      
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      // Si c'est une 404 (Introuvable), on continue à la prochaine boucle
+      if (response.status === 404) {
+        console.warn(`Modèle ${modelName} introuvable, essai suivant...`);
+        continue; 
       }
-    );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      alert(`ERREUR GOOGLE (${response.status}) :\n${errorText}`);
-      console.error("Erreur API:", errorText);
-      return null;
-    }
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    
-    if (!text) {
-        alert("Google a répondu vide.");
+      // Si c'est une autre erreur, on arrête et on affiche
+      if (!response.ok) {
+        const err = await response.text();
+        alert(`ERREUR GOOGLE (${modelName}) : ${err}`);
         return null;
-    }
-    
-    return text;
+      }
 
-  } catch (error) {
-    alert(`ERREUR RÉSEAU : ${error}`);
-    return null;
+      // Si ça marche, on renvoie le résultat !
+      const data = await response.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+
+    } catch (e) {
+      console.error("Erreur réseau", e);
+    }
   }
+
+  // Si on arrive ici, c'est qu'aucun modèle n'a marché
+  alert("ÉCHEC TOTAL : Aucun modèle d'IA n'a répondu (404).");
+  return null;
 }
 
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
@@ -62,7 +73,7 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
     const cleanJson = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
     return JSON.parse(cleanJson) as SiteConfig;
   } catch (e) {
-    alert("L'IA a répondu mais le format JSON est invalide.");
+    alert("L'IA a répondu mais le format est mauvais.");
     return null;
   }
 };
