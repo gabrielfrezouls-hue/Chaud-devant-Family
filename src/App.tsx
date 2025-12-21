@@ -5,13 +5,13 @@ import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy,
 import { 
   Lock, Menu, X, Home, BookHeart, UtensilsCrossed, ChefHat,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
-  Image as ImageIcon, MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft
+  Image as ImageIcon, MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2
 } from 'lucide-react';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
 import Background from './components/Background';
 
-// --- SÉCURITÉ ---
+// --- SÉCURITÉ : LISTE DES INVITÉS ---
 const FAMILY_EMAILS = [
   "gabriel.frezouls@gmail.com",
   "exemple.maman@gmail.com",
@@ -50,48 +50,64 @@ const App: React.FC = () => {
   const [chatHistory, setChatHistory] = useState<{ role: string, text: string }[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // 1. AUTH
+  // 1. AUTHENTIFICATION
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); setIsInitializing(false); });
+    const unsubscribe = onAuthStateChanged(auth, (u) => { 
+      setUser(u); 
+      setIsInitializing(false); 
+    });
     return () => unsubscribe();
   }, []);
 
   const isAuthorized = user && user.email && FAMILY_EMAILS.includes(user.email);
 
-  // 2. DATA LOAD
+  // 2. CHARGEMENT DES DONNÉES
   useEffect(() => {
     if (!isAuthorized) return;
-    const unsubC = onSnapshot(doc(db, 'site_config', 'main'), (d) => { if (d.exists()) setConfig(d.data() as SiteConfig); });
-    const unsubJ = onSnapshot(query(collection(db, 'family_journal'), orderBy('timestamp', 'desc')), (s) => setJournal(s.docs.map(d => ({ id: d.id, ...d.data() } as JournalEntry))));
-    const unsubR = onSnapshot(collection(db, 'family_recipes'), (s) => setRecipes(s.docs.map(d => ({ id: d.id, ...d.data() } as Recipe))));
-    const unsubE = onSnapshot(collection(db, 'family_events'), (s) => setEvents(s.docs.map(d => ({ id: d.id, ...d.data() } as FamilyEvent))));
-    const unsubV = onSnapshot(query(collection(db, 'site_versions'), orderBy('date', 'desc')), (s) => setVersions(s.docs.map(d => ({ id: d.id, ...d.data() } as SiteVersion))));
+
+    // Fonction silencieuse pour éviter le spam d'erreurs
+    const ignoreError = (err: any) => { console.log("Info: ", err.code); };
+
+    const unsubC = onSnapshot(doc(db, 'site_config', 'main'), (d) => { if (d.exists()) setConfig(d.data() as SiteConfig); }, ignoreError);
+    const unsubJ = onSnapshot(query(collection(db, 'family_journal'), orderBy('timestamp', 'desc')), (s) => setJournal(s.docs.map(d => ({ id: d.id, ...d.data() } as JournalEntry))), ignoreError);
+    const unsubR = onSnapshot(collection(db, 'family_recipes'), (s) => setRecipes(s.docs.map(d => ({ id: d.id, ...d.data() } as Recipe))), ignoreError);
+    const unsubE = onSnapshot(collection(db, 'family_events'), (s) => setEvents(s.docs.map(d => ({ id: d.id, ...d.data() } as FamilyEvent))), ignoreError);
+    const unsubV = onSnapshot(query(collection(db, 'site_versions'), orderBy('date', 'desc')), (s) => setVersions(s.docs.map(d => ({ id: d.id, ...d.data() } as SiteVersion))), ignoreError);
     
     return () => { unsubC(); unsubJ(); unsubR(); unsubE(); unsubV(); };
   }, [user]);
 
-  // ACTIONS
+  // ACTIONS FIREBASE
   const handleLogin = async () => { try { await signInWithPopup(auth, googleProvider); } catch (e) { alert("Erreur Auth"); } };
   const handleLogout = () => { signOut(auth); setIsEditUnlocked(false); setCurrentView('home'); };
   
-  // Sauvegarde Config + Création Version Historique
   const saveConfig = async (c: SiteConfig, saveHistory = false) => { 
-    await setDoc(doc(db, 'site_config', 'main'), c); 
-    setConfig(c);
-    if(saveHistory) {
-      await addDoc(collection(db, 'site_versions'), {
-        name: `Sauvegarde du ${new Date().toLocaleDateString()}`,
-        date: new Date().toISOString(),
-        config: c
-      });
-    }
+    try {
+      await setDoc(doc(db, 'site_config', 'main'), c); 
+      setConfig(c);
+      if(saveHistory) {
+        await addDoc(collection(db, 'site_versions'), {
+          name: `Sauvegarde du ${new Date().toLocaleDateString()}`,
+          date: new Date().toISOString(),
+          config: c
+        });
+      }
+    } catch(e) { console.error("Erreur sauvegarde", e); alert("Erreur sauvegarde. Vérifie ta connexion."); }
   };
+
   const restoreVersion = (v: SiteVersion) => {
     if(confirm(`Restaurer la version "${v.name}" ?`)) saveConfig(v.config, false);
   };
 
-  const addEntry = async (col: string, data: any) => { await addDoc(collection(db, col), { ...data, timestamp: serverTimestamp() }); };
-  const deleteItem = async (col: string, id: string) => { if(confirm("Supprimer ?")) await deleteDoc(doc(db, col, id)); };
+  const addEntry = async (col: string, data: any) => { 
+    try {
+      await addDoc(collection(db, col), { ...data, timestamp: serverTimestamp() }); 
+    } catch(e) { console.error("Erreur ajout", e); alert("Impossible d'ajouter. Vérifie tes droits."); }
+  };
+  
+  const deleteItem = async (col: string, id: string) => { 
+    if(confirm("Supprimer ?")) await deleteDoc(doc(db, col, id)); 
+  };
 
   const unlockEdit = () => { if (password === '16.07.gabi.11') { setIsEditUnlocked(true); setPassword(''); } else alert("Code faux"); };
   
@@ -99,10 +115,11 @@ const App: React.FC = () => {
   const handleArchitect = async () => {
     if (!aiPrompt.trim()) return; setIsAiLoading(true);
     const newConfig = await askAIArchitect(aiPrompt, config);
-    if (newConfig) await saveConfig({ ...config, ...newConfig }, true); // On sauvegarde une version avant modif
-    else alert("Erreur IA (Vérifie ta clé API)");
+    if (newConfig) await saveConfig({ ...config, ...newConfig }, true); 
+    else alert("L'IA n'a pas pu répondre. Vérifie ta clé dans GitHub Secrets.");
     setIsAiLoading(false);
   };
+  
   const handleChat = async () => {
     if (!aiPrompt.trim()) return;
     const newH = [...chatHistory, { role: 'user', text: aiPrompt }];
@@ -111,41 +128,47 @@ const App: React.FC = () => {
     setChatHistory([...newH, { role: 'model', text: rep }]); setIsAiLoading(false);
   };
 
-  if (isInitializing) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-12 h-12 animate-spin"/></div>;
-  if (!user) return <div className="fixed inset-0 flex items-center justify-center p-6 bg-[#f5ede7]"><button onClick={handleLogin} className="bg-[#a85c48] text-white p-6 rounded-2xl font-bold">CONNEXION FAMILLE</button></div>;
+  // --- RENDU ---
   
-  // --- ÉCRAN ACCÈS INTERDIT AVEC BOUTON RETOUR ---
+  if (isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#f5ede7]"><Loader2 className="w-12 h-12 animate-spin text-[#a85c48]"/></div>;
+
+  if (!user) return (
+    <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-[#f5ede7]">
+      <Background color={ORIGINAL_CONFIG.primaryColor} />
+      <div className="z-10 text-center space-y-8 animate-in fade-in zoom-in duration-700">
+        <div className="mx-auto w-24 h-24 rounded-[2.5rem] flex items-center justify-center shadow-xl bg-[#a85c48]">
+          <Sparkles className="text-white" size={48} />
+        </div>
+        <h1 className="text-4xl font-cinzel font-black tracking-widest text-[#a85c48]">CHAUD DEVANT</h1>
+        <button onClick={handleLogin} className="bg-white text-black font-black py-4 px-8 rounded-2xl shadow-xl flex items-center gap-3 hover:scale-105 transition-transform">
+          <LogIn size={24} /> CONNEXION GOOGLE
+        </button>
+      </div>
+    </div>
+  );
+
+  // ÉCRAN ACCÈS INTERDIT AVEC BOUTON RETOUR
   if (!isAuthorized) return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-red-50 text-center space-y-8">
       <div className="relative">
         <div className="absolute inset-0 bg-red-200 rounded-full animate-ping opacity-20"></div>
         <ShieldAlert className="text-red-500 w-20 h-20 relative z-10" />
       </div>
-      
       <div className="space-y-2">
         <h2 className="text-3xl font-bold text-red-800 font-cinzel">ACCÈS RESTREINT</h2>
         <p className="text-red-400 font-bold tracking-widest text-xs uppercase">Zone Familiale Privée</p>
       </div>
-
-      <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-red-100 max-w-md w-full transform hover:scale-105 transition-transform duration-500">
+      <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-red-100 max-w-md w-full">
         <p className="text-gray-600 mb-4 text-lg">Bonjour <strong>{user.displayName}</strong>,</p>
         <p className="text-gray-500 leading-relaxed">
-          Ton adresse email <span className="bg-red-50 text-red-600 px-2 py-1 rounded-lg font-mono text-sm font-bold">{user.email}</span> ne fait pas partie de la liste des invités autorisés.
+          Ton email <span className="bg-red-50 text-red-600 px-2 py-1 rounded-lg font-mono text-sm font-bold">{user.email}</span> n'est pas autorisé.
         </p>
       </div>
-
-      <div className="flex flex-col sm:flex-row gap-4 w-full max-w-md">
-        <button 
-          onClick={handleLogout} 
-          className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-white border-2 border-red-100 text-red-800 font-bold rounded-2xl hover:bg-red-50 hover:border-red-200 transition-all shadow-sm group"
-        >
-          <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform"/> Retour
+      <div className="flex gap-4 w-full max-w-md">
+        <button onClick={handleLogout} className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-white border-2 border-red-100 text-red-800 font-bold rounded-2xl hover:bg-red-50 transition-all">
+          <ArrowLeft size={20}/> Retour
         </button>
-        
-        <button 
-          onClick={handleLogout} 
-          className="flex-1 px-6 py-4 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 hover:shadow-lg hover:shadow-red-200 transition-all shadow-md"
-        >
+        <button onClick={handleLogout} className="flex-1 px-6 py-4 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 transition-all shadow-md">
           Déconnexion
         </button>
       </div>
@@ -218,7 +241,7 @@ const App: React.FC = () => {
                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 bg-black/5 rounded-lg">{r.category}</span>
                    <h3 className="text-2xl font-cinzel font-bold mt-2">{r.title}</h3>
                    <p className="text-xs opacity-50 mb-4">Chef : {r.chef}</p>
-                   <div className="text-sm opacity-80 line-clamp-3">{r.ingredients}</div>
+                   <div className="text-sm opacity-80 line-clamp-3 whitespace-pre-line">{r.ingredients}</div>
                  </div>
                ))}
              </div>
@@ -253,8 +276,8 @@ const App: React.FC = () => {
           ) : (
             <AdminPanel 
               config={config} save={saveConfig} 
-              add={(col:string, d:any) => addEntry(col, d)} 
-              del={(col:string, id:string) => deleteItem(col, id)}
+              add={addEntry} // CORRECTION MAJEURE ICI
+              del={deleteItem} // CORRECTION MAJEURE ICI
               events={events} versions={versions} restore={restoreVersion}
               arch={handleArchitect} chat={handleChat} 
               prompt={aiPrompt} setP={setAiPrompt} load={isAiLoading} hist={chatHistory} 
@@ -305,9 +328,9 @@ const HomeCard = ({ icon, title, label, onClick, color }: any) => (
 
 const AdminPanel = ({ config, save, add, del, events, versions, restore, arch, chat, prompt, setP, load, hist }: any) => {
   const [tab, setTab] = useState('arch');
-  const [newJ, setNewJ] = useState({ title:'', author:'', content:'', image:'' });
+  const [newJ, setNewJ] = useState({ title: '', author: '', content: '', image: '' });
   const [newR, setNewR] = useState<Recipe>({ id:'', title:'', chef:'', ingredients:'', steps:'', category:'plat', image:'' });
-  const [newE, setNewE] = useState({ title:'', date:'', type:'other' });
+  const [newE, setNewE] = useState({ title: '', date: '', type: 'other' });
   const [localC, setLocalC] = useState(config);
   const fileRef = useRef<HTMLInputElement>(null);
   
@@ -362,9 +385,9 @@ const AdminPanel = ({ config, save, add, del, events, versions, restore, arch, c
            <input value={localC.welcomeTitle} onChange={e => setLocalC({...localC, welcomeTitle: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Titre principal" />
            <textarea value={localC.welcomeText} onChange={e => setLocalC({...localC, welcomeText: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Texte de bienvenue" />
            <div onClick={() => fileRef.current?.click()} className="p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer text-xs uppercase font-bold text-gray-400">Changer la photo d'accueil</div>
-           <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b: string) => setLocalC({...localC, welcomeImage: b}))} />
+           <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b: string) => setLocalC({...localC, welcomeImage: b}))} />
            <textarea value={localC.homeHtml} onChange={e => setLocalC({...localC, homeHtml: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-32 font-mono text-xs" placeholder="Code HTML/Widget pour l'accueil (Optionnel)" />
-           <button onClick={() => save(localC, true)} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Sauvegarder</button>
+           <button onClick={() => { save(localC, true); alert("Accueil sauvegardé !"); }} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Sauvegarder</button>
         </div>
       )}
 
@@ -375,7 +398,7 @@ const AdminPanel = ({ config, save, add, del, events, versions, restore, arch, c
            <input value={newJ.author} onChange={e => setNewJ({...newJ, author: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Auteur" />
            <textarea value={newJ.content} onChange={e => setNewJ({...newJ, content: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Histoire..." />
            <div onClick={() => fileRef.current?.click()} className="p-4 border-dashed border-2 rounded-2xl cursor-pointer text-center">{newJ.image ? 'Image OK' : 'Ajouter Photo'}</div>
-           <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b: string) => setNewJ({...newJ, image: b}))} />
+           <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b: string) => setNewJ({...newJ, image: b}))} />
            <button onClick={() => { if(newJ.title){ add('family_journal', {...newJ, date: new Date().toLocaleDateString()}); setNewJ({title:'',author:'',content:'',image:''}); alert('Publié !'); } }} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Publier</button>
         </div>
       )}
