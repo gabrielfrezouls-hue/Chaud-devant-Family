@@ -1,4 +1,3 @@
-
 export interface JournalEntry {
   id: string;
   date: string;
@@ -6,6 +5,7 @@ export interface JournalEntry {
   title: string;
   content: string;
   image?: string;
+  timestamp?: any; // Pour le tri Firebase
 }
 
 export interface FamilyEvent {
