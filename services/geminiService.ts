@@ -1,15 +1,16 @@
 import { GoogleGenAI, SchemaType } from "@google/genai";
 import { SiteConfig } from "../types";
 
-// CORRECTION : Utilisation de import.meta.env pour Vite/GitHub
-const apiKey = import.meta.env.VITE_API_KEY || ""; 
+// Utilisation sécurisée de la clé API via Vite
+const apiKey = import.meta.env.VITE_API_KEY || "";
 const ai = new GoogleGenAI({ apiKey });
 
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
+  // Si pas de clé, on ne fait rien pour éviter le crash
+  if (!apiKey) return null;
+
   try {
-    // Note: Adaptation pour la version stable du SDK ou utilisation générique
-    // Si ce modèle précis n'existe pas, il faudra utiliser "gemini-1.5-flash"
-    const model = ai.getGenerativeModel({ 
+    const model = ai.getGenerativeModel({
       model: "gemini-1.5-flash",
       generationConfig: {
         responseMimeType: "application/json",
@@ -41,13 +42,15 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
     const result = await model.generateContent(`
       Tu es l'Architecte Visuel de l'application 'Chaud devant'.
       Modifie l'apparence selon: "${prompt}".
-      
       CONFIG ACTUELLE: ${JSON.stringify(currentConfig)}
-      
       Renvoie l'objet JSON complet mis à jour.
     `);
 
-    return JSON.parse(result.response.text()) as SiteConfig;
+    // Vérification de sécurité avant le parsing
+    const text = result.response.text();
+    if (!text) return null;
+    
+    return JSON.parse(text) as SiteConfig;
   } catch (error) {
     console.error("Erreur Architecte:", error);
     return null;
@@ -55,8 +58,10 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
 };
 
 export const askAIChat = async (history: { role: string, text: string }[]) => {
+  if (!apiKey) return "Je n'ai pas accès à ma clé API pour le moment.";
+
   try {
-    const model = ai.getGenerativeModel({ 
+    const model = ai.getGenerativeModel({
       model: "gemini-1.5-flash",
       systemInstruction: "Tu es le majordome de la famille Chaud devant. Raffiné, serviable, un peu british."
     });
@@ -68,6 +73,7 @@ export const askAIChat = async (history: { role: string, text: string }[]) => {
     const result = await chat.sendMessage("Réponds à la dernière demande.");
     return result.response.text();
   } catch (error) {
+    console.error(error);
     return "Désolé, mes circuits sont encombrés.";
   }
 };
