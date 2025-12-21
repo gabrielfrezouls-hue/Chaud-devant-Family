@@ -4,12 +4,12 @@ const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
 
 async function callGeminiAPI(payload: any) {
   if (!apiKey) {
-    alert("Clé API manquante. Vérifiez vos Secrets GitHub.");
+    alert("Clé API manquante dans GitHub.");
     return null;
   }
 
   try {
-    // On utilise le modèle standard "gemini-1.5-flash" qui marche avec les nouvelles clés
+    // On utilise le modèle standard 1.5 Flash
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
@@ -21,8 +21,9 @@ async function callGeminiAPI(payload: any) {
 
     if (!response.ok) {
       const errorText = await response.text();
+      // Si c'est 404 ici avec la NOUVELLE clé, c'est un problème temporaire de Google
       console.error("Erreur Google:", errorText);
-      alert(`L'IA ne répond pas (Code ${response.status}).\nSi c'est 404 : La clé n'a pas les droits Gemini.\nSi c'est 400 : La clé est mal copiée.`);
+      alert(`Erreur IA (${response.status}). Vérifiez la console pour le détail.`);
       return null;
     }
 
@@ -31,7 +32,7 @@ async function callGeminiAPI(payload: any) {
 
   } catch (error) {
     console.error(error);
-    alert("Erreur de connexion Internet.");
+    alert("Erreur réseau (Internet).");
     return null;
   }
 }
@@ -49,7 +50,7 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
   try {
     return JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim()) as SiteConfig;
   } catch (e) {
-    alert("L'IA a mal formaté le code.");
+    alert("L'IA a mal formaté la réponse.");
     return null;
   }
 };
