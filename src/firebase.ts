@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// CORRECTION : On utilise le nouveau nom défini dans GitHub
+// C'est ici que ça bloquait : on utilise bien la nouvelle clé
 const apiKey = import.meta.env.VITE_FIREBASE_KEY;
 
 const firebaseConfig = {
@@ -15,7 +15,6 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 export const db = getFirestore(app);
