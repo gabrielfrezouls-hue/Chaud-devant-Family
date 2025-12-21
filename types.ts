@@ -5,7 +5,17 @@ export interface JournalEntry {
   title: string;
   content: string;
   image?: string;
-  timestamp?: any; // Pour le tri Firebase
+  timestamp?: any;
+}
+
+export interface Recipe {
+  id: string;
+  title: string;
+  chef: string; // L'auteur
+  ingredients: string; // Liste textuelle
+  steps: string; // Étapes textuelles
+  image?: string;
+  category: 'entrée' | 'plat' | 'dessert' | 'autre';
 }
 
 export interface FamilyEvent {
@@ -15,7 +25,7 @@ export interface FamilyEvent {
   type: 'birthday' | 'party' | 'holiday' | 'other';
 }
 
-export type ViewType = 'home' | 'journal' | 'cooking' | 'calendar' | 'edit';
+export type ViewType = 'home' | 'journal' | 'cooking' | 'recipes' | 'calendar' | 'edit';
 
 export interface SiteConfig {
   primaryColor: string;
@@ -28,9 +38,9 @@ export interface SiteConfig {
     home: string;
     journal: string;
     cooking: string;
+    recipes: string; // Nouveau
     calendar: string;
   };
-  hiddenSections: string[];
   homeHtml: string;
   cookingHtml: string;
 }
@@ -38,14 +48,6 @@ export interface SiteConfig {
 export interface SiteVersion {
   id: string;
   name: string;
-  timestamp: number;
+  date: string;
   config: SiteConfig;
-}
-
-export interface Star {
-  id: number;
-  top: string;
-  left: string;
-  size: string;
-  duration: string;
 }
