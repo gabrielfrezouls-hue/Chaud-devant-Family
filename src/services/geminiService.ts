@@ -2,7 +2,7 @@ import { SiteConfig } from "../types";
 
 const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
 
-// Fonction universelle pour parler à l'API Google
+// Fonction universelle (fetch) avec le modèle 1.5 Flash
 async function callGeminiAPI(payload: any) {
   if (!apiKey) {
     console.error("Clé API manquante");
@@ -10,9 +10,9 @@ async function callGeminiAPI(payload: any) {
   }
 
   try {
-    // CHANGEMENT ICI : On utilise "gemini-pro" qui est le modèle le plus stable
+    // ON UTILISE LE MODÈLE ACTUEL : gemini-1.5-flash
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -34,7 +34,6 @@ async function callGeminiAPI(payload: any) {
 }
 
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
-  // On simplifie le prompt pour le modèle Pro
   const fullPrompt = `
     Tu es un expert JSON. Modifie cette configuration de site web selon la demande : "${prompt}".
     
@@ -44,7 +43,7 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
     Instructions strictes :
     1. Renvoie UNIQUEMENT le JSON valide mis à jour.
     2. Pas de texte avant, pas de texte après.
-    3. Pas de balises markdown (\`\`\`json).
+    3. Pas de balises markdown.
   `;
 
   const resultText = await callGeminiAPI({
@@ -54,7 +53,6 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
   if (!resultText) return null;
 
   try {
-    // Nettoyage au cas où l'IA mettrait quand même des balises
     const cleanJson = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
     return JSON.parse(cleanJson) as SiteConfig;
   } catch (e) {
@@ -64,20 +62,15 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
 };
 
 export const askAIChat = async (history: { role: string, text: string }[]) => {
-  // Conversion simple pour Gemini Pro
   const contents = history.map(h => ({
     role: h.role === 'user' ? 'user' : 'model',
     parts: [{ text: h.text }]
   }));
 
-  // On ajoute le contexte Majordome comme un premier message utilisateur
   const contextMessage = {
     role: "user",
-    parts: [{ text: "Tu es le majordome de la famille Chaud devant. Sois serviable, poli et bref." }]
+    parts: [{ text: "Tu es le majordome de la famille. Poli, bref et serviable." }]
   };
 
-  // On insère le contexte au début
-  const finalContents = [contextMessage, ...contents];
-
-  return await callGeminiAPI({ contents: finalContents });
+  return await callGeminiAPI({ contents: [contextMessage, ...contents] });
 };
