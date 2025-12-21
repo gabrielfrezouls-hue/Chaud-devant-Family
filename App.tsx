@@ -59,10 +59,13 @@ interface AppData {
   events: FamilyEvent[];
 }
 
-// --- CONFIGURATION JSONBIN ---
-const BIN_ID = "69470e6bd0ea881f4036c00b";
-const MASTER_KEY = "$2a$10$UkeZVfm7mYw75aOZ4jqLhuFcWh8/Lxq.uBGE/GQDxZVdleDcpULJm";
-const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+import { db, auth, provider } from './firebase';
+import { collection, addDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { signInWithPopup } from 'firebase/auth';
+
+const saveToFirebase = async (msg) => {
+  await addDoc(collection(db, "messages"), { text: msg, date: Date.now() });
+};
 
 // --- CONSTANTES ---
 const ORIGINAL_CONFIG: SiteConfig = {
