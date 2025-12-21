@@ -1,91 +1,99 @@
+import { GoogleGenAI, Type, SchemaType } from "@google/genai";
 import { SiteConfig } from "../types";
 
-// 1. On nettoie la clé (enlève les espaces avant/après)
-const apiKey = (import.meta.env.VITE_GEMINI_KEY || "").trim();
+// Utilisation de la clé API sécurisée via Vite
+const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
 
-async function callGeminiAPI(payload: any) {
-  if (!apiKey) {
-    alert("⛔ Clé API absente de GitHub Secrets.");
-    return null;
-  }
-
-  try {
-    // On utilise le modèle standard
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Erreur Google:", errorText);
-      alert(`ERREUR GOOGLE (${response.status})\n\nSi 404 : Vérifiez que votre ordinateur est à la bonne date (2024) et que la clé est active.\n\nDétail : ${errorText}`);
-      return null;
-    }
-
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-
-  } catch (error) {
-    console.error(error);
-    alert("Erreur réseau. Vérifiez votre connexion et l'heure de votre PC.");
-    return null;
-  }
-}
+// Initialisation de la librairie
+const ai = new GoogleGenAI({ apiKey });
 
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
-  // 2. OPTIMISATION : On crée une copie légère de la config
-  // On remplace l'image lourde (Base64) par un texte court pour ne pas bloquer l'IA
-  const lightConfig = { 
-    ...currentConfig, 
-    welcomeImage: "(Image ignorée pour l'IA)" 
-  };
-
-  const fullPrompt = `
-    Tu es un expert JSON. Modifie la config selon : "${prompt}".
-    
-    Config actuelle (JSON) : 
-    ${JSON.stringify(lightConfig)}
-    
-    RÈGLES :
-    1. Renvoie UNIQUEMENT le JSON complet mis à jour.
-    2. Si tu changes l'image, mets une URL Unsplash valide, pas du Base64.
-    3. Garde la structure exacte.
-    4. PAS de markdown, PAS de \`\`\`.
-  `;
-
-  const text = await callGeminiAPI({ contents: [{ parts: [{ text: fullPrompt }] }] });
-  if (!text) return null;
+  // Sécurité : si pas de clé, on ne fait rien
+  if (!apiKey) {
+    console.error("Clé API Gemini manquante");
+    return null;
+  }
 
   try {
-    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    // On récupère le résultat
-    const newConfig = JSON.parse(cleanJson) as SiteConfig;
+    // Configuration du modèle avec le format JSON strict
+    const model = ai.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            primaryColor: { type: Type.STRING },
+            backgroundColor: { type: Type.STRING },
+            fontFamily: { type: Type.STRING },
+            welcomeTitle: { type: Type.STRING },
+            welcomeText: { type: Type.STRING },
+            welcomeImage: { type: Type.STRING },
+            navigationLabels: {
+              type: Type.OBJECT,
+              properties: {
+                home: { type: Type.STRING },
+                journal: { type: Type.STRING },
+                cooking: { type: Type.STRING },
+                calendar: { type: Type.STRING },
+                recipes: { type: Type.STRING } // Ajouté comme demandé
+              }
+            },
+            homeHtml: { type: Type.STRING },
+            cookingHtml: { type: Type.STRING }
+          }
+        }
+      }
+    });
+
+    // PETITE SÉCURITÉ : On retire l'image lourde pour ne pas bloquer l'envoi
+    const lightConfig = { ...currentConfig, welcomeImage: "(Image ignorée)" };
+
+    const result = await model.generateContent(`
+      Tu es l'Architecte Visuel de l'application 'Chaud devant'.
+      Modifie l'apparence selon: "${prompt}".
+      
+      CONFIG ACTUELLE: ${JSON.stringify(lightConfig)}
+      
+      Renvoie l'objet JSON complet mis à jour.
+    `);
+
+    const text = result.response.text();
+    if (!text) return null;
+
+    // On parse le résultat
+    const newConfig = JSON.parse(text) as SiteConfig;
     
-    // Si l'IA n'a pas touché à l'image (elle a renvoyé le texte placeholder), 
-    // on remet l'image originale de l'utilisateur pour ne pas la perdre.
-    if (newConfig.welcomeImage === "(Image ignorée pour l'IA)") {
+    // On remet l'image originale si l'IA ne l'a pas changée
+    if (newConfig.welcomeImage === "(Image ignorée)") {
       newConfig.welcomeImage = currentConfig.welcomeImage;
     }
-    
+
     return newConfig;
-  } catch (e) {
-    alert("L'IA a répondu mais le code JSON est invalide.");
-    console.error(e);
+
+  } catch (error) {
+    console.error("Erreur Architecte:", error);
     return null;
   }
 };
 
 export const askAIChat = async (history: { role: string, text: string }[]) => {
-  // Petit nettoyage de l'historique
-  const cleanHistory = history.map(h => ({
-    role: h.role === 'user' ? 'user' : 'model',
-    parts: [{ text: h.text }]
-  }));
+  if (!apiKey) return "Je n'ai pas ma clé API...";
 
-  return await callGeminiAPI({ contents: cleanHistory });
+  try {
+    const model = ai.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      systemInstruction: "Tu es le majordome de la famille Chaud devant. Raffiné, serviable, un peu british."
+    });
+
+    const chat = model.startChat({
+      history: history.map(h => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.text }] }))
+    });
+
+    const result = await chat.sendMessage("Réponds à la dernière demande.");
+    return result.response.text();
+  } catch (error) {
+    console.error(error);
+    return "Désolé, mes circuits sont encombrés.";
+  }
 };
