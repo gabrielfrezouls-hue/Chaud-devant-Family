@@ -1,8 +1,8 @@
-import { GoogleGenAI, SchemaType } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { SiteConfig } from "../types";
 
 // Utilisation de la clé API sécurisée via Vite
-const apiKey = import.meta.env.VITE_API_KEY || ""; 
+const apiKey = import.meta.env.VITE_GEMINI_KEY || ""; 
 const ai = new GoogleGenAI({ apiKey });
 
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
@@ -15,25 +15,25 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: SchemaType.OBJECT,
+          type: Type.OBJECT, // Correction ici : Type au lieu de SchemaType
           properties: {
-            primaryColor: { type: SchemaType.STRING },
-            backgroundColor: { type: SchemaType.STRING },
-            fontFamily: { type: SchemaType.STRING },
-            welcomeTitle: { type: SchemaType.STRING },
-            welcomeText: { type: SchemaType.STRING },
-            welcomeImage: { type: SchemaType.STRING },
+            primaryColor: { type: Type.STRING },
+            backgroundColor: { type: Type.STRING },
+            fontFamily: { type: Type.STRING },
+            welcomeTitle: { type: Type.STRING },
+            welcomeText: { type: Type.STRING },
+            welcomeImage: { type: Type.STRING },
             navigationLabels: {
-              type: SchemaType.OBJECT,
+              type: Type.OBJECT,
               properties: {
-                home: { type: SchemaType.STRING },
-                journal: { type: SchemaType.STRING },
-                cooking: { type: SchemaType.STRING },
-                calendar: { type: SchemaType.STRING }
+                home: { type: Type.STRING },
+                journal: { type: Type.STRING },
+                cooking: { type: Type.STRING },
+                calendar: { type: Type.STRING }
               }
             },
-            homeHtml: { type: SchemaType.STRING },
-            cookingHtml: { type: SchemaType.STRING }
+            homeHtml: { type: Type.STRING },
+            cookingHtml: { type: Type.STRING }
           }
         }
       }
