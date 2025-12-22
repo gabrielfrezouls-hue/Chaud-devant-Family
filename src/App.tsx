@@ -18,8 +18,7 @@ const FAMILY_EMAILS = [
   "gabriel.frezouls@gmail.com",
   "o.frezouls@gmail.com",
   "valentin.frezouls@gmail.com", 
-  "pauline.frezouls@gmail.com",
-  "eau.fraise.fils@gmail.com",
+  "pauline.frezouls@gmail.com",  
   "eau.fraise.fille@gmail.com"
 ];
 
@@ -128,7 +127,16 @@ const App: React.FC = () => {
     const unsubC = onSnapshot(doc(db, 'site_config', 'main'), (d) => { if (d.exists()) setConfig(d.data() as SiteConfig); }, ignoreError);
     const unsubJ = onSnapshot(query(collection(db, 'family_journal'), orderBy('timestamp', 'desc')), (s) => setJournal(s.docs.map(d => ({ id: d.id, ...d.data() } as JournalEntry))), ignoreError);
     const unsubR = onSnapshot(collection(db, 'family_recipes'), (s) => setRecipes(s.docs.map(d => ({ id: d.id, ...d.data() } as Recipe))), ignoreError);
-    const unsubE = onSnapshot(query(collection(db, 'family_events'), orderBy('date', 'asc')), (s) => setEvents(s.docs.map(d => ({ id: d.id, ...d.data() } as FamilyEvent))), ignoreError);
+    
+    // --- TRI CHRONOLOGIQUE DES ÉVÉNEMENTS ---
+    // On récupère tout, et on trie en Javascript pour être sûr que l'ordre est parfait par date
+    const unsubE = onSnapshot(collection(db, 'family_events'), (s) => {
+      const rawEvents = s.docs.map(d => ({ id: d.id, ...d.data() } as FamilyEvent));
+      // Tri par date string (YYYY-MM-DD)
+      rawEvents.sort((a, b) => a.date.localeCompare(b.date));
+      setEvents(rawEvents);
+    }, ignoreError);
+
     const unsubV = onSnapshot(query(collection(db, 'site_versions'), orderBy('date', 'desc')), (s) => setVersions(s.docs.map(d => ({ id: d.id, ...d.data() } as SiteVersion))), ignoreError);
     const unsubT = onSnapshot(collection(db, 'chores_status'), (s) => {
       const status: Record<string, any> = {};
@@ -226,7 +234,7 @@ const App: React.FC = () => {
               type="date"
               value={newEvent.date} 
               onChange={e => setNewEvent({...newEvent, date: e.target.value})}
-              className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"
+              className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none cursor-pointer"
             />
           </div>
 
@@ -242,22 +250,17 @@ const App: React.FC = () => {
             {newEvent.isAllDay ? <ToggleRight size={32} className="text-green-500"/> : <ToggleLeft size={32} className="text-gray-300"/>}
           </div>
 
-          {/* Heure (Saisie Standard - Correction demandée) */}
+          {/* Heure (Saisie TEXTE libre) */}
           {!newEvent.isAllDay && (
             <div className="animate-in slide-in-from-top-2">
               <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label>
-              <div className="relative">
-                <input 
-                  type="time"
-                  value={newEvent.time} 
-                  onChange={e => setNewEvent({...newEvent, time: e.target.value})}
-                  className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-mono text-lg"
-                />
-                {/* Icône décorative (ne gêne pas le clic) */}
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-300">
-                  <Clock size={20} />
-                </div>
-              </div>
+              <input 
+                type="text" 
+                value={newEvent.time} 
+                onChange={e => setNewEvent({...newEvent, time: e.target.value})}
+                placeholder="Ex: 20h00, Midi..."
+                className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-bold text-lg"
+              />
             </div>
           )}
         </div>
@@ -265,12 +268,12 @@ const App: React.FC = () => {
         <button 
           onClick={() => {
             if (newEvent.title && newEvent.date) {
-              const finalDate = newEvent.isAllDay ? newEvent.date : `${newEvent.date}T${newEvent.time || '00:00'}`;
-              
+              // On sauvegarde la date propre (YYYY-MM-DD) pour le tri
+              // et le texte de l'heure séparément pour l'affichage
               addEntry('family_events', { 
                 title: newEvent.title, 
-                date: finalDate,
-                time: newEvent.isAllDay ? null : (newEvent.time || '00:00') 
+                date: newEvent.date, // Pour le tri
+                time: newEvent.isAllDay ? null : (newEvent.time || '') 
               });
               
               setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true });
@@ -408,8 +411,11 @@ const App: React.FC = () => {
 
              <div className="space-y-4">
                {events.map(ev => {
-                 const isDateWithTime = ev.date.includes('T');
-                 const dateObj = new Date(ev.date);
+                 // Gestion de l'affichage de la date
+                 // Si c'est une ancienne date avec 'T' (ex: 2025-12-25T14:00), on coupe pour avoir le jour
+                 const cleanDate = ev.date.split('T')[0];
+                 const dateObj = new Date(cleanDate);
+                 
                  return (
                    <div key={ev.id} className="flex items-center gap-6 p-6 bg-white rounded-2xl shadow-sm border border-black/5 hover:shadow-md transition-shadow group">
                      <div className="text-center w-16">
@@ -423,10 +429,11 @@ const App: React.FC = () => {
                      
                      <div className="flex-1 border-l pl-6 border-gray-100">
                        <div className="font-bold text-lg font-cinzel text-gray-800">{ev.title}</div>
-                       {(isDateWithTime || ev.time) && (
+                       {/* Affiche l'heure si elle existe (soit dans le champ time, soit dans le vieux format date) */}
+                       {ev.time && (
                          <div className="text-xs text-gray-400 flex items-center mt-1">
                            <Clock size={10} className="mr-1"/> 
-                           {ev.time || dateObj.toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'})}
+                           {ev.time}
                          </div>
                        )}
                      </div>
