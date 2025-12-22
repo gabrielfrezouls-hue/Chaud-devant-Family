@@ -5,7 +5,7 @@ import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy,
 import { 
   Lock, Menu, X, Home, BookHeart, UtensilsCrossed, ChefHat,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
-  Image as ImageIcon, MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil
+  Image as ImageIcon, MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList
 } from 'lucide-react';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -15,8 +15,8 @@ import RecipeCard from './components/RecipeCard';
 // --- SÉCURITÉ : LISTE DES INVITÉS ---
 const FAMILY_EMAILS = [
   "gabriel.frezouls@gmail.com",
-  "axisman705@gmail.com",
-  // Ajoute les autres emails ici
+  "exemple.maman@gmail.com",
+  // Ajoute les autres ici
 ];
 
 const ORIGINAL_CONFIG: SiteConfig = {
@@ -26,9 +26,58 @@ const ORIGINAL_CONFIG: SiteConfig = {
   welcomeTitle: 'CHAUD DEVANT',
   welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
   welcomeImage: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
-  navigationLabels: { home: 'ACCUEIL', journal: 'JOURNAL', cooking: 'SEMAINIER', recipes: 'RECETTES', calendar: 'CALENDRIER' },
+  // AJOUT DE 'tasks' DANS LA NAVIGATION
+  navigationLabels: { home: 'ACCUEIL', journal: 'JOURNAL', cooking: 'SEMAINIER', recipes: 'RECETTES', calendar: 'CALENDRIER', tasks: 'TÂCHES' },
   homeHtml: '', cookingHtml: ''
 };
+
+// --- LOGIQUE DES TÂCHES ---
+// Tableau de rotation : Gabriel, Pierre, Valentine
+const ROTATION = ['G', 'P', 'V'];
+// Date de référence : 20 Décembre 2025
+const REF_DATE = new Date('2025-12-20T12:00:00');
+
+// Fonction qui calcule les tâches pour une date donnée
+const getChores = (date: Date) => {
+  // On trouve le samedi de la semaine donnée
+  const saturday = new Date(date);
+  saturday.setDate(date.getDate() - (date.getDay() + 1) % 7); // Calage sur le dernier samedi
+  
+  // Nombre de semaines écoulées depuis la référence
+  const diffTime = saturday.getTime() - REF_DATE.getTime();
+  const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
+  
+  // Modulo sécurisé pour les nombres négatifs
+  const mod = (n: number, m: number) => ((n % m) + m) % m;
+
+  // Calcul des indices basé sur ta règle : 20/12/25 = G V P
+  // Semaine suivante = P G V
+  return {
+    dateStr: `${saturday.getDate()}/${saturday.getMonth()+1} - ${new Date(saturday.getTime() + 86400000).getDate()}/${new Date(saturday.getTime() + 86400000).getMonth()+1}`,
+    haut: ROTATION[mod(diffWeeks, 3)],       // Index 0 -> G, puis P, puis V
+    bas: ROTATION[mod(diffWeeks + 2, 3)],    // Index 2 -> V, puis G, puis P
+    douche: ROTATION[mod(diffWeeks + 1, 3)]  // Index 1 -> P, puis V, puis G
+  };
+};
+
+// Génère les weekends du mois actuel
+const getMonthWeekends = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  const weekends = [];
+  
+  const date = new Date(year, month, 1);
+  // Aller au premier samedi
+  while (date.getDay() !== 6) { date.setDate(date.getDate() + 1); }
+
+  while (date.getMonth() === month) {
+    weekends.push(getChores(new Date(date)));
+    date.setDate(date.getDate() + 7);
+  }
+  return weekends;
+};
+
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -65,8 +114,6 @@ const App: React.FC = () => {
   // 2. CHARGEMENT DES DONNÉES
   useEffect(() => {
     if (!isAuthorized) return;
-
-    // Fonction silencieuse pour éviter le spam d'erreurs
     const ignoreError = (err: any) => { console.log("Info: ", err.code); };
 
     const unsubC = onSnapshot(doc(db, 'site_config', 'main'), (d) => { if (d.exists()) setConfig(d.data() as SiteConfig); }, ignoreError);
@@ -106,16 +153,12 @@ const App: React.FC = () => {
     } catch(e) { console.error("Erreur ajout", e); alert("Impossible d'ajouter. Vérifie tes droits."); }
   };
 
-  // NOUVELLE FONCTION : UPDATE
   const updateEntry = async (col: string, id: string, data: any) => {
     try {
       const { id: _, ...cleanData } = data; 
       await setDoc(doc(db, col, id), { ...cleanData, timestamp: serverTimestamp() }, { merge: true });
       alert("Modifications enregistrées !");
-    } catch (e) {
-      console.error("Erreur update", e);
-      alert("Erreur lors de la modification.");
-    }
+    } catch (e) { console.error("Erreur update", e); alert("Erreur lors de la modification."); }
   };
   
   const deleteItem = async (col: string, id: string) => { 
@@ -197,7 +240,7 @@ const App: React.FC = () => {
           <span className="font-cinzel font-black text-xl hidden md:block" style={{ color: config.primaryColor }}>CHAUD.DEVANT</span>
         </div>
         <div className="hidden md:flex gap-6">
-           {['home','journal','recipes','cooking','calendar'].map(v => (
+           {['home','journal','recipes','cooking','calendar', 'tasks'].map(v => (
              <button key={v} onClick={() => setCurrentView(v as ViewType)} className="text-xs font-black tracking-widest opacity-40 hover:opacity-100 uppercase" style={{ color: currentView === v ? config.primaryColor : 'inherit' }}>{config.navigationLabels[v as keyof typeof config.navigationLabels] || v}</button>
            ))}
            <button onClick={() => setIsMenuOpen(true)} style={{ color: config.primaryColor }}><Menu size={20}/></button>
@@ -223,6 +266,44 @@ const App: React.FC = () => {
             <div className="grid md:grid-cols-2 gap-8">
               <HomeCard icon={<BookHeart size={40}/>} title="Souvenirs" label="Explorer le journal" onClick={() => setCurrentView('journal')} color={config.primaryColor} />
               <HomeCard icon={<ChefHat size={40}/>} title="Recettes" label="Nos petits plats" onClick={() => setCurrentView('recipes')} color={config.primaryColor} />
+            </div>
+          </div>
+        )}
+
+        {/* --- NOUVELLE VUE : TÂCHES --- */}
+        {currentView === 'tasks' && (
+          <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8">
+            <div className="text-center space-y-4">
+              <h2 className="text-5xl font-cinzel font-black" style={{ color: config.primaryColor }}>TÂCHES MÉNAGÈRES</h2>
+              <p className="text-gray-500 font-serif italic">"Un pour tous, tous pour la maison !"</p>
+            </div>
+
+            <div className="bg-white/90 backdrop-blur-xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/50">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left" style={{ backgroundColor: config.primaryColor + '15' }}>
+                      <th className="p-6 font-black uppercase text-xs tracking-widest text-gray-500">Weekend</th>
+                      <th className="p-6 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Aspirateur Haut</th>
+                      <th className="p-6 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Aspirateur Bas</th>
+                      <th className="p-6 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Lavabo / Douche</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {getMonthWeekends().map((week, i) => (
+                      <tr key={i} className="hover:bg-white/50 transition-colors">
+                        <td className="p-6 font-mono font-bold text-gray-700 whitespace-nowrap">{week.dateStr}</td>
+                        <td className="p-6 text-center"><span className="inline-block w-10 h-10 rounded-full bg-orange-100 text-orange-700 font-black flex items-center justify-center shadow-sm">{week.haut}</span></td>
+                        <td className="p-6 text-center"><span className="inline-block w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-black flex items-center justify-center shadow-sm">{week.bas}</span></td>
+                        <td className="p-6 text-center"><span className="inline-block w-10 h-10 rounded-full bg-green-100 text-green-700 font-black flex items-center justify-center shadow-sm">{week.douche}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-6 bg-gray-50 text-center text-xs text-gray-400 uppercase tracking-widest border-t border-gray-100">
+                G = Gabriel • P = Papa • V = Valentine
+              </div>
             </div>
           </div>
         )}
@@ -313,7 +394,7 @@ const SideMenu = ({ config, isOpen, close, setView, logout }: any) => (
     <div className={`absolute right-0 top-0 bottom-0 w-80 bg-[#f5ede7] p-10 transition-transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`} style={{ backgroundColor: config.backgroundColor }}>
       <button onClick={close} className="mb-10"><X /></button>
       <div className="space-y-4">
-        {['home','journal','recipes','cooking','calendar','edit'].map(v => (
+        {['home','journal','recipes','cooking','calendar', 'tasks', 'edit'].map(v => (
           <button key={v} onClick={() => { setView(v); close(); }} className="block w-full text-left p-4 hover:bg-black/5 rounded-xl uppercase font-bold text-xs tracking-widest">
             {v === 'edit' ? 'ADMINISTRATION' : config.navigationLabels[v] || v}
           </button>
@@ -327,8 +408,10 @@ const SideMenu = ({ config, isOpen, close, setView, logout }: any) => (
 const BottomNav = ({ config, view, setView }: any) => (
   <div className="md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 text-white/50 px-4 pb-4 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
     {[
-      {id:'home', i:<Home size={22}/>}, {id:'journal', i:<BookHeart size={22}/>},
-      {id:'recipes', i:<ChefHat size={22}/>}, {id:'calendar', i:<CalIcon size={22}/>},
+      {id:'home', i:<Home size={22}/>}, 
+      {id:'journal', i:<BookHeart size={22}/>},
+      {id:'tasks', i:<ClipboardList size={22}/>}, // AJOUT DU BOUTON TÂCHES
+      {id:'recipes', i:<ChefHat size={22}/>}, 
       {id:'edit', i:<Settings size={22}/>}
     ].map(b => <button key={b.id} onClick={() => setView(b.id)} className={`p-2 ${view === b.id ? 'text-white -translate-y-2 bg-white/20 rounded-xl' : ''}`}>{b.i}</button>)}
   </div>
