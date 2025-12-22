@@ -38,10 +38,10 @@ const ORIGINAL_CONFIG: SiteConfig = {
 const ROTATION = ['G', 'P', 'V'];
 const REF_DATE = new Date('2025-12-20T12:00:00'); // Date pivot
 
-// Mapping des emails vers les lettres (Mis à jour avec le bon email de Pauline)
+// Mapping des emails vers les lettres
 const USER_MAPPING: Record<string, string> = {
   "gabriel.frezouls@gmail.com": "G",
-  "frezouls.pauline@gmail.com": "P", // Mis à jour
+  "frezouls.pauline@gmail.com": "P", // Corrigé
   "valentin.frezouls@gmail.com": "V"
 };
 
@@ -121,23 +121,25 @@ const App: React.FC = () => {
   const isAuthorized = user && user.email && FAMILY_EMAILS.includes(user.email);
   const myLetter = user && user.email ? USER_MAPPING[user.email] : null;
 
-  // 2. CHARGEMENT
+  // 2. CHARGEMENT (CORRIGÉ : L'ID est forcé à la fin pour éviter les bugs)
   useEffect(() => {
     if (!isAuthorized) return;
     const ignoreError = (err: any) => { console.log("Info: ", err.code); };
 
     const unsubC = onSnapshot(doc(db, 'site_config', 'main'), (d) => { if (d.exists()) setConfig(d.data() as SiteConfig); }, ignoreError);
-    const unsubJ = onSnapshot(query(collection(db, 'family_journal'), orderBy('timestamp', 'desc')), (s) => setJournal(s.docs.map(d => ({ id: d.id, ...d.data() } as JournalEntry))), ignoreError);
-    const unsubR = onSnapshot(collection(db, 'family_recipes'), (s) => setRecipes(s.docs.map(d => ({ id: d.id, ...d.data() } as Recipe))), ignoreError);
+    // Correction : ...d.data() avant id: d.id
+    const unsubJ = onSnapshot(query(collection(db, 'family_journal'), orderBy('timestamp', 'desc')), (s) => setJournal(s.docs.map(d => ({ ...d.data(), id: d.id } as JournalEntry))), ignoreError);
+    // Correction : ...d.data() avant id: d.id (C'est ça qui corrige la suppression !)
+    const unsubR = onSnapshot(collection(db, 'family_recipes'), (s) => setRecipes(s.docs.map(d => ({ ...d.data(), id: d.id } as Recipe))), ignoreError);
     
     // --- TRI CHRONOLOGIQUE DES ÉVÉNEMENTS ---
     const unsubE = onSnapshot(collection(db, 'family_events'), (s) => {
-      const rawEvents = s.docs.map(d => ({ id: d.id, ...d.data() } as FamilyEvent));
+      const rawEvents = s.docs.map(d => ({ ...d.data(), id: d.id } as FamilyEvent));
       rawEvents.sort((a, b) => a.date.localeCompare(b.date));
       setEvents(rawEvents);
     }, ignoreError);
 
-    const unsubV = onSnapshot(query(collection(db, 'site_versions'), orderBy('date', 'desc')), (s) => setVersions(s.docs.map(d => ({ id: d.id, ...d.data() } as SiteVersion))), ignoreError);
+    const unsubV = onSnapshot(query(collection(db, 'site_versions'), orderBy('date', 'desc')), (s) => setVersions(s.docs.map(d => ({ ...d.data(), id: d.id } as SiteVersion))), ignoreError);
     const unsubT = onSnapshot(collection(db, 'chores_status'), (s) => {
       const status: Record<string, any> = {};
       s.docs.forEach(doc => { status[doc.id] = doc.data(); });
@@ -159,19 +161,23 @@ const App: React.FC = () => {
     } catch(e) { console.error(e); }
   };
   const restoreVersion = (v: SiteVersion) => { if(confirm(`Restaurer la version "${v.name}" ?`)) saveConfig(v.config, false); };
-  const addEntry = async (col: string, data: any) => { try { await addDoc(collection(db, col), { ...data, timestamp: serverTimestamp() }); } catch(e) { alert("Erreur ajout"); } };
+  
+  // Correction Ajout : On retire l'ID des données avant d'envoyer pour éviter de polluer la base
+  const addEntry = async (col: string, data: any) => { 
+    try { 
+      const { id, ...cleanData } = data; // On enlève l'id s'il existe
+      await addDoc(collection(db, col), { ...cleanData, timestamp: serverTimestamp() }); 
+    } catch(e) { alert("Erreur ajout"); } 
+  };
+
   const updateEntry = async (col: string, id: string, data: any) => { try { const { id: _, ...c } = data; await setDoc(doc(db, col, id), { ...c, timestamp: serverTimestamp() }, { merge: true }); alert("Sauvegardé"); } catch (e) { alert("Erreur"); } };
   
-  // Fonction de suppression améliorée pour le débogage
   const deleteItem = async (col: string, id: string) => { 
+    if(!id) { alert("Erreur: ID introuvable. Rafraîchissez la page."); return; }
     if(confirm("Supprimer définitivement cet élément ?")) {
-      try {
-        await deleteDoc(doc(db, col, id));
-        // L'UI se mettra à jour automatiquement grâce au onSnapshot
-      } catch (e) {
-        console.error("Erreur suppression:", e);
-        alert("Erreur lors de la suppression. Vérifiez vos droits d'accès.");
-      }
+        try {
+            await deleteDoc(doc(db, col, id));
+        } catch(e) { console.error(e); alert("Erreur suppression"); }
     }
   };
 
@@ -187,7 +193,7 @@ const App: React.FC = () => {
   const handleArchitect = async () => { if (!aiPrompt.trim()) return; setIsAiLoading(true); const n = await askAIArchitect(aiPrompt, config); if (n) await saveConfig({...config, ...n}, true); setIsAiLoading(false); };
   const handleChat = async () => { if (!aiPrompt.trim()) return; const h = [...chatHistory, {role:'user',text:aiPrompt}]; setChatHistory(h); setAiPrompt(''); setIsAiLoading(true); const r = await askAIChat(h); setChatHistory([...h, {role:'model',text:r}]); setIsAiLoading(false); };
 
-  // --- SOUS-COMPOSANTS ---
+  // --- SOUS-COMPOSANT TÂCHES ---
   const TaskCell = ({ weekId, letter, label, isLocked }: any) => {
     const isDone = choreStatus[weekId]?.[letter] || false;
     const canCheck = !isLocked && myLetter === letter; 
@@ -213,6 +219,7 @@ const App: React.FC = () => {
     );
   };
 
+  // --- SOUS-COMPOSANT : MODALE ÉVÉNEMENT ---
   const EventModal = () => (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300">
@@ -226,6 +233,7 @@ const App: React.FC = () => {
         </div>
 
         <div className="space-y-4">
+          {/* Titre */}
           <div>
             <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quoi ?</label>
             <input 
@@ -238,6 +246,7 @@ const App: React.FC = () => {
             />
           </div>
 
+          {/* Date */}
           <div>
             <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quand ?</label>
             <input 
@@ -248,6 +257,7 @@ const App: React.FC = () => {
             />
           </div>
 
+          {/* Toggle Toute la journée */}
           <div 
             onClick={() => setNewEvent({...newEvent, isAllDay: !newEvent.isAllDay})}
             className="flex items-center justify-between p-4 rounded-xl border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
@@ -259,6 +269,7 @@ const App: React.FC = () => {
             {newEvent.isAllDay ? <ToggleRight size={32} className="text-green-500"/> : <ToggleLeft size={32} className="text-gray-300"/>}
           </div>
 
+          {/* Heure (Saisie TEXTE libre) */}
           {!newEvent.isAllDay && (
             <div className="animate-in slide-in-from-top-2">
               <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label>
@@ -667,7 +678,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
              <button onClick={() => { 
                 if(newJ.title) { 
                   if(newJ.id) upd('family_journal', newJ.id, newJ); 
-                  else add('family_journal', {...newJ, date: new Date().toLocaleDateString()}); 
+                  else addEntry('family_journal', {...newJ, date: new Date().toLocaleDateString()}); 
                   setNewJ({id:'', title:'',author:'',content:'',image:''}); 
                 } 
               }} className="flex-1 py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>
@@ -715,7 +726,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
                if(newR.title){ 
                  const recipeData = {...newR};
                  if(newR.id) upd('family_recipes', newR.id, recipeData);
-                 else add('family_recipes', recipeData);
+                 else addEntry('family_recipes', recipeData);
                  setNewR({id:'', title:'', chef:'', ingredients:'', steps:'', category:'plat', image:''}); 
                } 
              }} className="flex-1 py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>
