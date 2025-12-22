@@ -13,13 +13,13 @@ import { askAIArchitect, askAIChat } from './services/geminiService';
 import Background from './components/Background';
 import RecipeCard from './components/RecipeCard';
 
-// --- SÉCURITÉ : LISTE DES INVITÉS ---
+// --- SÉCURITÉ : LISTE DES INVITÉS MISE À JOUR ---
 const FAMILY_EMAILS = [
   "gabriel.frezouls@gmail.com",
   "o.frezouls@gmail.com",
-  "eau.fraise.fils@gmail.com",
+  "eau.fraise.fils@gmail.com",    // Ajouté
   "valentin.frezouls@gmail.com", 
-  "frezouls.pauline@gmail.com",  
+  "frezouls.pauline@gmail.com",   // Corrigé (P)
   "eau.fraise.fille@gmail.com"
 ];
 
@@ -38,9 +38,10 @@ const ORIGINAL_CONFIG: SiteConfig = {
 const ROTATION = ['G', 'P', 'V'];
 const REF_DATE = new Date('2025-12-20T12:00:00'); // Date pivot
 
+// Mapping des emails vers les lettres (Mis à jour avec le bon email de Pauline)
 const USER_MAPPING: Record<string, string> = {
   "gabriel.frezouls@gmail.com": "G",
-  "pauline.frezouls@gmail.com": "P",
+  "frezouls.pauline@gmail.com": "P", // Mis à jour
   "valentin.frezouls@gmail.com": "V"
 };
 
@@ -130,10 +131,8 @@ const App: React.FC = () => {
     const unsubR = onSnapshot(collection(db, 'family_recipes'), (s) => setRecipes(s.docs.map(d => ({ id: d.id, ...d.data() } as Recipe))), ignoreError);
     
     // --- TRI CHRONOLOGIQUE DES ÉVÉNEMENTS ---
-    // On récupère tout, et on trie en Javascript pour être sûr que l'ordre est parfait par date
     const unsubE = onSnapshot(collection(db, 'family_events'), (s) => {
       const rawEvents = s.docs.map(d => ({ id: d.id, ...d.data() } as FamilyEvent));
-      // Tri par date string (YYYY-MM-DD)
       rawEvents.sort((a, b) => a.date.localeCompare(b.date));
       setEvents(rawEvents);
     }, ignoreError);
@@ -162,7 +161,20 @@ const App: React.FC = () => {
   const restoreVersion = (v: SiteVersion) => { if(confirm(`Restaurer la version "${v.name}" ?`)) saveConfig(v.config, false); };
   const addEntry = async (col: string, data: any) => { try { await addDoc(collection(db, col), { ...data, timestamp: serverTimestamp() }); } catch(e) { alert("Erreur ajout"); } };
   const updateEntry = async (col: string, id: string, data: any) => { try { const { id: _, ...c } = data; await setDoc(doc(db, col, id), { ...c, timestamp: serverTimestamp() }, { merge: true }); alert("Sauvegardé"); } catch (e) { alert("Erreur"); } };
-  const deleteItem = async (col: string, id: string) => { if(confirm("Supprimer ?")) await deleteDoc(doc(db, col, id)); };
+  
+  // Fonction de suppression améliorée pour le débogage
+  const deleteItem = async (col: string, id: string) => { 
+    if(confirm("Supprimer définitivement cet élément ?")) {
+      try {
+        await deleteDoc(doc(db, col, id));
+        // L'UI se mettra à jour automatiquement grâce au onSnapshot
+      } catch (e) {
+        console.error("Erreur suppression:", e);
+        alert("Erreur lors de la suppression. Vérifiez vos droits d'accès.");
+      }
+    }
+  };
+
   const unlockEdit = () => { if (password === '16.07.gabi.11') { setIsEditUnlocked(true); setPassword(''); } else alert("Code faux"); };
   
   const toggleChore = async (weekId: string, letter: string) => {
@@ -175,7 +187,7 @@ const App: React.FC = () => {
   const handleArchitect = async () => { if (!aiPrompt.trim()) return; setIsAiLoading(true); const n = await askAIArchitect(aiPrompt, config); if (n) await saveConfig({...config, ...n}, true); setIsAiLoading(false); };
   const handleChat = async () => { if (!aiPrompt.trim()) return; const h = [...chatHistory, {role:'user',text:aiPrompt}]; setChatHistory(h); setAiPrompt(''); setIsAiLoading(true); const r = await askAIChat(h); setChatHistory([...h, {role:'model',text:r}]); setIsAiLoading(false); };
 
-  // --- SOUS-COMPOSANT TÂCHES ---
+  // --- SOUS-COMPOSANTS ---
   const TaskCell = ({ weekId, letter, label, isLocked }: any) => {
     const isDone = choreStatus[weekId]?.[letter] || false;
     const canCheck = !isLocked && myLetter === letter; 
@@ -201,7 +213,6 @@ const App: React.FC = () => {
     );
   };
 
-// --- MODIFICATION 2 : LA MODALE SIMPLIFIÉE ---
   const EventModal = () => (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300">
@@ -215,20 +226,18 @@ const App: React.FC = () => {
         </div>
 
         <div className="space-y-4">
-          {/* Titre */}
           <div>
             <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quoi ?</label>
             <input 
               value={newEvent.title} 
               onChange={e => setNewEvent({...newEvent, title: e.target.value})}
               className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none focus:ring-2"
-              placeholder="Anniversaire, Repas..." 
+              placeholder="Anniversaire Maman..." 
               autoFocus
               style={{ '--tw-ring-color': config.primaryColor } as any}
             />
           </div>
 
-          {/* Date */}
           <div>
             <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quand ?</label>
             <input 
@@ -239,7 +248,6 @@ const App: React.FC = () => {
             />
           </div>
 
-          {/* Toggle Toute la journée */}
           <div 
             onClick={() => setNewEvent({...newEvent, isAllDay: !newEvent.isAllDay})}
             className="flex items-center justify-between p-4 rounded-xl border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
@@ -251,7 +259,6 @@ const App: React.FC = () => {
             {newEvent.isAllDay ? <ToggleRight size={32} className="text-green-500"/> : <ToggleLeft size={32} className="text-gray-300"/>}
           </div>
 
-          {/* Heure (C'EST ICI QUE J'AI CHANGÉ POUR DU TEXTE LIBRE) */}
           {!newEvent.isAllDay && (
             <div className="animate-in slide-in-from-top-2">
               <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label>
@@ -410,7 +417,6 @@ const App: React.FC = () => {
              <div className="space-y-4">
                {events.map(ev => {
                  // Gestion de l'affichage de la date
-                 // Si c'est une ancienne date avec 'T' (ex: 2025-12-25T14:00), on coupe pour avoir le jour
                  const cleanDate = ev.date.split('T')[0];
                  const dateObj = new Date(cleanDate);
                  
@@ -427,7 +433,7 @@ const App: React.FC = () => {
                      
                      <div className="flex-1 border-l pl-6 border-gray-100">
                        <div className="font-bold text-lg font-cinzel text-gray-800">{ev.title}</div>
-                       {/* Affiche l'heure si elle existe (soit dans le champ time, soit dans le vieux format date) */}
+                       {/* Affiche l'heure si elle existe */}
                        {ev.time && (
                          <div className="text-xs text-gray-400 flex items-center mt-1">
                            <Clock size={10} className="mr-1"/> 
