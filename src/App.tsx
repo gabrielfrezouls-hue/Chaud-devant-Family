@@ -6,20 +6,20 @@ import {
   Lock, Menu, X, Home, BookHeart, ChefHat,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
-  CheckSquare, Square, CheckCircle2, Plus, Clock, Save, ToggleLeft, ToggleRight
+  CheckSquare, Square, CheckCircle2, Plus, Clock, Save, ToggleLeft, ToggleRight, Image as ImageIcon
 } from 'lucide-react';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
 import Background from './components/Background';
 import RecipeCard from './components/RecipeCard';
 
-// --- SÉCURITÉ : LISTE DES INVITÉS MISE À JOUR ---
+// --- SÉCURITÉ : LISTE DES INVITÉS ---
 const FAMILY_EMAILS = [
   "gabriel.frezouls@gmail.com",
   "o.frezouls@gmail.com",
-  "eau.fraise.fils@gmail.com",    // Ajouté
+  "eau.fraise.fils@gmail.com",
   "valentin.frezouls@gmail.com", 
-  "frezouls.pauline@gmail.com",   // Corrigé (P)
+  "frezouls.pauline@gmail.com",
   "eau.fraise.fille@gmail.com"
 ];
 
@@ -38,10 +38,67 @@ const ORIGINAL_CONFIG: SiteConfig = {
 const ROTATION = ['G', 'P', 'V'];
 const REF_DATE = new Date('2025-12-20T12:00:00'); // Date pivot
 
-// Mapping des emails vers les lettres
 const USER_MAPPING: Record<string, string> = {
   "gabriel.frezouls@gmail.com": "G",
-  "frezouls.pauline@gmail.com": "P", // Corrigé
+  "frezouls.pauline@gmail.com": "P",
+  "valentin.frezouls@gmail.com": "V"
+};
+
+const getChores = (date: Date) => {
+  const saturday = new Date(date);
+  saturday.setDate(date.getDate() - (date.getDay() + 1) % 7);
+  saturday.setHours(12, 0, 0, 0);
+
+  const weekId = `${saturday.getDate()}-${saturday.getMonth()+1}-${saturday.getFullYear()}`;
+  const diffTime = saturday.getTime() - REF_DATE.getTime();
+  const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
+  const mod = (n: number, m: number) => ((n % m) + m) % m;
+
+  return {
+    id: weekId,
+  import React, { useState, useEffect, useRef } from 'react';
+import { auth, googleProvider, db } from './firebase';
+import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import { 
+  Lock, Menu, X, Home, BookHeart, ChefHat,
+  Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
+  MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
+  CheckSquare, Square, CheckCircle2, Plus, Clock, Save, ToggleLeft, ToggleRight, Image as ImageIcon, Upload
+} from 'lucide-react';
+import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
+import { askAIArchitect, askAIChat } from './services/geminiService';
+import Background from './components/Background';
+import RecipeCard from './components/RecipeCard';
+
+// --- SÉCURITÉ : LISTE DES INVITÉS ---
+const FAMILY_EMAILS = [
+  "gabriel.frezouls@gmail.com",
+  "o.frezouls@gmail.com",
+  "eau.fraise.fils@gmail.com",
+  "valentin.frezouls@gmail.com", 
+  "frezouls.pauline@gmail.com",
+  "eau.fraise.fille@gmail.com"
+];
+
+const ORIGINAL_CONFIG: SiteConfig = {
+  primaryColor: '#a85c48',
+  backgroundColor: '#f5ede7',
+  fontFamily: 'Inter',
+  welcomeTitle: 'CHAUD DEVANT',
+  welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
+  welcomeImage: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
+  navigationLabels: { home: 'ACCUEIL', journal: 'JOURNAL', cooking: 'SEMAINIER', recipes: 'RECETTES', calendar: 'CALENDRIER', tasks: 'TÂCHES' },
+  homeHtml: '', cookingHtml: ''
+};
+
+// --- LOGIQUE DES TÂCHES ---
+const ROTATION = ['G', 'P', 'V'];
+const REF_DATE = new Date('2025-12-20T12:00:00'); // Date pivot
+
+const USER_MAPPING: Record<string, string> = {
+  "gabriel.frezouls@gmail.com": "G",
+  "frezouls.pauline@gmail.com": "P",
   "valentin.frezouls@gmail.com": "V"
 };
 
@@ -91,14 +148,16 @@ const App: React.FC = () => {
   const [versions, setVersions] = useState<SiteVersion[]>([]);
   const [choreStatus, setChoreStatus] = useState<Record<string, any>>({});
 
-  // État Agenda (Popup)
+  // États Modales
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
-  const [newEvent, setNewEvent] = useState({ 
-    title: '', 
-    date: new Date().toISOString().split('T')[0],
-    time: '', 
-    isAllDay: true 
-  });
+  const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false); // Nouvelle modale recette
+
+  // Formulaires
+  const [newEvent, setNewEvent] = useState({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true });
+  
+  // État pour la recette en cours d'édition/création
+  const defaultRecipeState = { id: '', title: '', chef: '', ingredients: '', steps: '', category: 'plat', image: '' };
+  const [currentRecipe, setCurrentRecipe] = useState<any>(defaultRecipeState);
 
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -108,6 +167,7 @@ const App: React.FC = () => {
   const [aiPrompt, setAiPrompt] = useState('');
   const [chatHistory, setChatHistory] = useState<{ role: string, text: string }[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // 1. AUTHENTIFICATION
   useEffect(() => {
@@ -121,24 +181,19 @@ const App: React.FC = () => {
   const isAuthorized = user && user.email && FAMILY_EMAILS.includes(user.email);
   const myLetter = user && user.email ? USER_MAPPING[user.email] : null;
 
-  // 2. CHARGEMENT (CORRIGÉ : L'ID est forcé à la fin pour éviter les bugs)
+  // 2. CHARGEMENT
   useEffect(() => {
     if (!isAuthorized) return;
     const ignoreError = (err: any) => { console.log("Info: ", err.code); };
 
     const unsubC = onSnapshot(doc(db, 'site_config', 'main'), (d) => { if (d.exists()) setConfig(d.data() as SiteConfig); }, ignoreError);
-    // Correction : ...d.data() avant id: d.id
     const unsubJ = onSnapshot(query(collection(db, 'family_journal'), orderBy('timestamp', 'desc')), (s) => setJournal(s.docs.map(d => ({ ...d.data(), id: d.id } as JournalEntry))), ignoreError);
-    // Correction : ...d.data() avant id: d.id (C'est ça qui corrige la suppression !)
     const unsubR = onSnapshot(collection(db, 'family_recipes'), (s) => setRecipes(s.docs.map(d => ({ ...d.data(), id: d.id } as Recipe))), ignoreError);
-    
-    // --- TRI CHRONOLOGIQUE DES ÉVÉNEMENTS ---
     const unsubE = onSnapshot(collection(db, 'family_events'), (s) => {
       const rawEvents = s.docs.map(d => ({ ...d.data(), id: d.id } as FamilyEvent));
       rawEvents.sort((a, b) => a.date.localeCompare(b.date));
       setEvents(rawEvents);
     }, ignoreError);
-
     const unsubV = onSnapshot(query(collection(db, 'site_versions'), orderBy('date', 'desc')), (s) => setVersions(s.docs.map(d => ({ ...d.data(), id: d.id } as SiteVersion))), ignoreError);
     const unsubT = onSnapshot(collection(db, 'chores_status'), (s) => {
       const status: Record<string, any> = {};
@@ -162,10 +217,9 @@ const App: React.FC = () => {
   };
   const restoreVersion = (v: SiteVersion) => { if(confirm(`Restaurer la version "${v.name}" ?`)) saveConfig(v.config, false); };
   
-  // Correction Ajout : On retire l'ID des données avant d'envoyer pour éviter de polluer la base
   const addEntry = async (col: string, data: any) => { 
     try { 
-      const { id, ...cleanData } = data; // On enlève l'id s'il existe
+      const { id, ...cleanData } = data; 
       await addDoc(collection(db, col), { ...cleanData, timestamp: serverTimestamp() }); 
     } catch(e) { alert("Erreur ajout"); } 
   };
@@ -174,10 +228,8 @@ const App: React.FC = () => {
   
   const deleteItem = async (col: string, id: string) => { 
     if(!id) { alert("Erreur: ID introuvable. Rafraîchissez la page."); return; }
-    if(confirm("Supprimer définitivement cet élément ?")) {
-        try {
-            await deleteDoc(doc(db, col, id));
-        } catch(e) { console.error(e); alert("Erreur suppression"); }
+    if(confirm("Supprimer définitivement ?")) {
+        try { await deleteDoc(doc(db, col, id)); } catch(e) { console.error(e); alert("Erreur suppression"); }
     }
   };
 
@@ -190,28 +242,36 @@ const App: React.FC = () => {
     } catch (e) { console.error("Erreur coche", e); }
   };
 
+  // Gestion Image
+  const handleFile = (e: any, callback: any) => {
+    const f = e.target.files[0];
+    if(f) { const r = new FileReader(); r.onload = () => callback(r.result); r.readAsDataURL(f); }
+  };
+
+  // Ouverture modale recette pour édition
+  const openEditRecipe = (recipe: any) => {
+    // On s'assure que les champs textarea sont des strings
+    const ingredientsStr = Array.isArray(recipe.ingredients) ? recipe.ingredients.join('\n') : recipe.ingredients;
+    const stepsStr = recipe.steps || recipe.instructions || '';
+    
+    setCurrentRecipe({ ...recipe, ingredients: ingredientsStr, steps: stepsStr });
+    setIsRecipeModalOpen(true);
+  };
+
   const handleArchitect = async () => { if (!aiPrompt.trim()) return; setIsAiLoading(true); const n = await askAIArchitect(aiPrompt, config); if (n) await saveConfig({...config, ...n}, true); setIsAiLoading(false); };
   const handleChat = async () => { if (!aiPrompt.trim()) return; const h = [...chatHistory, {role:'user',text:aiPrompt}]; setChatHistory(h); setAiPrompt(''); setIsAiLoading(true); const r = await askAIChat(h); setChatHistory([...h, {role:'model',text:r}]); setIsAiLoading(false); };
 
-  // --- SOUS-COMPOSANT TÂCHES ---
+  // --- SOUS-COMPOSANTS ---
   const TaskCell = ({ weekId, letter, label, isLocked }: any) => {
     const isDone = choreStatus[weekId]?.[letter] || false;
     const canCheck = !isLocked && myLetter === letter; 
-
     return (
       <td className="p-4 text-center align-middle">
         <div className="flex flex-col items-center gap-2">
           <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${
             isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-          }`}>
-            {letter}
-          </span>
-          <button 
-            onClick={() => canCheck && toggleChore(weekId, letter)}
-            disabled={!canCheck}
-            className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20 cursor-not-allowed' : ''}`}
-            title={isLocked ? "Trop tôt pour cocher !" : ""}
-          >
+          }`}> {letter} </span>
+          <button onClick={() => canCheck && toggleChore(weekId, letter)} disabled={!canCheck} className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20 cursor-not-allowed' : ''}`} title={isLocked ? "Trop tôt pour cocher !" : ""}>
             {isDone ? <CheckSquare className="text-green-500" size={24} /> : (canCheck ? <Square className="text-green-500 hover:fill-green-50" size={24} /> : <Square className="text-gray-200" size={24} />)}
           </button>
         </div>
@@ -219,89 +279,75 @@ const App: React.FC = () => {
     );
   };
 
-  // --- SOUS-COMPOSANT : MODALE ÉVÉNEMENT ---
+  // MODALE ÉVÉNEMENT
   const EventModal = () => (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300">
         <button onClick={() => setIsEventModalOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
-        
         <div className="text-center space-y-2">
-          <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4">
-            <CalIcon size={32} style={{ color: config.primaryColor }} />
-          </div>
+          <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><CalIcon size={32} style={{ color: config.primaryColor }} /></div>
           <h3 className="text-2xl font-cinzel font-bold">Nouvel Événement</h3>
         </div>
-
         <div className="space-y-4">
-          {/* Titre */}
-          <div>
-            <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quoi ?</label>
-            <input 
-              value={newEvent.title} 
-              onChange={e => setNewEvent({...newEvent, title: e.target.value})}
-              className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none focus:ring-2"
-              placeholder="Anniversaire Maman..." 
-              autoFocus
-              style={{ '--tw-ring-color': config.primaryColor } as any}
-            />
-          </div>
-
-          {/* Date */}
-          <div>
-            <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quand ?</label>
-            <input 
-              type="date"
-              value={newEvent.date} 
-              onChange={e => setNewEvent({...newEvent, date: e.target.value})}
-              className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none cursor-pointer"
-            />
-          </div>
-
-          {/* Toggle Toute la journée */}
-          <div 
-            onClick={() => setNewEvent({...newEvent, isAllDay: !newEvent.isAllDay})}
-            className="flex items-center justify-between p-4 rounded-xl border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <Clock size={20} className={newEvent.isAllDay ? "text-gray-300" : "text-black"} />
-              <span className="font-bold text-sm">Toute la journée</span>
-            </div>
+          <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quoi ?</label><input value={newEvent.title} onChange={e => setNewEvent({...newEvent, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none focus:ring-2" placeholder="Anniversaire Maman..." autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} /></div>
+          <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quand ?</label><input type="date" value={newEvent.date} onChange={e => setNewEvent({...newEvent, date: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none cursor-pointer" /></div>
+          <div onClick={() => setNewEvent({...newEvent, isAllDay: !newEvent.isAllDay})} className="flex items-center justify-between p-4 rounded-xl border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors">
+            <div className="flex items-center gap-3"><Clock size={20} className={newEvent.isAllDay ? "text-gray-300" : "text-black"} /><span className="font-bold text-sm">Toute la journée</span></div>
             {newEvent.isAllDay ? <ToggleRight size={32} className="text-green-500"/> : <ToggleLeft size={32} className="text-gray-300"/>}
           </div>
-
-          {/* Heure (Saisie TEXTE libre) */}
           {!newEvent.isAllDay && (
-            <div className="animate-in slide-in-from-top-2">
-              <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label>
-              <input 
-                type="text" 
-                value={newEvent.time} 
-                onChange={e => setNewEvent({...newEvent, time: e.target.value})}
-                placeholder="Ex: 20h00, Midi, Vers 19h..."
-                className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-bold text-lg"
-              />
-            </div>
+            <div className="animate-in slide-in-from-top-2"><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label><input type="text" value={newEvent.time} onChange={e => setNewEvent({...newEvent, time: e.target.value})} placeholder="Ex: 20h00, Midi..." className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-bold text-lg" /></div>
           )}
         </div>
+        <button onClick={() => { if (newEvent.title && newEvent.date) { addEntry('family_events', { title: newEvent.title, date: newEvent.date, time: newEvent.isAllDay ? null : (newEvent.time || '') }); setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true }); setIsEventModalOpen(false); } else { alert("Titre et date requis !"); } }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>Ajouter au calendrier</button>
+      </div>
+    </div>
+  );
 
-        <button 
-          onClick={() => {
-            if (newEvent.title && newEvent.date) {
-              addEntry('family_events', { 
-                title: newEvent.title, 
-                date: newEvent.date, 
-                time: newEvent.isAllDay ? null : (newEvent.time || '') 
-              });
-              setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true });
-              setIsEventModalOpen(false);
-            } else {
-              alert("Il faut au moins un titre et une date !");
-            }
-          }}
-          className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all"
-          style={{ backgroundColor: config.primaryColor }}
-        >
-          Ajouter au calendrier
+  // NOUVELLE MODALE RECETTE
+  const RecipeModal = () => (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
+        <button onClick={() => setIsRecipeModalOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
+        <div className="text-center space-y-2">
+          <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><ChefHat size={32} style={{ color: config.primaryColor }} /></div>
+          <h3 className="text-2xl font-cinzel font-bold">{currentRecipe.id ? 'Modifier la Recette' : 'Nouvelle Recette'}</h3>
+        </div>
+        
+        <div className="space-y-4">
+          <input value={currentRecipe.title} onChange={e => setCurrentRecipe({...currentRecipe, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Nom du plat (ex: Gratin Dauphinois)" autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} />
+          
+          <div className="flex gap-4">
+             <input value={currentRecipe.chef} onChange={e => setCurrentRecipe({...currentRecipe, chef: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Chef (ex: Papa)" />
+             <select value={currentRecipe.category} onChange={e => setCurrentRecipe({...currentRecipe, category: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
+               <option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option>
+             </select>
+          </div>
+
+          <div onClick={() => fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">
+            {currentRecipe.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}
+          </div>
+          <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <textarea value={currentRecipe.ingredients} onChange={e => setCurrentRecipe({...currentRecipe, ingredients: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Ingrédients (un par ligne)..." />
+            <textarea value={currentRecipe.steps} onChange={e => setCurrentRecipe({...currentRecipe, steps: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Étapes de préparation..." />
+          </div>
+        </div>
+
+        <button onClick={() => { 
+            if(currentRecipe.title) {
+                // Sauvegarde
+                const recipeToSave = { ...currentRecipe };
+                if (recipeToSave.id) {
+                    updateEntry('family_recipes', recipeToSave.id, recipeToSave);
+                } else {
+                    addEntry('family_recipes', recipeToSave);
+                }
+                setIsRecipeModalOpen(false);
+            } else { alert("Il faut au moins un titre !"); }
+        }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>
+            Enregistrer la recette
         </button>
       </div>
     </div>
@@ -360,7 +406,6 @@ const App: React.FC = () => {
                 {myLetter ? `Salut ${myLetter === 'G' ? 'Gabriel' : myLetter === 'P' ? 'Pauline' : 'Valentin'}, à l'attaque !` : "Connecte-toi avec ton compte perso pour participer."}
               </p>
             </div>
-
             <div className="bg-white/90 backdrop-blur-xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/50">
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -377,22 +422,15 @@ const App: React.FC = () => {
                     {getMonthWeekends().map((week, i) => {
                       const rowStatus = choreStatus[week.id] || {};
                       const isRowComplete = rowStatus.G && rowStatus.P && rowStatus.V;
-                      
                       const now = new Date();
                       const isLocked = week.fullDate.getTime() > (now.getTime() + 86400000 * 6); 
-
                       return (
                         <tr key={i} className={`transition-colors ${isRowComplete ? 'bg-green-50/50' : 'hover:bg-white/50'}`}>
-                          <td className="p-4 font-mono font-bold text-gray-700 whitespace-nowrap text-sm">
-                            {week.dateStr}
-                            {isLocked && <span className="ml-2 text-xs text-gray-300">🔒</span>}
-                          </td>
+                          <td className="p-4 font-mono font-bold text-gray-700 whitespace-nowrap text-sm">{week.dateStr}{isLocked && <span className="ml-2 text-xs text-gray-300">🔒</span>}</td>
                           <TaskCell weekId={week.id} letter={week.haut} label="Aspi Haut" isLocked={isLocked} />
                           <TaskCell weekId={week.id} letter={week.bas} label="Aspi Bas" isLocked={isLocked} />
                           <TaskCell weekId={week.id} letter={week.douche} label="Lavabo" isLocked={isLocked} />
-                          <td className="p-4 text-center">
-                            {isRowComplete && <CheckCircle2 className="text-green-500 mx-auto animate-bounce" />}
-                          </td>
+                          <td className="p-4 text-center">{isRowComplete && <CheckCircle2 className="text-green-500 mx-auto animate-bounce" />}</td>
                         </tr>
                       );
                     })}
@@ -406,60 +444,31 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* --- CALENDRIER AVEC MODALE --- */}
+        {/* --- CALENDRIER --- */}
         {currentView === 'calendar' && (
            <div className="max-w-3xl mx-auto space-y-10">
-             
-             {/* Titre et Bouton Ajout */}
              <div className="flex flex-col items-center gap-6">
                 <h2 className="text-5xl font-cinzel font-black" style={{ color: config.primaryColor }}>CALENDRIER</h2>
-                <button 
-                  onClick={() => setIsEventModalOpen(true)}
-                  className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl"
-                  style={{ backgroundColor: config.primaryColor }}
-                >
+                <button onClick={() => setIsEventModalOpen(true)} className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
                   <Plus size={20}/> Ajouter un événement
                 </button>
              </div>
-
-             {/* Modale d'ajout */}
              {isEventModalOpen && <EventModal />}
-
              <div className="space-y-4">
                {events.map(ev => {
-                 // Gestion de l'affichage de la date
                  const cleanDate = ev.date.split('T')[0];
                  const dateObj = new Date(cleanDate);
-                 
                  return (
                    <div key={ev.id} className="flex items-center gap-6 p-6 bg-white rounded-2xl shadow-sm border border-black/5 hover:shadow-md transition-shadow group">
                      <div className="text-center w-16">
-                       <div className="font-bold text-xl leading-none" style={{color: config.primaryColor}}>
-                         {dateObj.getDate()}
-                       </div>
-                       <div className="text-[10px] uppercase font-bold text-gray-400">
-                         {dateObj.toLocaleString('fr-FR', { month: 'short' })}
-                       </div>
+                       <div className="font-bold text-xl leading-none" style={{color: config.primaryColor}}>{dateObj.getDate()}</div>
+                       <div className="text-[10px] uppercase font-bold text-gray-400">{dateObj.toLocaleString('fr-FR', { month: 'short' })}</div>
                      </div>
-                     
                      <div className="flex-1 border-l pl-6 border-gray-100">
                        <div className="font-bold text-lg font-cinzel text-gray-800">{ev.title}</div>
-                       {/* Affiche l'heure si elle existe */}
-                       {ev.time && (
-                         <div className="text-xs text-gray-400 flex items-center mt-1">
-                           <Clock size={10} className="mr-1"/> 
-                           {ev.time}
-                         </div>
-                       )}
+                       {ev.time && <div className="text-xs text-gray-400 flex items-center mt-1"><Clock size={10} className="mr-1"/> {ev.time}</div>}
                      </div>
-
-                     <button 
-                       onClick={() => deleteItem('family_events', ev.id)}
-                       className="opacity-0 group-hover:opacity-100 p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
-                       title="Supprimer"
-                     >
-                       <Trash2 size={16} />
-                     </button>
+                     <button onClick={() => deleteItem('family_events', ev.id)} className="opacity-0 group-hover:opacity-100 p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all" title="Supprimer"><Trash2 size={16} /></button>
                    </div>
                  );
                })}
@@ -483,20 +492,36 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {/* --- RECETTES AVEC MODALE ET ÉDITION --- */}
         {currentView === 'recipes' && (
           <div className="space-y-10">
-             <h2 className="text-5xl font-cinzel font-black text-center" style={{ color: config.primaryColor }}>RECETTES</h2>
+             <div className="flex flex-col items-center gap-6">
+               <h2 className="text-5xl font-cinzel font-black text-center" style={{ color: config.primaryColor }}>RECETTES</h2>
+               <button onClick={() => { setCurrentRecipe(defaultRecipeState); setIsRecipeModalOpen(true); }} className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
+                  <Plus size={20}/> Ajouter une recette
+               </button>
+             </div>
+
+             {isRecipeModalOpen && <RecipeModal />}
+
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                {recipes.length === 0 && <p className="text-center col-span-full opacity-50">Aucune recette pour le moment.</p>}
                {recipes.map((r: any) => (
-                 <RecipeCard 
-                    key={r.id} 
-                    recipe={{
-                      ...r,
-                      ingredients: typeof r.ingredients === 'string' ? r.ingredients.split('\n').filter((i:string) => i.trim() !== '') : r.ingredients,
-                      instructions: r.steps || r.instructions
-                    }} 
-                 />
+                 <div key={r.id} className="relative group">
+                   {/* Boutons d'édition flottants */}
+                   <div className="absolute top-4 right-4 z-20 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openEditRecipe(r)} className="p-2 bg-white/90 rounded-full shadow-md text-blue-500 hover:scale-110 transition-transform"><Pencil size={16}/></button>
+                      <button onClick={() => deleteItem('family_recipes', r.id)} className="p-2 bg-white/90 rounded-full shadow-md text-red-500 hover:scale-110 transition-transform"><Trash2 size={16}/></button>
+                   </div>
+                   
+                   <RecipeCard 
+                      recipe={{
+                        ...r,
+                        ingredients: typeof r.ingredients === 'string' ? r.ingredients.split('\n').filter((i:string) => i.trim() !== '') : r.ingredients,
+                        instructions: r.steps || r.instructions
+                      }} 
+                   />
+                 </div>
                ))}
              </div>
           </div>
@@ -576,42 +601,16 @@ const HomeCard = ({ icon, title, label, onClick, color }: any) => (
 
 const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, versions, restore, arch, chat, prompt, setP, load, hist }: any) => {
   const [tab, setTab] = useState('arch');
-  
-  // États des formulaires
   const [newJ, setNewJ] = useState({ id: '', title: '', author: '', content: '', image: '' });
-  const [newR, setNewR] = useState<Recipe>({ id:'', title:'', chef:'', ingredients:'', steps:'', category:'plat', image:'' });
-  
-  // États pour l'édition de l'historique
   const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
   const [tempVersionName, setTempVersionName] = useState('');
-
   const [localC, setLocalC] = useState(config);
   const fileRef = useRef<HTMLInputElement>(null);
-  
   useEffect(() => { setLocalC(config); }, [config]);
-  
-  const handleFile = (e: any, cb: any) => {
-    const f = e.target.files[0];
-    if(f) { const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(f); }
-  };
-
-  const handleEdit = (item: any, type: 'recipe' | 'journal') => {
-    if (type === 'recipe') setNewR({ ...item, steps: item.steps || item.instructions });
-    if (type === 'journal') setNewJ(item);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  // Fonction pour démarrer le renommage d'une version
-  const startEditVersion = (v: any) => {
-    setEditingVersionId(v.id);
-    setTempVersionName(v.name);
-  };
-
-  // Sauvegarder le nouveau nom
-  const saveVersionName = (id: string) => {
-    upd('site_versions', id, { name: tempVersionName });
-    setEditingVersionId(null);
-  };
+  const handleFile = (e: any, cb: any) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(f); }};
+  const handleEdit = (item: any, type: 'recipe' | 'journal') => { if (type === 'journal') setNewJ(item); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const startEditVersion = (v: any) => { setEditingVersionId(v.id); setTempVersionName(v.name); };
+  const saveVersionName = (id: string) => { upd('site_versions', id, { name: tempVersionName }); setEditingVersionId(null); };
 
   return (
     <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[3.5rem] shadow-2xl min-h-[700px] border border-black/5">
@@ -621,7 +620,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
           {id:'chat', l:'MAJORDOME', i:<MessageSquare size={16}/>},
           {id:'home', l:'ACCUEIL', i:<Home size={16}/>},
           {id:'journal', l:'JOURNAL', i:<BookHeart size={16}/>},
-          {id:'recipes', l:'RECETTES', i:<ChefHat size={16}/>},
           {id:'code', l:'CODE', i:<Code size={16}/>},
           {id:'history', l:'HISTORIQUE', i:<History size={16}/>}
         ].map(t => (
@@ -678,7 +676,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
              <button onClick={() => { 
                 if(newJ.title) { 
                   if(newJ.id) upd('family_journal', newJ.id, newJ); 
-                  else addEntry('family_journal', {...newJ, date: new Date().toLocaleDateString()}); 
+                  else add('family_journal', {...newJ, date: new Date().toLocaleDateString()}); 
                   setNewJ({id:'', title:'',author:'',content:'',image:''}); 
                 } 
               }} className="flex-1 py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>
@@ -703,57 +701,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
         </div>
       )}
 
-      {tab === 'recipes' && (
-        <div className="space-y-6 animate-in fade-in">
-           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>
-             {newR.id ? 'MODIFIER RECETTE' : 'NOUVELLE RECETTE'}
-           </h3>
-           <input value={newR.title} onChange={e => setNewR({...newR, title: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Nom du plat" />
-           <div className="flex gap-4">
-             <input value={newR.chef} onChange={e => setNewR({...newR, chef: e.target.value})} className="flex-1 p-5 rounded-2xl border border-gray-200" placeholder="Chef" />
-             <select value={newR.category} onChange={e => setNewR({...newR, category: e.target.value as any})} className="flex-1 p-5 rounded-2xl border border-gray-200">
-               <option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option>
-             </select>
-           </div>
-           <textarea value={Array.isArray(newR.ingredients) ? newR.ingredients.join('\n') : newR.ingredients} onChange={e => setNewR({...newR, ingredients: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Ingrédients (un par ligne)" />
-           <textarea value={newR.steps || newR.instructions || ''} onChange={e => setNewR({...newR, steps: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Étapes de préparation" />
-           <div onClick={() => fileRef.current?.click()} className="p-4 border-dashed border-2 rounded-2xl cursor-pointer text-center">{newR.image ? 'Photo OK' : 'Photo du plat'}</div>
-           <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b: string) => setNewR({...newR, image: b}))} />
-           
-           <div className="flex gap-2">
-             {newR.id && <button onClick={() => setNewR({id:'', title:'', chef:'', ingredients:'', steps:'', category:'plat', image:''})} className="px-6 py-5 bg-gray-100 rounded-2xl font-bold text-gray-500">Annuler</button>}
-             <button onClick={() => { 
-               if(newR.title){ 
-                 const recipeData = {...newR};
-                 if(newR.id) upd('family_recipes', newR.id, recipeData);
-                 else addEntry('family_recipes', recipeData);
-                 setNewR({id:'', title:'', chef:'', ingredients:'', steps:'', category:'plat', image:''}); 
-               } 
-             }} className="flex-1 py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>
-               {newR.id ? 'Enregistrer' : 'Ajouter la recette'}
-             </button>
-           </div>
-
-           <div className="mt-8 pt-8 border-t border-gray-100">
-             <h4 className="font-bold mb-4 opacity-50 text-xs uppercase tracking-widest">Modifier les recettes existantes</h4>
-             <div className="space-y-2 max-h-60 overflow-y-auto">
-               {recipes?.map((r: any) => (
-                 <div key={r.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl hover:bg-white border border-transparent hover:border-gray-200 transition-all">
-                   <div className="flex items-center gap-3 overflow-hidden">
-                      {r.image && <img src={r.image} className="w-8 h-8 rounded-full object-cover"/>}
-                      <span className="text-sm font-bold truncate">{r.title}</span>
-                   </div>
-                   <div className="flex gap-2">
-                     <button onClick={() => handleEdit(r, 'recipe')} className="p-2 bg-blue-50 text-blue-500 rounded-lg hover:bg-blue-100" title="Modifier"><Pencil size={14}/></button>
-                     <button onClick={() => del('family_recipes', r.id)} className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100" title="Supprimer"><Trash2 size={14}/></button>
-                   </div>
-                 </div>
-               ))}
-             </div>
-           </div>
-        </div>
-      )}
-
       {tab === 'code' && (
         <div className="space-y-6 animate-in fade-in">
            <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>CODE SEMAINIER</h3>
@@ -762,7 +709,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
         </div>
       )}
 
-      {/* --- HISTORIQUE AMÉLIORÉ --- */}
       {tab === 'history' && (
         <div className="space-y-6 animate-in fade-in">
            <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>RESTAURATION</h3>
@@ -773,12 +719,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
                  <div className="flex-1">
                    {editingVersionId === v.id ? (
                      <div className="flex gap-2 mr-4">
-                       <input 
-                         value={tempVersionName} 
-                         onChange={e => setTempVersionName(e.target.value)}
-                         className="flex-1 p-2 rounded-lg border border-gray-300 text-sm"
-                         autoFocus
-                       />
+                       <input value={tempVersionName} onChange={e => setTempVersionName(e.target.value)} className="flex-1 p-2 rounded-lg border border-gray-300 text-sm" autoFocus />
                        <button onClick={() => saveVersionName(v.id)} className="p-2 bg-green-100 text-green-600 rounded-lg"><Save size={16}/></button>
                        <button onClick={() => setEditingVersionId(null)} className="p-2 bg-red-100 text-red-600 rounded-lg"><X size={16}/></button>
                      </div>
@@ -792,7 +733,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
                      </div>
                    )}
                  </div>
-                 
                  <div className="flex gap-2">
                    <button onClick={() => del('site_versions', v.id)} className="p-3 bg-white border border-red-100 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-colors" title="Supprimer"><Trash2 size={18}/></button>
                    <button onClick={() => restore(v)} className="p-3 bg-white border border-gray-200 rounded-xl hover:bg-black hover:text-white transition-colors" title="Restaurer"><RotateCcw size={18}/></button>
