@@ -1,88 +1,63 @@
-
-import { GoogleGenAI, Type } from "@google/genai";
 import { SiteConfig } from "../types";
 
-// CORRECTION : Votre vite.config.ts contient un "define" pour process.env.API_KEY.
-// C'est donc la méthode correcte à utiliser ici. import.meta.env serait vide car GitHub injecte "API_KEY".
-const apiKey = process.env.API_KEY;
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+// TEST 1 : MÉTHODE VITE STANDARD
+const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
+const MODEL_NAME = "gemini-3-flash-preview"; // Ton modèle demandé
 
-export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
-  if (!ai) {
-    console.error("Clé API manquante. Vérifiez le secret 'API_KEY' dans les réglages GitHub (Secrets).");
+async function callGeminiAPI(payload: any) {
+  console.log("--- TEST 1 (import.meta) ---");
+  console.log("Clé présente ?", !!apiKey); // Affiche true si la clé est là
+  console.log("Modèle visé :", MODEL_NAME);
+
+  if (!apiKey) {
+    console.error("⛔ ERREUR : VITE_GEMINI_KEY est introuvable.");
     return null;
   }
 
   try {
-    // 1. OPTIMISATION DU PAYLOAD (Anti-crash)
-    // On retire les images Base64 et le HTML lourd pour éviter l'erreur 413 ou 400.
-    const contextConfig = {
-      ...currentConfig,
-      welcomeImage: (currentConfig.welcomeImage && currentConfig.welcomeImage.length > 200) 
-        ? "[IMAGE_CONSERVEE_NE_PAS_TOUCHER]" 
-        : currentConfig.welcomeImage,
-      homeHtml: "[HTML_CONSERVE]", 
-      cookingHtml: "[HTML_CONSERVE]"
-    };
-
-    // 2. APPEL API
-    // Changement du modèle pour corriger l'erreur 404 sur gemini-1.5-flash
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Tu es l'Architecte Visuel.
-      Objectif: Modifier la configuration JSON du site pour répondre à : "${prompt}".
-      
-      Règles:
-      1. Retourne UNIQUEMENT l'objet JSON complet mis à jour.
-      2. Ne modifie PAS les champs marqués "[...]" (placeholders).
-      3. "primaryColor" = accent, "backgroundColor" = fond.
-      
-      Config Actuelle: ${JSON.stringify(contextConfig)}`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            primaryColor: { type: Type.STRING },
-            backgroundColor: { type: Type.STRING },
-            fontFamily: { type: Type.STRING },
-            welcomeTitle: { type: Type.STRING },
-            welcomeText: { type: Type.STRING },
-            welcomeImage: { type: Type.STRING },
-            navigationLabels: {
-              type: Type.OBJECT,
-              properties: {
-                home: { type: Type.STRING },
-                journal: { type: Type.STRING },
-                cooking: { type: Type.STRING },
-                calendar: { type: Type.STRING }
-              }
-            }
-          }
-        }
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       }
-    });
-    
-    const text = response.text;
-    if (!text) return null;
-    
-    const newConfig = JSON.parse(text);
+    );
 
-    // 3. FUSION INTELLIGENTE
-    // On remet les données lourdes originales si l'IA a renvoyé les placeholders
-    return {
-      ...newConfig,
-      welcomeImage: (!newConfig.welcomeImage || newConfig.welcomeImage.includes("[")) 
-        ? currentConfig.welcomeImage 
-        : newConfig.welcomeImage,
-      homeHtml: currentConfig.homeHtml,
-      cookingHtml: currentConfig.cookingHtml,
-      hiddenSections: currentConfig.hiddenSections || [],
-      fontFamily: newConfig.fontFamily || currentConfig.fontFamily || 'Inter'
-    } as SiteConfig;
+    if (!response.ok) {
+      console.error(`❌ ERREUR API (${response.status}) :`, await response.text());
+      return null;
+    }
+
+    const data = await response.json();
+    console.log("✅ SUCCÈS ! Réponse reçue.");
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
 
   } catch (error) {
-    console.error("Erreur Architecte Gemini:", error);
+    console.error("❌ ERREUR RÉSEAU :", error);
     return null;
   }
+}
+
+// --- FONCTIONS EXPORTÉES ---
+export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
+  const lightConfig = { ...currentConfig, welcomeImage: "(Image ignorée)" };
+  const requestBody = {
+    contents: [{ parts: [{ text: `Tu es un Architecte. Rends ce JSON : ${prompt}. CONFIG: ${JSON.stringify(lightConfig)}` }] }]
+  };
+  
+  const text = await callGeminiAPI(requestBody);
+  if (!text) return null;
+  try {
+    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const newConfig = JSON.parse(cleanJson);
+    if (newConfig.welcomeImage === "(Image ignorée)") newConfig.welcomeImage = currentConfig.welcomeImage;
+    return newConfig;
+  } catch (e) { return null; }
+};
+
+export const askAIChat = async (history: { role: string, text: string }[]) => {
+  return await callGeminiAPI({
+    contents: history.map(h => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.text }] }))
+  });
 };
