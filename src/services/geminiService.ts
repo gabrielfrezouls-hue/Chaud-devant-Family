@@ -1,96 +1,88 @@
+
+import { GoogleGenAI, Type } from "@google/genai";
 import { SiteConfig } from "../types";
 
-// On utilise la variable standard Vite. 
-// Assure-toi que ta clé s'appelle VITE_GEMINI_KEY dans tes secrets GitHub !
-const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
+// CORRECTION : Votre vite.config.ts contient un "define" pour process.env.API_KEY.
+// C'est donc la méthode correcte à utiliser ici. import.meta.env serait vide car GitHub injecte "API_KEY".
+const apiKey = process.env.API_KEY;
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
-// Fonction générique pour parler à Google sans librairie
-async function callGeminiAPI(payload: any) {
-  if (!apiKey) {
-    console.error("⛔ Clé API manquante (VITE_GEMINI_KEY introuvable)");
+export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
+  if (!ai) {
+    console.error("Clé API manquante. Vérifiez le secret 'API_KEY' dans les réglages GitHub (Secrets).");
     return null;
   }
 
   try {
-    // Appel direct à l'API REST de Google (pas besoin de npm install)
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+    // 1. OPTIMISATION DU PAYLOAD (Anti-crash)
+    // On retire les images Base64 et le HTML lourd pour éviter l'erreur 413 ou 400.
+    const contextConfig = {
+      ...currentConfig,
+      welcomeImage: (currentConfig.welcomeImage && currentConfig.welcomeImage.length > 200) 
+        ? "[IMAGE_CONSERVEE_NE_PAS_TOUCHER]" 
+        : currentConfig.welcomeImage,
+      homeHtml: "[HTML_CONSERVE]", 
+      cookingHtml: "[HTML_CONSERVE]"
+    };
+
+    // 2. APPEL API
+    // Changement du modèle pour corriger l'erreur 404 sur gemini-1.5-flash
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Tu es l'Architecte Visuel.
+      Objectif: Modifier la configuration JSON du site pour répondre à : "${prompt}".
+      
+      Règles:
+      1. Retourne UNIQUEMENT l'objet JSON complet mis à jour.
+      2. Ne modifie PAS les champs marqués "[...]" (placeholders).
+      3. "primaryColor" = accent, "backgroundColor" = fond.
+      
+      Config Actuelle: ${JSON.stringify(contextConfig)}`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            primaryColor: { type: Type.STRING },
+            backgroundColor: { type: Type.STRING },
+            fontFamily: { type: Type.STRING },
+            welcomeTitle: { type: Type.STRING },
+            welcomeText: { type: Type.STRING },
+            welcomeImage: { type: Type.STRING },
+            navigationLabels: {
+              type: Type.OBJECT,
+              properties: {
+                home: { type: Type.STRING },
+                journal: { type: Type.STRING },
+                cooking: { type: Type.STRING },
+                calendar: { type: Type.STRING }
+              }
+            }
+          }
+        }
       }
-    );
+    });
+    
+    const text = response.text;
+    if (!text) return null;
+    
+    const newConfig = JSON.parse(text);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Erreur Google (${response.status}):`, errorText);
-      return null;
-    }
-
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+    // 3. FUSION INTELLIGENTE
+    // On remet les données lourdes originales si l'IA a renvoyé les placeholders
+    return {
+      ...newConfig,
+      welcomeImage: (!newConfig.welcomeImage || newConfig.welcomeImage.includes("[")) 
+        ? currentConfig.welcomeImage 
+        : newConfig.welcomeImage,
+      homeHtml: currentConfig.homeHtml,
+      cookingHtml: currentConfig.cookingHtml,
+      hiddenSections: currentConfig.hiddenSections || [],
+      fontFamily: newConfig.fontFamily || currentConfig.fontFamily || 'Inter'
+    } as SiteConfig;
 
   } catch (error) {
-    console.error("Erreur réseau:", error);
+    console.error("Erreur Architecte Gemini:", error);
     return null;
   }
-}
-
-// --- 1. L'ARCHITECTE (Modification du design) ---
-export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
-  // SÉCURITÉ : On retire l'image lourde avant d'envoyer à l'IA pour ne pas faire planter la requête
-  const lightConfig = { ...currentConfig, welcomeImage: "(Image ignorée pour l'IA)" };
-
-  const requestBody = {
-    contents: [{
-      parts: [{
-        text: `
-          Tu es l'Architecte Visuel de l'application 'Chaud devant'.
-          Modifie la configuration JSON ci-dessous selon la demande : "${prompt}".
-          
-          RÈGLES :
-          1. Renvoie UNIQUEMENT le JSON valide. Pas de markdown, pas de \`\`\`.
-          2. Si tu changes l'image, mets une URL Unsplash valide.
-          
-          CONFIG ACTUELLE : ${JSON.stringify(lightConfig)}
-        `
-      }]
-    }]
-  };
-
-  const text = await callGeminiAPI(requestBody);
-  if (!text) return null;
-
-  try {
-    // Nettoyage du texte reçu (au cas où l'IA mettrait du markdown)
-    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const newConfig = JSON.parse(cleanJson) as SiteConfig;
-
-    // Si l'IA n'a pas touché à l'image, on remet l'originale pour ne pas la perdre
-    if (newConfig.welcomeImage === "(Image ignorée pour l'IA)") {
-      newConfig.welcomeImage = currentConfig.welcomeImage;
-    }
-
-    return newConfig;
-  } catch (e) {
-    console.error("L'IA a répondu un format invalide.");
-    return null;
-  }
-};
-
-// --- 2. LE MAJORDOME (Chat) ---
-// C'est cette fonction qui manquait dans ton fichier !
-export const askAIChat = async (history: { role: string, text: string }[]) => {
-  const requestBody = {
-    contents: history.map(h => ({
-      role: h.role === 'user' ? 'user' : 'model',
-      parts: [{ text: h.text }]
-    })),
-    systemInstruction: {
-      parts: [{ text: "Tu es le majordome de la famille Chaud devant. Raffiné, serviable et poli." }]
-    }
-  };
-
-  return await callGeminiAPI(requestBody);
 };
