@@ -6,65 +6,7 @@ import {
   Lock, Menu, X, Home, BookHeart, ChefHat,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
-  CheckSquare, Square, CheckCircle2, Plus, Clock, Save, ToggleLeft, ToggleRight, Image as ImageIcon
-} from 'lucide-react';
-import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
-import { askAIArchitect, askAIChat } from './services/geminiService';
-import Background from './components/Background';
-import RecipeCard from './components/RecipeCard';
-
-// --- SÉCURITÉ : LISTE DES INVITÉS ---
-const FAMILY_EMAILS = [
-  "gabriel.frezouls@gmail.com",
-  "o.frezouls@gmail.com",
-  "eau.fraise.fils@gmail.com",
-  "valentin.frezouls@gmail.com", 
-  "frezouls.pauline@gmail.com",
-  "eau.fraise.fille@gmail.com"
-];
-
-const ORIGINAL_CONFIG: SiteConfig = {
-  primaryColor: '#a85c48',
-  backgroundColor: '#f5ede7',
-  fontFamily: 'Inter',
-  welcomeTitle: 'CHAUD DEVANT',
-  welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
-  welcomeImage: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
-  navigationLabels: { home: 'ACCUEIL', journal: 'JOURNAL', cooking: 'SEMAINIER', recipes: 'RECETTES', calendar: 'CALENDRIER', tasks: 'TÂCHES' },
-  homeHtml: '', cookingHtml: ''
-};
-
-// --- LOGIQUE DES TÂCHES ---
-const ROTATION = ['G', 'P', 'V'];
-const REF_DATE = new Date('2025-12-20T12:00:00'); // Date pivot
-
-const USER_MAPPING: Record<string, string> = {
-  "gabriel.frezouls@gmail.com": "G",
-  "frezouls.pauline@gmail.com": "P",
-  "valentin.frezouls@gmail.com": "V"
-};
-
-const getChores = (date: Date) => {
-  const saturday = new Date(date);
-  saturday.setDate(date.getDate() - (date.getDay() + 1) % 7);
-  saturday.setHours(12, 0, 0, 0);
-
-  const weekId = `${saturday.getDate()}-${saturday.getMonth()+1}-${saturday.getFullYear()}`;
-  const diffTime = saturday.getTime() - REF_DATE.getTime();
-  const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
-  const mod = (n: number, m: number) => ((n % m) + m) % m;
-
-  return {
-    id: weekId,
-  import React, { useState, useEffect, useRef } from 'react';
-import { auth, googleProvider, db } from './firebase';
-import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
-import { 
-  Lock, Menu, X, Home, BookHeart, ChefHat,
-  Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
-  MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
-  CheckSquare, Square, CheckCircle2, Plus, Clock, Save, ToggleLeft, ToggleRight, Image as ImageIcon, Upload
+  CheckSquare, Square, CheckCircle2, Plus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon
 } from 'lucide-react';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -150,12 +92,11 @@ const App: React.FC = () => {
 
   // États Modales
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
-  const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false); // Nouvelle modale recette
+  const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false); 
 
   // Formulaires
   const [newEvent, setNewEvent] = useState({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true });
   
-  // État pour la recette en cours d'édition/création
   const defaultRecipeState = { id: '', title: '', chef: '', ingredients: '', steps: '', category: 'plat', image: '' };
   const [currentRecipe, setCurrentRecipe] = useState<any>(defaultRecipeState);
 
@@ -188,12 +129,17 @@ const App: React.FC = () => {
 
     const unsubC = onSnapshot(doc(db, 'site_config', 'main'), (d) => { if (d.exists()) setConfig(d.data() as SiteConfig); }, ignoreError);
     const unsubJ = onSnapshot(query(collection(db, 'family_journal'), orderBy('timestamp', 'desc')), (s) => setJournal(s.docs.map(d => ({ ...d.data(), id: d.id } as JournalEntry))), ignoreError);
+    
+    // Recettes (ID en dernier pour écraser l'id vide s'il existe)
     const unsubR = onSnapshot(collection(db, 'family_recipes'), (s) => setRecipes(s.docs.map(d => ({ ...d.data(), id: d.id } as Recipe))), ignoreError);
+    
+    // Calendrier (Tri chronologique)
     const unsubE = onSnapshot(collection(db, 'family_events'), (s) => {
       const rawEvents = s.docs.map(d => ({ ...d.data(), id: d.id } as FamilyEvent));
       rawEvents.sort((a, b) => a.date.localeCompare(b.date));
       setEvents(rawEvents);
     }, ignoreError);
+
     const unsubV = onSnapshot(query(collection(db, 'site_versions'), orderBy('date', 'desc')), (s) => setVersions(s.docs.map(d => ({ ...d.data(), id: d.id } as SiteVersion))), ignoreError);
     const unsubT = onSnapshot(collection(db, 'chores_status'), (s) => {
       const status: Record<string, any> = {};
@@ -248,12 +194,9 @@ const App: React.FC = () => {
     if(f) { const r = new FileReader(); r.onload = () => callback(r.result); r.readAsDataURL(f); }
   };
 
-  // Ouverture modale recette pour édition
   const openEditRecipe = (recipe: any) => {
-    // On s'assure que les champs textarea sont des strings
     const ingredientsStr = Array.isArray(recipe.ingredients) ? recipe.ingredients.join('\n') : recipe.ingredients;
     const stepsStr = recipe.steps || recipe.instructions || '';
-    
     setCurrentRecipe({ ...recipe, ingredients: ingredientsStr, steps: stepsStr });
     setIsRecipeModalOpen(true);
   };
@@ -279,7 +222,6 @@ const App: React.FC = () => {
     );
   };
 
-  // MODALE ÉVÉNEMENT
   const EventModal = () => (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300">
@@ -304,7 +246,6 @@ const App: React.FC = () => {
     </div>
   );
 
-  // NOUVELLE MODALE RECETTE
   const RecipeModal = () => (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
@@ -313,37 +254,28 @@ const App: React.FC = () => {
           <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><ChefHat size={32} style={{ color: config.primaryColor }} /></div>
           <h3 className="text-2xl font-cinzel font-bold">{currentRecipe.id ? 'Modifier la Recette' : 'Nouvelle Recette'}</h3>
         </div>
-        
         <div className="space-y-4">
           <input value={currentRecipe.title} onChange={e => setCurrentRecipe({...currentRecipe, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Nom du plat (ex: Gratin Dauphinois)" autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} />
-          
           <div className="flex gap-4">
              <input value={currentRecipe.chef} onChange={e => setCurrentRecipe({...currentRecipe, chef: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Chef (ex: Papa)" />
              <select value={currentRecipe.category} onChange={e => setCurrentRecipe({...currentRecipe, category: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
                <option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option>
              </select>
           </div>
-
           <div onClick={() => fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">
             {currentRecipe.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}
           </div>
           <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
-
           <div className="grid md:grid-cols-2 gap-4">
             <textarea value={currentRecipe.ingredients} onChange={e => setCurrentRecipe({...currentRecipe, ingredients: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Ingrédients (un par ligne)..." />
             <textarea value={currentRecipe.steps} onChange={e => setCurrentRecipe({...currentRecipe, steps: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Étapes de préparation..." />
           </div>
         </div>
-
         <button onClick={() => { 
             if(currentRecipe.title) {
-                // Sauvegarde
                 const recipeToSave = { ...currentRecipe };
-                if (recipeToSave.id) {
-                    updateEntry('family_recipes', recipeToSave.id, recipeToSave);
-                } else {
-                    addEntry('family_recipes', recipeToSave);
-                }
+                if (recipeToSave.id) { updateEntry('family_recipes', recipeToSave.id, recipeToSave); } 
+                else { addEntry('family_recipes', recipeToSave); }
                 setIsRecipeModalOpen(false);
             } else { alert("Il faut au moins un titre !"); }
         }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>
