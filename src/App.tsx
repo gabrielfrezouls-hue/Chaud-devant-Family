@@ -3,10 +3,10 @@ import { auth, googleProvider, db } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
 import { 
-  Lock, Menu, X, Home, BookHeart, UtensilsCrossed, ChefHat,
+  Lock, Menu, X, Home, BookHeart, ChefHat,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
-  Image as ImageIcon, MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
-  CheckSquare, Square, CheckCircle2
+  MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
+  CheckSquare, Square, CheckCircle2, Plus, Clock, Save // <--- Ajout de Save et X (X est déjà là)
 } from 'lucide-react';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -17,8 +17,8 @@ import RecipeCard from './components/RecipeCard';
 const FAMILY_EMAILS = [
   "gabriel.frezouls@gmail.com",
   "o.frezouls@gmail.com",
-  "valentin.frezouls@gmail.com", // Ajouté pour V
-  "pauline.frezouls@gmail.com",  // Ajouté pour P
+  "valentin.frezouls@gmail.com", 
+  "pauline.frezouls@gmail.com",  
   "eau.fraise.fille@gmail.com"
 ];
 
@@ -35,10 +35,9 @@ const ORIGINAL_CONFIG: SiteConfig = {
 
 // --- LOGIQUE DES TÂCHES ---
 const ROTATION = ['G', 'P', 'V'];
-// Date de référence stricte : 20 Décembre 2025 à midi (pour éviter les décalages horaires)
-const REF_DATE = new Date('2025-12-20T12:00:00');
+const REF_DATE = new Date('2025-12-20T12:00:00'); // Date pivot
 
-// Mapping des emails vers les lettres (pour savoir qui a le droit de cocher quoi)
+// Mapping des emails vers les lettres
 const USER_MAPPING: Record<string, string> = {
   "gabriel.frezouls@gmail.com": "G",
   "pauline.frezouls@gmail.com": "P",
@@ -48,19 +47,17 @@ const USER_MAPPING: Record<string, string> = {
 const getChores = (date: Date) => {
   const saturday = new Date(date);
   saturday.setDate(date.getDate() - (date.getDay() + 1) % 7); // Dernier samedi
-  saturday.setHours(12, 0, 0, 0); // Normalisation midi
+  saturday.setHours(12, 0, 0, 0);
 
-  // ID unique pour la base de données (ex: "20-12-2025")
   const weekId = `${saturday.getDate()}-${saturday.getMonth()+1}-${saturday.getFullYear()}`;
   
   const diffTime = saturday.getTime() - REF_DATE.getTime();
   const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
-  
   const mod = (n: number, m: number) => ((n % m) + m) % m;
 
-  // Ordre au 20/12 (Diff 0) = G(Haut), V(Bas), P(Douche)
   return {
     id: weekId,
+    fullDate: saturday, // On garde la date complète pour savoir si c'est futur/passé
     dateStr: `${saturday.getDate()}/${saturday.getMonth()+1}`,
     haut: ROTATION[mod(diffWeeks, 3)],       
     bas: ROTATION[mod(diffWeeks + 2, 3)],    
@@ -84,7 +81,6 @@ const getMonthWeekends = () => {
   return weekends;
 };
 
-
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
@@ -95,9 +91,10 @@ const App: React.FC = () => {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [events, setEvents] = useState<FamilyEvent[]>([]);
   const [versions, setVersions] = useState<SiteVersion[]>([]);
-  
-  // NOUVEAU : État des tâches cochées (depuis Firebase)
   const [choreStatus, setChoreStatus] = useState<Record<string, any>>({});
+
+  // État Agenda (Public maintenant)
+  const [newEvent, setNewEvent] = useState({ title: '', date: '', time: '' });
 
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -118,10 +115,9 @@ const App: React.FC = () => {
   }, []);
 
   const isAuthorized = user && user.email && FAMILY_EMAILS.includes(user.email);
-  // On détermine la lettre de l'utilisateur connecté (G, P ou V)
   const myLetter = user && user.email ? USER_MAPPING[user.email] : null;
 
-  // 2. CHARGEMENT DES DONNÉES
+  // 2. CHARGEMENT
   useEffect(() => {
     if (!isAuthorized) return;
     const ignoreError = (err: any) => { console.log("Info: ", err.code); };
@@ -129,10 +125,8 @@ const App: React.FC = () => {
     const unsubC = onSnapshot(doc(db, 'site_config', 'main'), (d) => { if (d.exists()) setConfig(d.data() as SiteConfig); }, ignoreError);
     const unsubJ = onSnapshot(query(collection(db, 'family_journal'), orderBy('timestamp', 'desc')), (s) => setJournal(s.docs.map(d => ({ id: d.id, ...d.data() } as JournalEntry))), ignoreError);
     const unsubR = onSnapshot(collection(db, 'family_recipes'), (s) => setRecipes(s.docs.map(d => ({ id: d.id, ...d.data() } as Recipe))), ignoreError);
-    const unsubE = onSnapshot(collection(db, 'family_events'), (s) => setEvents(s.docs.map(d => ({ id: d.id, ...d.data() } as FamilyEvent))), ignoreError);
+    const unsubE = onSnapshot(query(collection(db, 'family_events'), orderBy('date', 'asc')), (s) => setEvents(s.docs.map(d => ({ id: d.id, ...d.data() } as FamilyEvent))), ignoreError);
     const unsubV = onSnapshot(query(collection(db, 'site_versions'), orderBy('date', 'desc')), (s) => setVersions(s.docs.map(d => ({ id: d.id, ...d.data() } as SiteVersion))), ignoreError);
-    
-    // NOUVEAU : On écoute les tâches
     const unsubT = onSnapshot(collection(db, 'chores_status'), (s) => {
       const status: Record<string, any> = {};
       s.docs.forEach(doc => { status[doc.id] = doc.data(); });
@@ -153,53 +147,42 @@ const App: React.FC = () => {
       if(saveHistory) await addDoc(collection(db, 'site_versions'), { name: `Sauvegarde`, date: new Date().toISOString(), config: c });
     } catch(e) { console.error(e); }
   };
-  const restoreVersion = (v: SiteVersion) => { if(confirm(`Restaurer ?`)) saveConfig(v.config, false); };
+  const restoreVersion = (v: SiteVersion) => { if(confirm(`Restaurer la version "${v.name}" ?`)) saveConfig(v.config, false); };
   const addEntry = async (col: string, data: any) => { try { await addDoc(collection(db, col), { ...data, timestamp: serverTimestamp() }); } catch(e) { alert("Erreur ajout"); } };
   const updateEntry = async (col: string, id: string, data: any) => { try { const { id: _, ...c } = data; await setDoc(doc(db, col, id), { ...c, timestamp: serverTimestamp() }, { merge: true }); alert("Sauvegardé"); } catch (e) { alert("Erreur"); } };
   const deleteItem = async (col: string, id: string) => { if(confirm("Supprimer ?")) await deleteDoc(doc(db, col, id)); };
   const unlockEdit = () => { if (password === '16.07.gabi.11') { setIsEditUnlocked(true); setPassword(''); } else alert("Code faux"); };
   
-  // NOUVEAU : Cocher une tâche
   const toggleChore = async (weekId: string, letter: string) => {
     try {
       const currentStatus = choreStatus[weekId]?.[letter] || false;
       await setDoc(doc(db, 'chores_status', weekId), { [letter]: !currentStatus }, { merge: true });
-    } catch (e) {
-      console.error("Erreur coche", e);
-    }
+    } catch (e) { console.error("Erreur coche", e); }
   };
 
   const handleArchitect = async () => { if (!aiPrompt.trim()) return; setIsAiLoading(true); const n = await askAIArchitect(aiPrompt, config); if (n) await saveConfig({...config, ...n}, true); setIsAiLoading(false); };
   const handleChat = async () => { if (!aiPrompt.trim()) return; const h = [...chatHistory, {role:'user',text:aiPrompt}]; setChatHistory(h); setAiPrompt(''); setIsAiLoading(true); const r = await askAIChat(h); setChatHistory([...h, {role:'model',text:r}]); setIsAiLoading(false); };
 
-  // --- COMPOSANT INTERNE : Case du tableau ---
-  const TaskCell = ({ weekId, letter, label }: any) => {
+  // --- SOUS-COMPOSANT TÂCHES ---
+  const TaskCell = ({ weekId, letter, label, isLocked }: any) => {
     const isDone = choreStatus[weekId]?.[letter] || false;
-    // On peut cocher SI c'est notre lettre
-    const canCheck = myLetter === letter; 
+    const canCheck = !isLocked && myLetter === letter; 
 
     return (
       <td className="p-4 text-center align-middle">
         <div className="flex flex-col items-center gap-2">
-          {/* Rond avec la lettre */}
           <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${
             isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
           }`}>
             {letter}
           </span>
-          
-          {/* Case à cocher */}
           <button 
             onClick={() => canCheck && toggleChore(weekId, letter)}
             disabled={!canCheck}
-            className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20' : ''}`}
+            className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20 cursor-not-allowed' : ''}`}
+            title={isLocked ? "Trop tôt pour cocher !" : ""}
           >
-            {isDone ? (
-              <CheckSquare className="text-green-500" size={24} />
-            ) : (
-              // Si c'est mon tour et pas fait : carré vert vide. Sinon carré gris.
-              canCheck ? <Square className="text-green-500 hover:fill-green-50" size={24} /> : <Square className="text-gray-200" size={24} />
-            )}
+            {isDone ? <CheckSquare className="text-green-500" size={24} /> : (canCheck ? <Square className="text-green-500 hover:fill-green-50" size={24} /> : <Square className="text-gray-200" size={24} />)}
           </button>
         </div>
       </td>
@@ -250,13 +233,13 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* --- VUE TÂCHES (Interactive) --- */}
+        {/* --- TÂCHES --- */}
         {currentView === 'tasks' && (
           <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8">
             <div className="text-center space-y-4">
               <h2 className="text-5xl font-cinzel font-black" style={{ color: config.primaryColor }}>TÂCHES MÉNAGÈRES</h2>
               <p className="text-gray-500 font-serif italic">
-                {myLetter ? `Bonjour ${myLetter === 'G' ? 'Gabriel' : myLetter === 'P' ? 'Pauline' : 'Valentin'}, coche tes tâches !` : "Connecte-toi avec le bon email pour cocher."}
+                {myLetter ? `Salut ${myLetter === 'G' ? 'Gabriel' : myLetter === 'P' ? 'Pauline' : 'Valentin'}, à l'attaque !` : "Connecte-toi avec ton compte perso pour participer."}
               </p>
             </div>
 
@@ -265,7 +248,7 @@ const App: React.FC = () => {
                 <table className="w-full">
                   <thead>
                     <tr className="text-left" style={{ backgroundColor: config.primaryColor + '15' }}>
-                      <th className="p-4 font-black uppercase text-xs tracking-widest text-gray-500 w-24">Date</th>
+                      <th className="p-4 font-black uppercase text-xs tracking-widest text-gray-500 w-24">Weekend</th>
                       <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Aspi Haut</th>
                       <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Aspi Bas</th>
                       <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Lav/Douche</th>
@@ -274,16 +257,22 @@ const App: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {getMonthWeekends().map((week, i) => {
-                      // Vérifie si TOUT le monde a fini pour afficher la coche verte à droite
                       const rowStatus = choreStatus[week.id] || {};
                       const isRowComplete = rowStatus.G && rowStatus.P && rowStatus.V;
+                      
+                      const now = new Date();
+                      // On peut cocher jusqu'à la fin de la semaine en cours
+                      const isLocked = week.fullDate.getTime() > (now.getTime() + 86400000 * 6); 
 
                       return (
                         <tr key={i} className={`transition-colors ${isRowComplete ? 'bg-green-50/50' : 'hover:bg-white/50'}`}>
-                          <td className="p-4 font-mono font-bold text-gray-700 whitespace-nowrap text-sm">{week.dateStr}</td>
-                          <TaskCell weekId={week.id} letter={week.haut} label="Aspi Haut" />
-                          <TaskCell weekId={week.id} letter={week.bas} label="Aspi Bas" />
-                          <TaskCell weekId={week.id} letter={week.douche} label="Lavabo" />
+                          <td className="p-4 font-mono font-bold text-gray-700 whitespace-nowrap text-sm">
+                            {week.dateStr}
+                            {isLocked && <span className="ml-2 text-xs text-gray-300">🔒</span>}
+                          </td>
+                          <TaskCell weekId={week.id} letter={week.haut} label="Aspi Haut" isLocked={isLocked} />
+                          <TaskCell weekId={week.id} letter={week.bas} label="Aspi Bas" isLocked={isLocked} />
+                          <TaskCell weekId={week.id} letter={week.douche} label="Lavabo" isLocked={isLocked} />
                           <td className="p-4 text-center">
                             {isRowComplete && <CheckCircle2 className="text-green-500 mx-auto animate-bounce" />}
                           </td>
@@ -298,6 +287,84 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* --- CALENDRIER AVEC AJOUT PUBLIC --- */}
+        {currentView === 'calendar' && (
+           <div className="max-w-3xl mx-auto space-y-10">
+             <div className="text-center">
+                <h2 className="text-5xl font-cinzel font-black" style={{ color: config.primaryColor }}>CALENDRIER</h2>
+             </div>
+
+             {/* Formulaire d'ajout rapide */}
+             <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100 flex flex-wrap gap-4 items-center justify-center">
+                <div className="flex items-center bg-gray-50 rounded-xl px-4 py-2 border border-gray-200">
+                  <CalIcon size={16} className="text-gray-400 mr-2"/>
+                  <input type="date" value={newEvent.date} onChange={e => setNewEvent({...newEvent, date: e.target.value})} className="bg-transparent outline-none text-sm text-gray-600" />
+                </div>
+                <div className="flex items-center bg-gray-50 rounded-xl px-4 py-2 border border-gray-200">
+                  <Clock size={16} className="text-gray-400 mr-2"/>
+                  <input type="time" value={newEvent.time} onChange={e => setNewEvent({...newEvent, time: e.target.value})} className="bg-transparent outline-none text-sm text-gray-600" />
+                </div>
+                <input 
+                  placeholder="Quoi de prévu ?" 
+                  value={newEvent.title} 
+                  onChange={e => setNewEvent({...newEvent, title: e.target.value})} 
+                  className="flex-1 bg-gray-50 rounded-xl px-4 py-3 border border-gray-200 outline-none text-sm min-w-[200px]"
+                />
+                <button 
+                  onClick={() => {
+                    if (newEvent.title && newEvent.date) {
+                      const fullDate = newEvent.time ? `${newEvent.date}T${newEvent.time}` : newEvent.date;
+                      addEntry('family_events', { ...newEvent, date: fullDate });
+                      setNewEvent({ title: '', date: '', time: '' });
+                    }
+                  }}
+                  className="bg-black text-white px-6 py-3 rounded-xl font-bold text-xs uppercase hover:scale-105 transition-transform flex items-center gap-2"
+                  style={{ backgroundColor: config.primaryColor }}
+                >
+                  <Plus size={16}/> Ajouter
+                </button>
+             </div>
+
+             <div className="space-y-4">
+               {events.map(ev => {
+                 const isDateWithTime = ev.date.includes('T');
+                 const dateObj = new Date(ev.date);
+                 return (
+                   <div key={ev.id} className="flex items-center gap-6 p-6 bg-white rounded-2xl shadow-sm border border-black/5 hover:shadow-md transition-shadow group">
+                     <div className="text-center w-16">
+                       <div className="font-bold text-xl leading-none" style={{color: config.primaryColor}}>
+                         {dateObj.getDate()}
+                       </div>
+                       <div className="text-[10px] uppercase font-bold text-gray-400">
+                         {dateObj.toLocaleString('fr-FR', { month: 'short' })}
+                       </div>
+                     </div>
+                     
+                     <div className="flex-1 border-l pl-6 border-gray-100">
+                       <div className="font-bold text-lg font-cinzel text-gray-800">{ev.title}</div>
+                       {(isDateWithTime || ev.time) && (
+                         <div className="text-xs text-gray-400 flex items-center mt-1">
+                           <Clock size={10} className="mr-1"/> 
+                           {ev.time || dateObj.toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'})}
+                         </div>
+                       )}
+                     </div>
+
+                     <button 
+                       onClick={() => deleteItem('family_events', ev.id)}
+                       className="opacity-0 group-hover:opacity-100 p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
+                       title="Supprimer"
+                     >
+                       <Trash2 size={16} />
+                     </button>
+                   </div>
+                 );
+               })}
+               {events.length === 0 && <div className="text-center text-gray-400 py-10 italic">Rien de prévu pour le moment...</div>}
+             </div>
+           </div>
         )}
 
         {currentView === 'journal' && (
@@ -337,17 +404,6 @@ const App: React.FC = () => {
         {currentView === 'cooking' && (
            <div className="bg-white/90 rounded-[3rem] min-h-[800px] shadow-xl overflow-hidden border border-black/5">
              {config.cookingHtml ? <iframe srcDoc={config.cookingHtml} className="w-full min-h-[800px]" /> : <div className="p-20 text-center opacity-40">Semainier non configuré</div>}
-           </div>
-        )}
-
-        {currentView === 'calendar' && (
-           <div className="max-w-3xl mx-auto space-y-6">
-             {events.map(ev => (
-               <div key={ev.id} className="flex items-center gap-6 p-6 bg-white rounded-2xl shadow-sm border border-black/5">
-                 <div className="text-center font-bold text-xl w-16" style={{color: config.primaryColor}}>{new Date(ev.date).getDate()}</div>
-                 <div className="flex-1 font-bold text-lg font-cinzel">{ev.title}</div>
-               </div>
-             ))}
            </div>
         )}
 
@@ -423,8 +479,11 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
   // États des formulaires
   const [newJ, setNewJ] = useState({ id: '', title: '', author: '', content: '', image: '' });
   const [newR, setNewR] = useState<Recipe>({ id:'', title:'', chef:'', ingredients:'', steps:'', category:'plat', image:'' });
-  const [newE, setNewE] = useState({ title: '', date: '', type: 'other' });
   
+  // États pour l'édition de l'historique
+  const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
+  const [tempVersionName, setTempVersionName] = useState('');
+
   const [localC, setLocalC] = useState(config);
   const fileRef = useRef<HTMLInputElement>(null);
   
@@ -441,6 +500,18 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Fonction pour démarrer le renommage d'une version
+  const startEditVersion = (v: any) => {
+    setEditingVersionId(v.id);
+    setTempVersionName(v.name);
+  };
+
+  // Sauvegarder le nouveau nom
+  const saveVersionName = (id: string) => {
+    upd('site_versions', id, { name: tempVersionName });
+    setEditingVersionId(null);
+  };
+
   return (
     <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[3.5rem] shadow-2xl min-h-[700px] border border-black/5">
       <div className="flex gap-2 overflow-x-auto mb-10 pb-4 no-scrollbar">
@@ -450,7 +521,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
           {id:'home', l:'ACCUEIL', i:<Home size={16}/>},
           {id:'journal', l:'JOURNAL', i:<BookHeart size={16}/>},
           {id:'recipes', l:'RECETTES', i:<ChefHat size={16}/>},
-          {id:'events', l:'AGENDA', i:<CalIcon size={16}/>},
           {id:'code', l:'CODE', i:<Code size={16}/>},
           {id:'history', l:'HISTORIQUE', i:<History size={16}/>}
         ].map(t => (
@@ -582,20 +652,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
            </div>
         </div>
       )}
-      
-      {tab === 'events' && (
-        <div className="space-y-6 animate-in fade-in">
-           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>AGENDA</h3>
-           <div className="flex gap-4">
-             <input type="date" value={newE.date} onChange={e => setNewE({...newE, date: e.target.value})} className="w-1/3 p-5 rounded-2xl border border-gray-200" />
-             <input value={newE.title} onChange={e => setNewE({...newE, title: e.target.value})} className="w-2/3 p-5 rounded-2xl border border-gray-200" placeholder="Événement" />
-           </div>
-           <button onClick={() => { if(newE.title && newE.date){ add('family_events', newE); setNewE({title:'',date:'',type:'other'}); alert('Ajouté'); } }} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Ajouter</button>
-           <div className="mt-8 space-y-2">
-             {events.map((ev:any) => <div key={ev.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl"><span className="text-sm">{new Date(ev.date).toLocaleDateString()} - {ev.title}</span><button onClick={() => del('family_events', ev.id)} className="text-red-400"><Trash2 size={16}/></button></div>)}
-           </div>
-        </div>
-      )}
 
       {tab === 'code' && (
         <div className="space-y-6 animate-in fade-in">
@@ -605,18 +661,41 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
         </div>
       )}
 
+      {/* --- HISTORIQUE AMÉLIORÉ --- */}
       {tab === 'history' && (
         <div className="space-y-6 animate-in fade-in">
            <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>RESTAURATION</h3>
-           <p className="opacity-60 text-sm">Cliquez sur une version pour restaurer le design.</p>
+           <p className="opacity-60 text-sm">Gérez vos sauvegardes de design.</p>
            <div className="space-y-3 h-96 overflow-y-auto">
              {versions.map((v: SiteVersion) => (
-               <div key={v.id} className="flex justify-between items-center p-5 bg-gray-50 rounded-2xl border border-gray-100">
-                 <div>
-                   <div className="font-bold">{v.name}</div>
-                   <div className="text-xs opacity-50">{new Date(v.date).toLocaleString()}</div>
+               <div key={v.id} className="flex justify-between items-center p-5 bg-gray-50 rounded-2xl border border-gray-100 group">
+                 <div className="flex-1">
+                   {editingVersionId === v.id ? (
+                     <div className="flex gap-2 mr-4">
+                       <input 
+                         value={tempVersionName} 
+                         onChange={e => setTempVersionName(e.target.value)}
+                         className="flex-1 p-2 rounded-lg border border-gray-300 text-sm"
+                         autoFocus
+                       />
+                       <button onClick={() => saveVersionName(v.id)} className="p-2 bg-green-100 text-green-600 rounded-lg"><Save size={16}/></button>
+                       <button onClick={() => setEditingVersionId(null)} className="p-2 bg-red-100 text-red-600 rounded-lg"><X size={16}/></button>
+                     </div>
+                   ) : (
+                     <div>
+                       <div className="font-bold flex items-center gap-2">
+                         {v.name}
+                         <button onClick={() => startEditVersion(v)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 transition-opacity"><Pencil size={12}/></button>
+                       </div>
+                       <div className="text-xs opacity-50">{new Date(v.date).toLocaleString()}</div>
+                     </div>
+                   )}
                  </div>
-                 <button onClick={() => restore(v)} className="p-3 bg-white border border-gray-200 rounded-xl hover:bg-black hover:text-white transition-colors"><RotateCcw size={18}/></button>
+                 
+                 <div className="flex gap-2">
+                   <button onClick={() => del('site_versions', v.id)} className="p-3 bg-white border border-red-100 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-colors" title="Supprimer"><Trash2 size={18}/></button>
+                   <button onClick={() => restore(v)} className="p-3 bg-white border border-gray-200 rounded-xl hover:bg-black hover:text-white transition-colors" title="Restaurer"><RotateCcw size={18}/></button>
+                 </div>
                </div>
              ))}
            </div>
