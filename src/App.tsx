@@ -200,7 +200,7 @@ const App: React.FC = () => {
     );
   };
 
-  // --- SOUS-COMPOSANT : MODALE ÉVÉNEMENT ---
+// --- MODIFICATION 2 : LA MODALE SIMPLIFIÉE ---
   const EventModal = () => (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300">
@@ -221,7 +221,7 @@ const App: React.FC = () => {
               value={newEvent.title} 
               onChange={e => setNewEvent({...newEvent, title: e.target.value})}
               className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none focus:ring-2"
-              placeholder="Anniversaire Maman..." 
+              placeholder="Anniversaire, Repas..." 
               autoFocus
               style={{ '--tw-ring-color': config.primaryColor } as any}
             />
@@ -250,7 +250,7 @@ const App: React.FC = () => {
             {newEvent.isAllDay ? <ToggleRight size={32} className="text-green-500"/> : <ToggleLeft size={32} className="text-gray-300"/>}
           </div>
 
-          {/* Heure (Saisie TEXTE libre) */}
+          {/* Heure (C'EST ICI QUE J'AI CHANGÉ POUR DU TEXTE LIBRE) */}
           {!newEvent.isAllDay && (
             <div className="animate-in slide-in-from-top-2">
               <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label>
@@ -258,7 +258,7 @@ const App: React.FC = () => {
                 type="text" 
                 value={newEvent.time} 
                 onChange={e => setNewEvent({...newEvent, time: e.target.value})}
-                placeholder="Ex: 20h00, Midi..."
+                placeholder="Ex: 20h00, Midi, Vers 19h..."
                 className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-bold text-lg"
               />
             </div>
@@ -268,18 +268,15 @@ const App: React.FC = () => {
         <button 
           onClick={() => {
             if (newEvent.title && newEvent.date) {
-              // On sauvegarde la date propre (YYYY-MM-DD) pour le tri
-              // et le texte de l'heure séparément pour l'affichage
               addEntry('family_events', { 
                 title: newEvent.title, 
-                date: newEvent.date, // Pour le tri
+                date: newEvent.date, 
                 time: newEvent.isAllDay ? null : (newEvent.time || '') 
               });
-              
               setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true });
               setIsEventModalOpen(false);
             } else {
-              alert("Il faut un titre et une date !");
+              alert("Il faut au moins un titre et une date !");
             }
           }}
           className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all"
