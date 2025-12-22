@@ -5,7 +5,8 @@ import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy,
 import { 
   Lock, Menu, X, Home, BookHeart, UtensilsCrossed, ChefHat,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
-  Image as ImageIcon, MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList
+  Image as ImageIcon, MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
+  CheckSquare, Square, CheckCircle2
 } from 'lucide-react';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -15,8 +16,10 @@ import RecipeCard from './components/RecipeCard';
 // --- SÉCURITÉ : LISTE DES INVITÉS ---
 const FAMILY_EMAILS = [
   "gabriel.frezouls@gmail.com",
-  "exemple.maman@gmail.com",
-  // Ajoute les autres ici
+  "o.frezouls@gmail.com",
+  "valentin.frezouls@gmail.com", // Ajouté pour V
+  "pauline.frezouls@gmail.com",  // Ajouté pour P
+  "eau.fraise.fille@gmail.com"
 ];
 
 const ORIGINAL_CONFIG: SiteConfig = {
@@ -26,41 +29,45 @@ const ORIGINAL_CONFIG: SiteConfig = {
   welcomeTitle: 'CHAUD DEVANT',
   welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
   welcomeImage: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
-  // AJOUT DE 'tasks' DANS LA NAVIGATION
   navigationLabels: { home: 'ACCUEIL', journal: 'JOURNAL', cooking: 'SEMAINIER', recipes: 'RECETTES', calendar: 'CALENDRIER', tasks: 'TÂCHES' },
   homeHtml: '', cookingHtml: ''
 };
 
 // --- LOGIQUE DES TÂCHES ---
-// Tableau de rotation : Gabriel, Pierre, Valentine
 const ROTATION = ['G', 'P', 'V'];
-// Date de référence : 20 Décembre 2025
+// Date de référence stricte : 20 Décembre 2025 à midi (pour éviter les décalages horaires)
 const REF_DATE = new Date('2025-12-20T12:00:00');
 
-// Fonction qui calcule les tâches pour une date donnée
+// Mapping des emails vers les lettres (pour savoir qui a le droit de cocher quoi)
+const USER_MAPPING: Record<string, string> = {
+  "gabriel.frezouls@gmail.com": "G",
+  "pauline.frezouls@gmail.com": "P",
+  "valentin.frezouls@gmail.com": "V"
+};
+
 const getChores = (date: Date) => {
-  // On trouve le samedi de la semaine donnée
   const saturday = new Date(date);
-  saturday.setDate(date.getDate() - (date.getDay() + 1) % 7); // Calage sur le dernier samedi
+  saturday.setDate(date.getDate() - (date.getDay() + 1) % 7); // Dernier samedi
+  saturday.setHours(12, 0, 0, 0); // Normalisation midi
+
+  // ID unique pour la base de données (ex: "20-12-2025")
+  const weekId = `${saturday.getDate()}-${saturday.getMonth()+1}-${saturday.getFullYear()}`;
   
-  // Nombre de semaines écoulées depuis la référence
   const diffTime = saturday.getTime() - REF_DATE.getTime();
   const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
   
-  // Modulo sécurisé pour les nombres négatifs
   const mod = (n: number, m: number) => ((n % m) + m) % m;
 
-  // Calcul des indices basé sur ta règle : 20/12/25 = G V P
-  // Semaine suivante = P G V
+  // Ordre au 20/12 (Diff 0) = G(Haut), V(Bas), P(Douche)
   return {
-    dateStr: `${saturday.getDate()}/${saturday.getMonth()+1} - ${new Date(saturday.getTime() + 86400000).getDate()}/${new Date(saturday.getTime() + 86400000).getMonth()+1}`,
-    haut: ROTATION[mod(diffWeeks, 3)],       // Index 0 -> G, puis P, puis V
-    bas: ROTATION[mod(diffWeeks + 2, 3)],    // Index 2 -> V, puis G, puis P
-    douche: ROTATION[mod(diffWeeks + 1, 3)]  // Index 1 -> P, puis V, puis G
+    id: weekId,
+    dateStr: `${saturday.getDate()}/${saturday.getMonth()+1}`,
+    haut: ROTATION[mod(diffWeeks, 3)],       
+    bas: ROTATION[mod(diffWeeks + 2, 3)],    
+    douche: ROTATION[mod(diffWeeks + 1, 3)]  
   };
 };
 
-// Génère les weekends du mois actuel
 const getMonthWeekends = () => {
   const today = new Date();
   const year = today.getFullYear();
@@ -68,7 +75,6 @@ const getMonthWeekends = () => {
   const weekends = [];
   
   const date = new Date(year, month, 1);
-  // Aller au premier samedi
   while (date.getDay() !== 6) { date.setDate(date.getDate() + 1); }
 
   while (date.getMonth() === month) {
@@ -89,13 +95,15 @@ const App: React.FC = () => {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [events, setEvents] = useState<FamilyEvent[]>([]);
   const [versions, setVersions] = useState<SiteVersion[]>([]);
+  
+  // NOUVEAU : État des tâches cochées (depuis Firebase)
+  const [choreStatus, setChoreStatus] = useState<Record<string, any>>({});
 
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isEditUnlocked, setIsEditUnlocked] = useState(false);
   const [password, setPassword] = useState('');
 
-  // IA State
   const [aiPrompt, setAiPrompt] = useState('');
   const [chatHistory, setChatHistory] = useState<{ role: string, text: string }[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -110,6 +118,8 @@ const App: React.FC = () => {
   }, []);
 
   const isAuthorized = user && user.email && FAMILY_EMAILS.includes(user.email);
+  // On détermine la lettre de l'utilisateur connecté (G, P ou V)
+  const myLetter = user && user.email ? USER_MAPPING[user.email] : null;
 
   // 2. CHARGEMENT DES DONNÉES
   useEffect(() => {
@@ -122,10 +132,17 @@ const App: React.FC = () => {
     const unsubE = onSnapshot(collection(db, 'family_events'), (s) => setEvents(s.docs.map(d => ({ id: d.id, ...d.data() } as FamilyEvent))), ignoreError);
     const unsubV = onSnapshot(query(collection(db, 'site_versions'), orderBy('date', 'desc')), (s) => setVersions(s.docs.map(d => ({ id: d.id, ...d.data() } as SiteVersion))), ignoreError);
     
-    return () => { unsubC(); unsubJ(); unsubR(); unsubE(); unsubV(); };
+    // NOUVEAU : On écoute les tâches
+    const unsubT = onSnapshot(collection(db, 'chores_status'), (s) => {
+      const status: Record<string, any> = {};
+      s.docs.forEach(doc => { status[doc.id] = doc.data(); });
+      setChoreStatus(status);
+    }, ignoreError);
+
+    return () => { unsubC(); unsubJ(); unsubR(); unsubE(); unsubV(); unsubT(); };
   }, [user]);
 
-  // ACTIONS FIREBASE
+  // ACTIONS
   const handleLogin = async () => { try { await signInWithPopup(auth, googleProvider); } catch (e) { alert("Erreur Auth"); } };
   const handleLogout = () => { signOut(auth); setIsEditUnlocked(false); setCurrentView('home'); };
   
@@ -133,102 +150,65 @@ const App: React.FC = () => {
     try {
       await setDoc(doc(db, 'site_config', 'main'), c); 
       setConfig(c);
-      if(saveHistory) {
-        await addDoc(collection(db, 'site_versions'), {
-          name: `Sauvegarde du ${new Date().toLocaleDateString()}`,
-          date: new Date().toISOString(),
-          config: c
-        });
-      }
-    } catch(e) { console.error("Erreur sauvegarde", e); alert("Erreur sauvegarde. Vérifie ta connexion."); }
+      if(saveHistory) await addDoc(collection(db, 'site_versions'), { name: `Sauvegarde`, date: new Date().toISOString(), config: c });
+    } catch(e) { console.error(e); }
   };
-
-  const restoreVersion = (v: SiteVersion) => {
-    if(confirm(`Restaurer la version "${v.name}" ?`)) saveConfig(v.config, false);
-  };
-
-  const addEntry = async (col: string, data: any) => { 
-    try {
-      await addDoc(collection(db, col), { ...data, timestamp: serverTimestamp() }); 
-    } catch(e) { console.error("Erreur ajout", e); alert("Impossible d'ajouter. Vérifie tes droits."); }
-  };
-
-  const updateEntry = async (col: string, id: string, data: any) => {
-    try {
-      const { id: _, ...cleanData } = data; 
-      await setDoc(doc(db, col, id), { ...cleanData, timestamp: serverTimestamp() }, { merge: true });
-      alert("Modifications enregistrées !");
-    } catch (e) { console.error("Erreur update", e); alert("Erreur lors de la modification."); }
-  };
-  
-  const deleteItem = async (col: string, id: string) => { 
-    if(confirm("Supprimer définitivement ?")) await deleteDoc(doc(db, col, id)); 
-  };
-
+  const restoreVersion = (v: SiteVersion) => { if(confirm(`Restaurer ?`)) saveConfig(v.config, false); };
+  const addEntry = async (col: string, data: any) => { try { await addDoc(collection(db, col), { ...data, timestamp: serverTimestamp() }); } catch(e) { alert("Erreur ajout"); } };
+  const updateEntry = async (col: string, id: string, data: any) => { try { const { id: _, ...c } = data; await setDoc(doc(db, col, id), { ...c, timestamp: serverTimestamp() }, { merge: true }); alert("Sauvegardé"); } catch (e) { alert("Erreur"); } };
+  const deleteItem = async (col: string, id: string) => { if(confirm("Supprimer ?")) await deleteDoc(doc(db, col, id)); };
   const unlockEdit = () => { if (password === '16.07.gabi.11') { setIsEditUnlocked(true); setPassword(''); } else alert("Code faux"); };
   
-  // IA
-  const handleArchitect = async () => {
-    if (!aiPrompt.trim()) return; setIsAiLoading(true);
-    const newConfig = await askAIArchitect(aiPrompt, config);
-    if (newConfig) await saveConfig({ ...config, ...newConfig }, true); 
-    else alert("L'IA n'a pas pu répondre. Vérifie ta clé.");
-    setIsAiLoading(false);
-  };
-  
-  const handleChat = async () => {
-    if (!aiPrompt.trim()) return;
-    const newH = [...chatHistory, { role: 'user', text: aiPrompt }];
-    setChatHistory(newH); setAiPrompt(''); setIsAiLoading(true);
-    const rep = await askAIChat(newH);
-    setChatHistory([...newH, { role: 'model', text: rep }]); setIsAiLoading(false);
+  // NOUVEAU : Cocher une tâche
+  const toggleChore = async (weekId: string, letter: string) => {
+    try {
+      const currentStatus = choreStatus[weekId]?.[letter] || false;
+      await setDoc(doc(db, 'chores_status', weekId), { [letter]: !currentStatus }, { merge: true });
+    } catch (e) {
+      console.error("Erreur coche", e);
+    }
   };
 
-  // --- RENDU ---
-  
-  if (isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#f5ede7]"><Loader2 className="w-12 h-12 animate-spin text-[#a85c48]"/></div>;
+  const handleArchitect = async () => { if (!aiPrompt.trim()) return; setIsAiLoading(true); const n = await askAIArchitect(aiPrompt, config); if (n) await saveConfig({...config, ...n}, true); setIsAiLoading(false); };
+  const handleChat = async () => { if (!aiPrompt.trim()) return; const h = [...chatHistory, {role:'user',text:aiPrompt}]; setChatHistory(h); setAiPrompt(''); setIsAiLoading(true); const r = await askAIChat(h); setChatHistory([...h, {role:'model',text:r}]); setIsAiLoading(false); };
 
-  if (!user) return (
-    <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-[#f5ede7]">
-      <Background color={ORIGINAL_CONFIG.primaryColor} />
-      <div className="z-10 text-center space-y-8 animate-in fade-in zoom-in duration-700">
-        <div className="mx-auto w-24 h-24 rounded-[2.5rem] flex items-center justify-center shadow-xl bg-[#a85c48]">
-          <Sparkles className="text-white" size={48} />
+  // --- COMPOSANT INTERNE : Case du tableau ---
+  const TaskCell = ({ weekId, letter, label }: any) => {
+    const isDone = choreStatus[weekId]?.[letter] || false;
+    // On peut cocher SI c'est notre lettre
+    const canCheck = myLetter === letter; 
+
+    return (
+      <td className="p-4 text-center align-middle">
+        <div className="flex flex-col items-center gap-2">
+          {/* Rond avec la lettre */}
+          <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${
+            isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+          }`}>
+            {letter}
+          </span>
+          
+          {/* Case à cocher */}
+          <button 
+            onClick={() => canCheck && toggleChore(weekId, letter)}
+            disabled={!canCheck}
+            className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20' : ''}`}
+          >
+            {isDone ? (
+              <CheckSquare className="text-green-500" size={24} />
+            ) : (
+              // Si c'est mon tour et pas fait : carré vert vide. Sinon carré gris.
+              canCheck ? <Square className="text-green-500 hover:fill-green-50" size={24} /> : <Square className="text-gray-200" size={24} />
+            )}
+          </button>
         </div>
-        <h1 className="text-4xl font-cinzel font-black tracking-widest text-[#a85c48]">CHAUD DEVANT</h1>
-        <button onClick={handleLogin} className="bg-white text-black font-black py-4 px-8 rounded-2xl shadow-xl flex items-center gap-3 hover:scale-105 transition-transform">
-          <LogIn size={24} /> CONNEXION GOOGLE
-        </button>
-      </div>
-    </div>
-  );
+      </td>
+    );
+  };
 
-  if (!isAuthorized) return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-red-50 text-center space-y-8">
-      <div className="relative">
-        <div className="absolute inset-0 bg-red-200 rounded-full animate-ping opacity-20"></div>
-        <ShieldAlert className="text-red-500 w-20 h-20 relative z-10" />
-      </div>
-      <div className="space-y-2">
-        <h2 className="text-3xl font-bold text-red-800 font-cinzel">ACCÈS RESTREINT</h2>
-        <p className="text-red-400 font-bold tracking-widest text-xs uppercase">Zone Familiale Privée</p>
-      </div>
-      <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-red-100 max-w-md w-full">
-        <p className="text-gray-600 mb-4 text-lg">Bonjour <strong>{user.displayName}</strong>,</p>
-        <p className="text-gray-500 leading-relaxed">
-          Ton email <span className="bg-red-50 text-red-600 px-2 py-1 rounded-lg font-mono text-sm font-bold">{user.email}</span> n'est pas autorisé.
-        </p>
-      </div>
-      <div className="flex gap-4 w-full max-w-md">
-        <button onClick={handleLogout} className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-white border-2 border-red-100 text-red-800 font-bold rounded-2xl hover:bg-red-50 transition-all">
-          <ArrowLeft size={20}/> Retour
-        </button>
-        <button onClick={handleLogout} className="flex-1 px-6 py-4 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 transition-all shadow-md">
-          Déconnexion
-        </button>
-      </div>
-    </div>
-  );
+  if (isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#f5ede7]"><Loader2 className="w-12 h-12 animate-spin text-[#a85c48]"/></div>;
+  if (!user) return <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-[#f5ede7]"><Background color={ORIGINAL_CONFIG.primaryColor} /><div className="z-10 text-center space-y-8 animate-in fade-in zoom-in duration-700"><div className="mx-auto w-24 h-24 rounded-[2.5rem] flex items-center justify-center shadow-xl bg-[#a85c48]"><Sparkles className="text-white" size={48} /></div><h1 className="text-4xl font-cinzel font-black tracking-widest text-[#a85c48]">CHAUD DEVANT</h1><button onClick={handleLogin} className="bg-white text-black font-black py-4 px-8 rounded-2xl shadow-xl flex items-center gap-3 hover:scale-105 transition-transform"><LogIn size={24} /> CONNEXION GOOGLE</button></div></div>;
+  if (!isAuthorized) return <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-red-50 text-center space-y-8"><ShieldAlert className="text-red-500 w-20 h-20" /><h2 className="text-3xl font-bold text-red-800 font-cinzel">ACCÈS RESTREINT</h2><button onClick={handleLogout} className="px-6 py-4 bg-red-500 text-white font-bold rounded-2xl">Déconnexion</button></div>;
 
   return (
     <div className="min-h-screen pb-24 md:pb-0 transition-colors duration-700" style={{ backgroundColor: config.backgroundColor, fontFamily: config.fontFamily }}>
@@ -270,12 +250,14 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* --- NOUVELLE VUE : TÂCHES --- */}
+        {/* --- VUE TÂCHES (Interactive) --- */}
         {currentView === 'tasks' && (
           <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8">
             <div className="text-center space-y-4">
               <h2 className="text-5xl font-cinzel font-black" style={{ color: config.primaryColor }}>TÂCHES MÉNAGÈRES</h2>
-              <p className="text-gray-500 font-serif italic">"Un pour tous, tous pour la maison !"</p>
+              <p className="text-gray-500 font-serif italic">
+                {myLetter ? `Bonjour ${myLetter === 'G' ? 'Gabriel' : myLetter === 'P' ? 'Pauline' : 'Valentin'}, coche tes tâches !` : "Connecte-toi avec le bon email pour cocher."}
+              </p>
             </div>
 
             <div className="bg-white/90 backdrop-blur-xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/50">
@@ -283,26 +265,36 @@ const App: React.FC = () => {
                 <table className="w-full">
                   <thead>
                     <tr className="text-left" style={{ backgroundColor: config.primaryColor + '15' }}>
-                      <th className="p-6 font-black uppercase text-xs tracking-widest text-gray-500">Weekend</th>
-                      <th className="p-6 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Aspirateur Haut</th>
-                      <th className="p-6 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Aspirateur Bas</th>
-                      <th className="p-6 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Lavabo / Douche</th>
+                      <th className="p-4 font-black uppercase text-xs tracking-widest text-gray-500 w-24">Date</th>
+                      <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Aspi Haut</th>
+                      <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Aspi Bas</th>
+                      <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Lav/Douche</th>
+                      <th className="p-4 w-10"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {getMonthWeekends().map((week, i) => (
-                      <tr key={i} className="hover:bg-white/50 transition-colors">
-                        <td className="p-6 font-mono font-bold text-gray-700 whitespace-nowrap">{week.dateStr}</td>
-                        <td className="p-6 text-center"><span className="inline-block w-10 h-10 rounded-full bg-orange-100 text-orange-700 font-black flex items-center justify-center shadow-sm">{week.haut}</span></td>
-                        <td className="p-6 text-center"><span className="inline-block w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-black flex items-center justify-center shadow-sm">{week.bas}</span></td>
-                        <td className="p-6 text-center"><span className="inline-block w-10 h-10 rounded-full bg-green-100 text-green-700 font-black flex items-center justify-center shadow-sm">{week.douche}</span></td>
-                      </tr>
-                    ))}
+                    {getMonthWeekends().map((week, i) => {
+                      // Vérifie si TOUT le monde a fini pour afficher la coche verte à droite
+                      const rowStatus = choreStatus[week.id] || {};
+                      const isRowComplete = rowStatus.G && rowStatus.P && rowStatus.V;
+
+                      return (
+                        <tr key={i} className={`transition-colors ${isRowComplete ? 'bg-green-50/50' : 'hover:bg-white/50'}`}>
+                          <td className="p-4 font-mono font-bold text-gray-700 whitespace-nowrap text-sm">{week.dateStr}</td>
+                          <TaskCell weekId={week.id} letter={week.haut} label="Aspi Haut" />
+                          <TaskCell weekId={week.id} letter={week.bas} label="Aspi Bas" />
+                          <TaskCell weekId={week.id} letter={week.douche} label="Lavabo" />
+                          <td className="p-4 text-center">
+                            {isRowComplete && <CheckCircle2 className="text-green-500 mx-auto animate-bounce" />}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
               <div className="p-6 bg-gray-50 text-center text-xs text-gray-400 uppercase tracking-widest border-t border-gray-100">
-                G = Gabriel • P = Papa • V = Valentine
+                G = Gabriel • P = Pauline • V = Valentin
               </div>
             </div>
           </div>
@@ -410,7 +402,7 @@ const BottomNav = ({ config, view, setView }: any) => (
     {[
       {id:'home', i:<Home size={22}/>}, 
       {id:'journal', i:<BookHeart size={22}/>},
-      {id:'tasks', i:<ClipboardList size={22}/>}, // AJOUT DU BOUTON TÂCHES
+      {id:'tasks', i:<ClipboardList size={22}/>},
       {id:'recipes', i:<ChefHat size={22}/>}, 
       {id:'edit', i:<Settings size={22}/>}
     ].map(b => <button key={b.id} onClick={() => setView(b.id)} className={`p-2 ${view === b.id ? 'text-white -translate-y-2 bg-white/20 rounded-xl' : ''}`}>{b.i}</button>)}
