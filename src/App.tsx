@@ -15,7 +15,7 @@ import RecipeCard from './components/RecipeCard';
 // --- SÉCURITÉ : LISTE DES INVITÉS ---
 const FAMILY_EMAILS = [
   "gabriel.frezouls@gmail.com",
-  "exemple.maman@gmail.com",
+  "axisman705@gmail.com",
   // Ajoute les autres emails ici
 ];
 
