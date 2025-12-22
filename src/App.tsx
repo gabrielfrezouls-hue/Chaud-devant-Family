@@ -6,7 +6,7 @@ import {
   Lock, Menu, X, Home, BookHeart, ChefHat,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
-  CheckSquare, Square, CheckCircle2, Plus, Clock, Save // <--- Ajout de Save et X (X est déjà là)
+  CheckSquare, Square, CheckCircle2, Plus, Clock, Save
 } from 'lucide-react';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -57,7 +57,7 @@ const getChores = (date: Date) => {
 
   return {
     id: weekId,
-    fullDate: saturday, // On garde la date complète pour savoir si c'est futur/passé
+    fullDate: saturday, 
     dateStr: `${saturday.getDate()}/${saturday.getMonth()+1}`,
     haut: ROTATION[mod(diffWeeks, 3)],       
     bas: ROTATION[mod(diffWeeks + 2, 3)],    
@@ -261,7 +261,6 @@ const App: React.FC = () => {
                       const isRowComplete = rowStatus.G && rowStatus.P && rowStatus.V;
                       
                       const now = new Date();
-                      // On peut cocher jusqu'à la fin de la semaine en cours
                       const isLocked = week.fullDate.getTime() > (now.getTime() + 86400000 * 6); 
 
                       return (
@@ -289,23 +288,31 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* --- CALENDRIER AVEC AJOUT PUBLIC --- */}
+        {/* --- CALENDRIER AVEC FIX BOUTON HEURE --- */}
         {currentView === 'calendar' && (
            <div className="max-w-3xl mx-auto space-y-10">
              <div className="text-center">
                 <h2 className="text-5xl font-cinzel font-black" style={{ color: config.primaryColor }}>CALENDRIER</h2>
              </div>
 
-             {/* Formulaire d'ajout rapide */}
+             {/* Formulaire d'ajout rapide CORRIGÉ */}
              <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100 flex flex-wrap gap-4 items-center justify-center">
                 <div className="flex items-center bg-gray-50 rounded-xl px-4 py-2 border border-gray-200">
                   <CalIcon size={16} className="text-gray-400 mr-2"/>
-                  <input type="date" value={newEvent.date} onChange={e => setNewEvent({...newEvent, date: e.target.value})} className="bg-transparent outline-none text-sm text-gray-600" />
+                  <input type="date" value={newEvent.date} onChange={e => setNewEvent({...newEvent, date: e.target.value})} className="bg-transparent outline-none text-sm text-gray-600 cursor-pointer" />
                 </div>
-                <div className="flex items-center bg-gray-50 rounded-xl px-4 py-2 border border-gray-200">
-                  <Clock size={16} className="text-gray-400 mr-2"/>
-                  <input type="time" value={newEvent.time} onChange={e => setNewEvent({...newEvent, time: e.target.value})} className="bg-transparent outline-none text-sm text-gray-600" />
+                
+                {/* MODIFICATION ICI : Style pour que l'input soit cliquable */}
+                <div className="flex items-center bg-gray-50 rounded-xl px-4 py-2 border border-gray-200 cursor-pointer hover:bg-gray-100 transition-colors relative">
+                  <Clock size={16} className="text-gray-400 mr-2 pointer-events-none"/> {/* L'icône ne bloque plus le clic */}
+                  <input 
+                    type="time" 
+                    value={newEvent.time} 
+                    onChange={e => setNewEvent({...newEvent, time: e.target.value})} 
+                    className="bg-transparent outline-none text-sm text-gray-600 cursor-pointer w-24" // Largeur définie
+                  />
                 </div>
+
                 <input 
                   placeholder="Quoi de prévu ?" 
                   value={newEvent.title} 
@@ -318,6 +325,8 @@ const App: React.FC = () => {
                       const fullDate = newEvent.time ? `${newEvent.date}T${newEvent.time}` : newEvent.date;
                       addEntry('family_events', { ...newEvent, date: fullDate });
                       setNewEvent({ title: '', date: '', time: '' });
+                    } else {
+                      alert("Il faut au moins une date et un titre !");
                     }
                   }}
                   className="bg-black text-white px-6 py-3 rounded-xl font-bold text-xs uppercase hover:scale-105 transition-transform flex items-center gap-2"
