@@ -1,99 +1,98 @@
-import { GoogleGenAI, Type, SchemaType } from "@google/genai";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { SiteConfig } from "../types";
 
-// Utilisation de la clé API sécurisée via Vite
+// 1. CORRECTION : On utilise la bonne variable d'environnement Vite
 const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
-
-// Initialisation de la librairie
-const ai = new GoogleGenAI({ apiKey });
+const genAI = new GoogleGenerativeAI(apiKey);
 
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
-  // Sécurité : si pas de clé, on ne fait rien
   if (!apiKey) {
-    console.error("Clé API Gemini manquante");
+    console.error("Clé API manquante");
     return null;
   }
 
   try {
-    // Configuration du modèle avec le format JSON strict
-    const model = ai.getGenerativeModel({ 
+    // 2. CORRECTION : On utilise le vrai modèle existant (1.5 Flash)
+    const model = genAI.getGenerativeModel({
       model: "gemini-1.5-flash",
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.OBJECT,
+          type: SchemaType.OBJECT,
           properties: {
-            primaryColor: { type: Type.STRING },
-            backgroundColor: { type: Type.STRING },
-            fontFamily: { type: Type.STRING },
-            welcomeTitle: { type: Type.STRING },
-            welcomeText: { type: Type.STRING },
-            welcomeImage: { type: Type.STRING },
+            primaryColor: { type: SchemaType.STRING },
+            backgroundColor: { type: SchemaType.STRING },
+            fontFamily: { type: SchemaType.STRING }, // Ajout important
+            welcomeTitle: { type: SchemaType.STRING },
+            welcomeText: { type: SchemaType.STRING },
+            welcomeImage: { type: SchemaType.STRING },
             navigationLabels: {
-              type: Type.OBJECT,
+              type: SchemaType.OBJECT,
               properties: {
-                home: { type: Type.STRING },
-                journal: { type: Type.STRING },
-                cooking: { type: Type.STRING },
-                calendar: { type: Type.STRING },
-                recipes: { type: Type.STRING } // Ajouté comme demandé
+                home: { type: SchemaType.STRING },
+                journal: { type: SchemaType.STRING },
+                cooking: { type: SchemaType.STRING },
+                calendar: { type: SchemaType.STRING },
+                recipes: { type: SchemaType.STRING }
               }
             },
-            homeHtml: { type: Type.STRING },
-            cookingHtml: { type: Type.STRING }
+            homeHtml: { type: SchemaType.STRING },
+            cookingHtml: { type: SchemaType.STRING }
           }
         }
       }
     });
 
-    // PETITE SÉCURITÉ : On retire l'image lourde pour ne pas bloquer l'envoi
-    const lightConfig = { ...currentConfig, welcomeImage: "(Image ignorée)" };
+    // 3. CORRECTION CRITIQUE : On enlève l'image lourde de la config envoyée à l'IA
+    const lightConfig = { ...currentConfig, welcomeImage: "(Image ignorée pour l'IA)" };
 
     const result = await model.generateContent(`
-      Tu es l'Architecte Visuel de l'application 'Chaud devant'.
-      Modifie l'apparence selon: "${prompt}".
+      Tu es l'Architecte Visuel de la maison 'Chaud devant'.
+      Adapte la configuration visuelle selon : "${prompt}".
       
+      CONSIGNES:
+      1. Propose des couleurs harmonieuses.
+      2. Si tu changes l'image, utilise une URL Unsplash valide.
+      3. Ne change pas 'welcomeImage' si l'utilisateur ne le demande pas explicitement.
+
       CONFIG ACTUELLE: ${JSON.stringify(lightConfig)}
-      
-      Renvoie l'objet JSON complet mis à jour.
     `);
 
     const text = result.response.text();
     if (!text) return null;
-
-    // On parse le résultat
-    const newConfig = JSON.parse(text) as SiteConfig;
     
-    // On remet l'image originale si l'IA ne l'a pas changée
-    if (newConfig.welcomeImage === "(Image ignorée)") {
+    const newConfig = JSON.parse(text) as SiteConfig;
+
+    // Si l'IA n'a pas touché à l'image, on remet l'originale
+    if (newConfig.welcomeImage === "(Image ignorée pour l'IA)") {
       newConfig.welcomeImage = currentConfig.welcomeImage;
     }
 
     return newConfig;
 
   } catch (error) {
-    console.error("Erreur Architecte:", error);
+    console.error("Erreur Architecte Gemini:", error);
     return null;
   }
 };
 
 export const askAIChat = async (history: { role: string, text: string }[]) => {
-  if (!apiKey) return "Je n'ai pas ma clé API...";
+  if (!apiKey) return "Je n'ai pas accès à ma clé API.";
 
   try {
-    const model = ai.getGenerativeModel({ 
+    const model = genAI.getGenerativeModel({ 
       model: "gemini-1.5-flash",
-      systemInstruction: "Tu es le majordome de la famille Chaud devant. Raffiné, serviable, un peu british."
+      systemInstruction: "Tu es le majordome de la famille. Raffiné et serviable."
     });
 
     const chat = model.startChat({
       history: history.map(h => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.text }] }))
     });
 
-    const result = await chat.sendMessage("Réponds à la dernière demande.");
+    const result = await chat.sendMessage("Réponds.");
     return result.response.text();
   } catch (error) {
     console.error(error);
-    return "Désolé, mes circuits sont encombrés.";
+    return "Désolé, je suis indisponible pour le moment.";
   }
 };
