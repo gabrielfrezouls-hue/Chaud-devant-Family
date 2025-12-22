@@ -5,12 +5,12 @@ import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy,
 import { 
   Lock, Menu, X, Home, BookHeart, UtensilsCrossed, ChefHat,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
-  Image as ImageIcon, MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2
+  Image as ImageIcon, MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil
 } from 'lucide-react';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
 import Background from './components/Background';
-import RecipeCard from './components/RecipeCard'; // <--- NOUVEL IMPORT ICI
+import RecipeCard from './components/RecipeCard';
 
 // --- SÉCURITÉ : LISTE DES INVITÉS ---
 const FAMILY_EMAILS = [
@@ -105,9 +105,21 @@ const App: React.FC = () => {
       await addDoc(collection(db, col), { ...data, timestamp: serverTimestamp() }); 
     } catch(e) { console.error("Erreur ajout", e); alert("Impossible d'ajouter. Vérifie tes droits."); }
   };
+
+  // NOUVELLE FONCTION : UPDATE
+  const updateEntry = async (col: string, id: string, data: any) => {
+    try {
+      const { id: _, ...cleanData } = data; 
+      await setDoc(doc(db, col, id), { ...cleanData, timestamp: serverTimestamp() }, { merge: true });
+      alert("Modifications enregistrées !");
+    } catch (e) {
+      console.error("Erreur update", e);
+      alert("Erreur lors de la modification.");
+    }
+  };
   
   const deleteItem = async (col: string, id: string) => { 
-    if(confirm("Supprimer ?")) await deleteDoc(doc(db, col, id)); 
+    if(confirm("Supprimer définitivement ?")) await deleteDoc(doc(db, col, id)); 
   };
 
   const unlockEdit = () => { if (password === '16.07.gabi.11') { setIsEditUnlocked(true); setPassword(''); } else alert("Code faux"); };
@@ -117,7 +129,7 @@ const App: React.FC = () => {
     if (!aiPrompt.trim()) return; setIsAiLoading(true);
     const newConfig = await askAIArchitect(aiPrompt, config);
     if (newConfig) await saveConfig({ ...config, ...newConfig }, true); 
-    else alert("L'IA n'a pas pu répondre. Vérifie ta clé dans GitHub Secrets.");
+    else alert("L'IA n'a pas pu répondre. Vérifie ta clé.");
     setIsAiLoading(false);
   };
   
@@ -148,7 +160,6 @@ const App: React.FC = () => {
     </div>
   );
 
-  // ÉCRAN ACCÈS INTERDIT AVEC BOUTON RETOUR
   if (!isAuthorized) return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-red-50 text-center space-y-8">
       <div className="relative">
@@ -237,14 +248,12 @@ const App: React.FC = () => {
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                {recipes.length === 0 && <p className="text-center col-span-full opacity-50">Aucune recette pour le moment.</p>}
                {recipes.map((r: any) => (
-                 // MODIFICATION ICI : On utilise ta nouvelle carte
-                 // On transforme aussi les ingrédients (string) en liste (array) pour que ça marche
                  <RecipeCard 
                     key={r.id} 
                     recipe={{
                       ...r,
                       ingredients: typeof r.ingredients === 'string' ? r.ingredients.split('\n').filter((i:string) => i.trim() !== '') : r.ingredients,
-                      instructions: r.steps || r.instructions // Compatibilité ancien/nouveau nom
+                      instructions: r.steps || r.instructions
                     }} 
                  />
                ))}
@@ -282,7 +291,10 @@ const App: React.FC = () => {
               config={config} save={saveConfig} 
               add={addEntry} 
               del={deleteItem} 
+              upd={updateEntry}
               events={events} versions={versions} restore={restoreVersion}
+              recipes={recipes}
+              journal={journal}
               arch={handleArchitect} chat={handleChat} 
               prompt={aiPrompt} setP={setAiPrompt} load={isAiLoading} hist={chatHistory} 
             />
@@ -330,11 +342,14 @@ const HomeCard = ({ icon, title, label, onClick, color }: any) => (
   </div>
 );
 
-const AdminPanel = ({ config, save, add, del, events, versions, restore, arch, chat, prompt, setP, load, hist }: any) => {
+const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, versions, restore, arch, chat, prompt, setP, load, hist }: any) => {
   const [tab, setTab] = useState('arch');
-  const [newJ, setNewJ] = useState({ title: '', author: '', content: '', image: '' });
+  
+  // États des formulaires
+  const [newJ, setNewJ] = useState({ id: '', title: '', author: '', content: '', image: '' });
   const [newR, setNewR] = useState<Recipe>({ id:'', title:'', chef:'', ingredients:'', steps:'', category:'plat', image:'' });
   const [newE, setNewE] = useState({ title: '', date: '', type: 'other' });
+  
   const [localC, setLocalC] = useState(config);
   const fileRef = useRef<HTMLInputElement>(null);
   
@@ -343,6 +358,12 @@ const AdminPanel = ({ config, save, add, del, events, versions, restore, arch, c
   const handleFile = (e: any, cb: any) => {
     const f = e.target.files[0];
     if(f) { const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(f); }
+  };
+
+  const handleEdit = (item: any, type: 'recipe' | 'journal') => {
+    if (type === 'recipe') setNewR({ ...item, steps: item.steps || item.instructions });
+    if (type === 'journal') setNewJ(item);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
@@ -397,19 +418,50 @@ const AdminPanel = ({ config, save, add, del, events, versions, restore, arch, c
 
       {tab === 'journal' && (
         <div className="space-y-6 animate-in fade-in">
-           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>NOUVEAU SOUVENIR</h3>
+           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>
+             {newJ.id ? 'MODIFIER SOUVENIR' : 'NOUVEAU SOUVENIR'}
+           </h3>
            <input value={newJ.title} onChange={e => setNewJ({...newJ, title: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Titre" />
            <input value={newJ.author} onChange={e => setNewJ({...newJ, author: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Auteur" />
            <textarea value={newJ.content} onChange={e => setNewJ({...newJ, content: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Histoire..." />
            <div onClick={() => fileRef.current?.click()} className="p-4 border-dashed border-2 rounded-2xl cursor-pointer text-center">{newJ.image ? 'Image OK' : 'Ajouter Photo'}</div>
            <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b: string) => setNewJ({...newJ, image: b}))} />
-           <button onClick={() => { if(newJ.title){ add('family_journal', {...newJ, date: new Date().toLocaleDateString()}); setNewJ({title:'',author:'',content:'',image:''}); alert('Publié !'); } }} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Publier</button>
+           
+           <div className="flex gap-2">
+             {newJ.id && <button onClick={() => setNewJ({id:'', title:'', author:'', content:'', image:''})} className="px-6 py-5 bg-gray-100 rounded-2xl font-bold text-gray-500">Annuler</button>}
+             <button onClick={() => { 
+                if(newJ.title) { 
+                  if(newJ.id) upd('family_journal', newJ.id, newJ); 
+                  else add('family_journal', {...newJ, date: new Date().toLocaleDateString()}); 
+                  setNewJ({id:'', title:'',author:'',content:'',image:''}); 
+                } 
+              }} className="flex-1 py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>
+               {newJ.id ? 'Mettre à jour' : 'Publier'}
+             </button>
+           </div>
+
+           <div className="mt-8 pt-8 border-t border-gray-100">
+             <h4 className="font-bold mb-4 opacity-50 text-xs uppercase tracking-widest">Modifier les souvenirs existants</h4>
+             <div className="space-y-2 max-h-60 overflow-y-auto">
+               {journal?.map((j: any) => (
+                 <div key={j.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl hover:bg-white border border-transparent hover:border-gray-200 transition-all">
+                   <span className="text-sm font-bold truncate w-2/3">{j.title}</span>
+                   <div className="flex gap-2">
+                     <button onClick={() => handleEdit(j, 'journal')} className="p-2 bg-blue-50 text-blue-500 rounded-lg hover:bg-blue-100"><Pencil size={14}/></button>
+                     <button onClick={() => del('family_journal', j.id)} className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100"><Trash2 size={14}/></button>
+                   </div>
+                 </div>
+               ))}
+             </div>
+           </div>
         </div>
       )}
 
       {tab === 'recipes' && (
         <div className="space-y-6 animate-in fade-in">
-           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>NOUVELLE RECETTE</h3>
+           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>
+             {newR.id ? 'MODIFIER RECETTE' : 'NOUVELLE RECETTE'}
+           </h3>
            <input value={newR.title} onChange={e => setNewR({...newR, title: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Nom du plat" />
            <div className="flex gap-4">
              <input value={newR.chef} onChange={e => setNewR({...newR, chef: e.target.value})} className="flex-1 p-5 rounded-2xl border border-gray-200" placeholder="Chef" />
@@ -417,11 +469,42 @@ const AdminPanel = ({ config, save, add, del, events, versions, restore, arch, c
                <option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option>
              </select>
            </div>
-           <textarea value={newR.ingredients} onChange={e => setNewR({...newR, ingredients: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Ingrédients (un par ligne)" />
-           <textarea value={newR.steps} onChange={e => setNewR({...newR, steps: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Étapes de préparation" />
+           <textarea value={Array.isArray(newR.ingredients) ? newR.ingredients.join('\n') : newR.ingredients} onChange={e => setNewR({...newR, ingredients: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Ingrédients (un par ligne)" />
+           <textarea value={newR.steps || newR.instructions || ''} onChange={e => setNewR({...newR, steps: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Étapes de préparation" />
            <div onClick={() => fileRef.current?.click()} className="p-4 border-dashed border-2 rounded-2xl cursor-pointer text-center">{newR.image ? 'Photo OK' : 'Photo du plat'}</div>
            <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b: string) => setNewR({...newR, image: b}))} />
-           <button onClick={() => { if(newR.title){ add('family_recipes', newR); setNewR({id:'', title:'', chef:'', ingredients:'', steps:'', category:'plat', image:''}); alert('Recette ajoutée !'); } }} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Ajouter la recette</button>
+           
+           <div className="flex gap-2">
+             {newR.id && <button onClick={() => setNewR({id:'', title:'', chef:'', ingredients:'', steps:'', category:'plat', image:''})} className="px-6 py-5 bg-gray-100 rounded-2xl font-bold text-gray-500">Annuler</button>}
+             <button onClick={() => { 
+               if(newR.title){ 
+                 const recipeData = {...newR};
+                 if(newR.id) upd('family_recipes', newR.id, recipeData);
+                 else add('family_recipes', recipeData);
+                 setNewR({id:'', title:'', chef:'', ingredients:'', steps:'', category:'plat', image:''}); 
+               } 
+             }} className="flex-1 py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>
+               {newR.id ? 'Enregistrer' : 'Ajouter la recette'}
+             </button>
+           </div>
+
+           <div className="mt-8 pt-8 border-t border-gray-100">
+             <h4 className="font-bold mb-4 opacity-50 text-xs uppercase tracking-widest">Modifier les recettes existantes</h4>
+             <div className="space-y-2 max-h-60 overflow-y-auto">
+               {recipes?.map((r: any) => (
+                 <div key={r.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl hover:bg-white border border-transparent hover:border-gray-200 transition-all">
+                   <div className="flex items-center gap-3 overflow-hidden">
+                      {r.image && <img src={r.image} className="w-8 h-8 rounded-full object-cover"/>}
+                      <span className="text-sm font-bold truncate">{r.title}</span>
+                   </div>
+                   <div className="flex gap-2">
+                     <button onClick={() => handleEdit(r, 'recipe')} className="p-2 bg-blue-50 text-blue-500 rounded-lg hover:bg-blue-100" title="Modifier"><Pencil size={14}/></button>
+                     <button onClick={() => del('family_recipes', r.id)} className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100" title="Supprimer"><Trash2 size={14}/></button>
+                   </div>
+                 </div>
+               ))}
+             </div>
+           </div>
         </div>
       )}
       
