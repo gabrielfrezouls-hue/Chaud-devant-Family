@@ -17,8 +17,9 @@ import RecipeCard from './components/RecipeCard';
 const FAMILY_EMAILS = [
   "gabriel.frezouls@gmail.com",
   "o.frezouls@gmail.com",
+  "eau.fraise.fils@gmail.com",
   "valentin.frezouls@gmail.com", 
-  "pauline.frezouls@gmail.com",  
+  "frezouls.pauline@gmail.com",  
   "eau.fraise.fille@gmail.com"
 ];
 
