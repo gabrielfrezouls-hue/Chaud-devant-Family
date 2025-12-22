@@ -38,8 +38,9 @@ export interface SiteConfig {
     home: string;
     journal: string;
     cooking: string;
-    recipes: string; // Nouveau
+    recipes: string;
     calendar: string;
+    tasks?: string; // NOUVEAU
   };
   homeHtml: string;
   cookingHtml: string;
