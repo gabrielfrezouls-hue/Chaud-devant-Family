@@ -93,9 +93,9 @@ const App: React.FC = () => {
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [newEvent, setNewEvent] = useState({ 
     title: '', 
-    date: new Date().toISOString().split('T')[0], // Date d'aujourd'hui par défaut
+    date: new Date().toISOString().split('T')[0],
     time: '', 
-    isAllDay: true // "Toute la journée" par défaut
+    isAllDay: true 
   });
 
   const [currentView, setCurrentView] = useState<ViewType>('home');
@@ -241,16 +241,22 @@ const App: React.FC = () => {
             {newEvent.isAllDay ? <ToggleRight size={32} className="text-green-500"/> : <ToggleLeft size={32} className="text-gray-300"/>}
           </div>
 
-          {/* Heure (Si pas toute la journée) */}
+          {/* Heure (Saisie Standard - Correction demandée) */}
           {!newEvent.isAllDay && (
             <div className="animate-in slide-in-from-top-2">
               <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label>
-              <input 
-                type="time"
-                value={newEvent.time} 
-                onChange={e => setNewEvent({...newEvent, time: e.target.value})}
-                className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-mono text-lg"
-              />
+              <div className="relative">
+                <input 
+                  type="time"
+                  value={newEvent.time} 
+                  onChange={e => setNewEvent({...newEvent, time: e.target.value})}
+                  className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-mono text-lg"
+                />
+                {/* Icône décorative (ne gêne pas le clic) */}
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-300">
+                  <Clock size={20} />
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -258,13 +264,11 @@ const App: React.FC = () => {
         <button 
           onClick={() => {
             if (newEvent.title && newEvent.date) {
-              // Si toute la journée, on sauvegarde juste la date. Sinon Date + T + Heure
               const finalDate = newEvent.isAllDay ? newEvent.date : `${newEvent.date}T${newEvent.time || '00:00'}`;
               
               addEntry('family_events', { 
                 title: newEvent.title, 
                 date: finalDate,
-                // On garde l'heure séparée aussi pour l'affichage facile
                 time: newEvent.isAllDay ? null : (newEvent.time || '00:00') 
               });
               
