@@ -6,7 +6,7 @@ import {
   Lock, Menu, X, Home, BookHeart, ChefHat,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
-  CheckSquare, Square, CheckCircle2, Plus, Clock, Save
+  CheckSquare, Square, CheckCircle2, Plus, Clock, Save, ToggleLeft, ToggleRight
 } from 'lucide-react';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -37,7 +37,6 @@ const ORIGINAL_CONFIG: SiteConfig = {
 const ROTATION = ['G', 'P', 'V'];
 const REF_DATE = new Date('2025-12-20T12:00:00'); // Date pivot
 
-// Mapping des emails vers les lettres
 const USER_MAPPING: Record<string, string> = {
   "gabriel.frezouls@gmail.com": "G",
   "pauline.frezouls@gmail.com": "P",
@@ -46,11 +45,10 @@ const USER_MAPPING: Record<string, string> = {
 
 const getChores = (date: Date) => {
   const saturday = new Date(date);
-  saturday.setDate(date.getDate() - (date.getDay() + 1) % 7); // Dernier samedi
+  saturday.setDate(date.getDate() - (date.getDay() + 1) % 7);
   saturday.setHours(12, 0, 0, 0);
 
   const weekId = `${saturday.getDate()}-${saturday.getMonth()+1}-${saturday.getFullYear()}`;
-  
   const diffTime = saturday.getTime() - REF_DATE.getTime();
   const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
   const mod = (n: number, m: number) => ((n % m) + m) % m;
@@ -70,10 +68,8 @@ const getMonthWeekends = () => {
   const year = today.getFullYear();
   const month = today.getMonth();
   const weekends = [];
-  
   const date = new Date(year, month, 1);
   while (date.getDay() !== 6) { date.setDate(date.getDate() + 1); }
-
   while (date.getMonth() === month) {
     weekends.push(getChores(new Date(date)));
     date.setDate(date.getDate() + 7);
@@ -93,8 +89,14 @@ const App: React.FC = () => {
   const [versions, setVersions] = useState<SiteVersion[]>([]);
   const [choreStatus, setChoreStatus] = useState<Record<string, any>>({});
 
-  // État Agenda (Public maintenant)
-  const [newEvent, setNewEvent] = useState({ title: '', date: '', time: '' });
+  // État Agenda (Popup)
+  const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+  const [newEvent, setNewEvent] = useState({ 
+    title: '', 
+    date: new Date().toISOString().split('T')[0], // Date d'aujourd'hui par défaut
+    time: '', 
+    isAllDay: true // "Toute la journée" par défaut
+  });
 
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -188,6 +190,98 @@ const App: React.FC = () => {
       </td>
     );
   };
+
+  // --- SOUS-COMPOSANT : MODALE ÉVÉNEMENT ---
+  const EventModal = () => (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300">
+        <button onClick={() => setIsEventModalOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
+        
+        <div className="text-center space-y-2">
+          <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4">
+            <CalIcon size={32} style={{ color: config.primaryColor }} />
+          </div>
+          <h3 className="text-2xl font-cinzel font-bold">Nouvel Événement</h3>
+        </div>
+
+        <div className="space-y-4">
+          {/* Titre */}
+          <div>
+            <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quoi ?</label>
+            <input 
+              value={newEvent.title} 
+              onChange={e => setNewEvent({...newEvent, title: e.target.value})}
+              className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none focus:ring-2"
+              placeholder="Anniversaire Maman..." 
+              autoFocus
+              style={{ '--tw-ring-color': config.primaryColor } as any}
+            />
+          </div>
+
+          {/* Date */}
+          <div>
+            <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quand ?</label>
+            <input 
+              type="date"
+              value={newEvent.date} 
+              onChange={e => setNewEvent({...newEvent, date: e.target.value})}
+              className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"
+            />
+          </div>
+
+          {/* Toggle Toute la journée */}
+          <div 
+            onClick={() => setNewEvent({...newEvent, isAllDay: !newEvent.isAllDay})}
+            className="flex items-center justify-between p-4 rounded-xl border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <Clock size={20} className={newEvent.isAllDay ? "text-gray-300" : "text-black"} />
+              <span className="font-bold text-sm">Toute la journée</span>
+            </div>
+            {newEvent.isAllDay ? <ToggleRight size={32} className="text-green-500"/> : <ToggleLeft size={32} className="text-gray-300"/>}
+          </div>
+
+          {/* Heure (Si pas toute la journée) */}
+          {!newEvent.isAllDay && (
+            <div className="animate-in slide-in-from-top-2">
+              <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label>
+              <input 
+                type="time"
+                value={newEvent.time} 
+                onChange={e => setNewEvent({...newEvent, time: e.target.value})}
+                className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-mono text-lg"
+              />
+            </div>
+          )}
+        </div>
+
+        <button 
+          onClick={() => {
+            if (newEvent.title && newEvent.date) {
+              // Si toute la journée, on sauvegarde juste la date. Sinon Date + T + Heure
+              const finalDate = newEvent.isAllDay ? newEvent.date : `${newEvent.date}T${newEvent.time || '00:00'}`;
+              
+              addEntry('family_events', { 
+                title: newEvent.title, 
+                date: finalDate,
+                // On garde l'heure séparée aussi pour l'affichage facile
+                time: newEvent.isAllDay ? null : (newEvent.time || '00:00') 
+              });
+              
+              setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true });
+              setIsEventModalOpen(false);
+            } else {
+              alert("Il faut un titre et une date !");
+            }
+          }}
+          className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all"
+          style={{ backgroundColor: config.primaryColor }}
+        >
+          Ajouter au calendrier
+        </button>
+      </div>
+    </div>
+  );
 
   if (isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#f5ede7]"><Loader2 className="w-12 h-12 animate-spin text-[#a85c48]"/></div>;
   if (!user) return <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-[#f5ede7]"><Background color={ORIGINAL_CONFIG.primaryColor} /><div className="z-10 text-center space-y-8 animate-in fade-in zoom-in duration-700"><div className="mx-auto w-24 h-24 rounded-[2.5rem] flex items-center justify-center shadow-xl bg-[#a85c48]"><Sparkles className="text-white" size={48} /></div><h1 className="text-4xl font-cinzel font-black tracking-widest text-[#a85c48]">CHAUD DEVANT</h1><button onClick={handleLogin} className="bg-white text-black font-black py-4 px-8 rounded-2xl shadow-xl flex items-center gap-3 hover:scale-105 transition-transform"><LogIn size={24} /> CONNEXION GOOGLE</button></div></div>;
@@ -288,53 +382,24 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* --- CALENDRIER AVEC FIX BOUTON HEURE --- */}
+        {/* --- CALENDRIER AVEC MODALE --- */}
         {currentView === 'calendar' && (
            <div className="max-w-3xl mx-auto space-y-10">
-             <div className="text-center">
+             
+             {/* Titre et Bouton Ajout */}
+             <div className="flex flex-col items-center gap-6">
                 <h2 className="text-5xl font-cinzel font-black" style={{ color: config.primaryColor }}>CALENDRIER</h2>
-             </div>
-
-             {/* Formulaire d'ajout rapide CORRIGÉ */}
-             <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100 flex flex-wrap gap-4 items-center justify-center">
-                <div className="flex items-center bg-gray-50 rounded-xl px-4 py-2 border border-gray-200">
-                  <CalIcon size={16} className="text-gray-400 mr-2"/>
-                  <input type="date" value={newEvent.date} onChange={e => setNewEvent({...newEvent, date: e.target.value})} className="bg-transparent outline-none text-sm text-gray-600 cursor-pointer" />
-                </div>
-                
-                {/* MODIFICATION ICI : Style pour que l'input soit cliquable */}
-                <div className="flex items-center bg-gray-50 rounded-xl px-4 py-2 border border-gray-200 cursor-pointer hover:bg-gray-100 transition-colors relative">
-                  <Clock size={16} className="text-gray-400 mr-2 pointer-events-none"/> {/* L'icône ne bloque plus le clic */}
-                  <input 
-                    type="time" 
-                    value={newEvent.time} 
-                    onChange={e => setNewEvent({...newEvent, time: e.target.value})} 
-                    className="bg-transparent outline-none text-sm text-gray-600 cursor-pointer w-24" // Largeur définie
-                  />
-                </div>
-
-                <input 
-                  placeholder="Quoi de prévu ?" 
-                  value={newEvent.title} 
-                  onChange={e => setNewEvent({...newEvent, title: e.target.value})} 
-                  className="flex-1 bg-gray-50 rounded-xl px-4 py-3 border border-gray-200 outline-none text-sm min-w-[200px]"
-                />
                 <button 
-                  onClick={() => {
-                    if (newEvent.title && newEvent.date) {
-                      const fullDate = newEvent.time ? `${newEvent.date}T${newEvent.time}` : newEvent.date;
-                      addEntry('family_events', { ...newEvent, date: fullDate });
-                      setNewEvent({ title: '', date: '', time: '' });
-                    } else {
-                      alert("Il faut au moins une date et un titre !");
-                    }
-                  }}
-                  className="bg-black text-white px-6 py-3 rounded-xl font-bold text-xs uppercase hover:scale-105 transition-transform flex items-center gap-2"
+                  onClick={() => setIsEventModalOpen(true)}
+                  className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl"
                   style={{ backgroundColor: config.primaryColor }}
                 >
-                  <Plus size={16}/> Ajouter
+                  <Plus size={20}/> Ajouter un événement
                 </button>
              </div>
+
+             {/* Modale d'ajout */}
+             {isEventModalOpen && <EventModal />}
 
              <div className="space-y-4">
                {events.map(ev => {
