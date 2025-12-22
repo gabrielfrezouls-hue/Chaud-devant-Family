@@ -1,6 +1,6 @@
 import { SiteConfig } from "../types";
 
-// ✅ Configuration validée : On utilise Gemini 3 et la méthode import.meta
+// ✅ Configuration validée : Gemini 3 + import.meta
 const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
 const MODEL_NAME = "gemini-3-flash-preview"; 
 
@@ -39,13 +39,13 @@ async function callGeminiAPI(payload: any) {
 // --- 1. L'ARCHITECTE (Avec protection du HTML) ---
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
   // SÉCURITÉ & PROTECTION : 
-  // 1. On ignore l'image (trop lourd)
-  // 2. On ignore les codes HTML (pour éviter que l'IA ne les casse ou les supprime)
+  // On remplace les données lourdes ou sensibles par des textes simples
+  // pour que l'IA ne les lise pas et ne les modifie pas par erreur.
   const protectedConfig = { 
     ...currentConfig, 
     welcomeImage: "(Image ignorée)",
-    homeHtml: "(Code protégé - Ne pas modifier)",    // <--- PROTECTION
-    cookingHtml: "(Code protégé - Ne pas modifier)" // <--- PROTECTION
+    homeHtml: "(Code HTML protégé - Ne pas modifier)",    // <--- PROTECTION 1
+    cookingHtml: "(Code HTML protégé - Ne pas modifier)"  // <--- PROTECTION 2
   };
 
   const requestBody = {
@@ -75,11 +75,14 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
 
     // RESTAURATION DES DONNÉES PROTÉGÉES
     // On remet les vraies valeurs originales à la place des placeholders
+    // Si l'IA a touché à l'image, on la remet aussi
     if (newConfig.welcomeImage === "(Image ignorée)") {
         newConfig.welcomeImage = currentConfig.welcomeImage;
     }
-    newConfig.homeHtml = currentConfig.homeHtml;       // <--- RESTAURATION
-    newConfig.cookingHtml = currentConfig.cookingHtml; // <--- RESTAURATION
+    
+    // On force la remise des codes HTML originaux, quoi qu'il arrive
+    newConfig.homeHtml = currentConfig.homeHtml;       // <--- RESTAURATION 1
+    newConfig.cookingHtml = currentConfig.cookingHtml; // <--- RESTAURATION 2
 
     return newConfig;
   } catch (e) {
@@ -88,7 +91,7 @@ export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) 
   }
 };
 
-// --- 2. LE MAJORDOME (Indispensable pour corriger ton erreur) ---
+// --- 2. LE MAJORDOME (Nécessaire pour le chat) ---
 export const askAIChat = async (history: { role: string, text: string }[]) => {
   return await callGeminiAPI({
     contents: history.map(h => ({
