@@ -10,6 +10,7 @@ import {
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
 import Background from './components/Background';
+import RecipeCard from './components/RecipeCard'; // <--- NOUVEL IMPORT ICI
 
 // --- SÉCURITÉ : LISTE DES INVITÉS ---
 const FAMILY_EMAILS = [
@@ -235,14 +236,17 @@ const App: React.FC = () => {
              <h2 className="text-5xl font-cinzel font-black text-center" style={{ color: config.primaryColor }}>RECETTES</h2>
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                {recipes.length === 0 && <p className="text-center col-span-full opacity-50">Aucune recette pour le moment.</p>}
-               {recipes.map(r => (
-                 <div key={r.id} className="bg-white/90 rounded-[2rem] p-6 shadow-xl border border-black/5 hover:scale-105 transition-transform cursor-pointer">
-                   {r.image && <img src={r.image} className="w-full h-48 object-cover rounded-xl mb-4" />}
-                   <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 bg-black/5 rounded-lg">{r.category}</span>
-                   <h3 className="text-2xl font-cinzel font-bold mt-2">{r.title}</h3>
-                   <p className="text-xs opacity-50 mb-4">Chef : {r.chef}</p>
-                   <div className="text-sm opacity-80 line-clamp-3 whitespace-pre-line">{r.ingredients}</div>
-                 </div>
+               {recipes.map((r: any) => (
+                 // MODIFICATION ICI : On utilise ta nouvelle carte
+                 // On transforme aussi les ingrédients (string) en liste (array) pour que ça marche
+                 <RecipeCard 
+                    key={r.id} 
+                    recipe={{
+                      ...r,
+                      ingredients: typeof r.ingredients === 'string' ? r.ingredients.split('\n').filter((i:string) => i.trim() !== '') : r.ingredients,
+                      instructions: r.steps || r.instructions // Compatibilité ancien/nouveau nom
+                    }} 
+                 />
                ))}
              </div>
           </div>
@@ -276,8 +280,8 @@ const App: React.FC = () => {
           ) : (
             <AdminPanel 
               config={config} save={saveConfig} 
-              add={addEntry} // CORRECTION MAJEURE ICI
-              del={deleteItem} // CORRECTION MAJEURE ICI
+              add={addEntry} 
+              del={deleteItem} 
               events={events} versions={versions} restore={restoreVersion}
               arch={handleArchitect} chat={handleChat} 
               prompt={aiPrompt} setP={setAiPrompt} load={isAiLoading} hist={chatHistory} 
