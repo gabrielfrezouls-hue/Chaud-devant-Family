@@ -26,7 +26,7 @@ const FAMILY_EMAILS = [
 
 const ORIGINAL_CONFIG: SiteConfig = {
   primaryColor: '#a85c48',
-  backgroundColor: '#f5ede7', // Retour au beige
+  backgroundColor: '#f5ede7',
   fontFamily: 'Inter',
   welcomeTitle: 'CHAUD DEVANT',
   welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
@@ -79,7 +79,7 @@ const getMonthWeekends = () => {
   return weekends;
 };
 
-// --- COMPOSANTS EXTRAITS (IMPORTANT POUR ÉVITER LE BUG D'ÉCRAN VIDE) ---
+// --- COMPOSANTS INDÉPENDANTS ---
 
 const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, myLetter }: any) => {
   const isDone = choreStatus[weekId]?.[letter] || false;
@@ -209,7 +209,6 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
           </div>
           <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
 
-          {/* BOUTON ENREGISTRER - EN HAUT */}
           <button onClick={() => { 
               if(currentRecipe.title) {
                   const recipeToSave = { ...currentRecipe };
@@ -295,17 +294,17 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
             if (!dateRange.start || !dateRange.end) { setGoldenOutput("Erreur: Dates manquantes"); return; }
             const relevantEntries = journal.filter((j: any) => true); 
             const context = relevantEntries.map((j:any) => `Date: ${j.date}\nAuteur: ${j.author}\nTitre: ${j.title}\nContenu: ${j.content}`).join('\n\n');
-            userPrompt = `Tu es un écrivain familial. Voici les souvenirs de la famille entre le ${dateRange.start} et le ${dateRange.end}. Rédige une chronique chaleureuse et émouvante qui résume ces moments comme un chapitre de livre.\n\nSOURCE:\n${context}`;
+            userPrompt = `Tu es un écrivain familial. Voici les souvenirs de la famille entre le ${dateRange.start} et le ${dateRange.end}. Rédige une chronique chaleureuse et émouvante.\n\nSOURCE:\n${context}`;
         } else {
             if (selectedRecipes.length === 0) { setGoldenOutput("Erreur: Aucune recette sélectionnée"); return; }
             const selected = recipes.filter((r:any) => selectedRecipes.includes(r.id));
             const context = selected.map((r:any) => `Titre: ${r.title}\nChef: ${r.chef}\nIngrédients: ${r.ingredients}\nPréparation: ${r.steps}`).join('\n\n---RECETTE SUIVANTE---\n\n');
-            userPrompt = `Tu es un éditeur culinaire. Voici une sélection de recettes de famille. Crée la structure textuelle d'un livre de cuisine : une belle introduction générale, un sommaire, puis pour chaque recette, une mise en page soignée et appétissante.\n\nRECETTES:\n${context}`;
+            userPrompt = `Tu es un éditeur culinaire. Crée la structure d'un livre de cuisine avec introduction et sommaire pour ces recettes :\n\n${context}`;
         }
         const result = await askAIChat([{ role: 'user', text: userPrompt }]);
         setGoldenOutput(result);
     } catch (e) {
-        setGoldenOutput("Erreur lors de la génération. Vérifiez que la clé API est bien configurée dans geminiService.ts");
+        setGoldenOutput("Erreur lors de la génération. Vérifiez la clé API.");
     }
   };
 
@@ -332,7 +331,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
         </div>
       )}
 
-      {/* --- ONGLETS JOURNAL D'OR --- */}
+      {/* --- ONGLETS JOURNAL D'OR (CORRIGÉ AVEC BORDURE VISIBLE) --- */}
       {tab === 'gold' && (
         <div className="space-y-6 animate-in fade-in">
             <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>JOURNAL D'OR</h3>
@@ -361,11 +360,20 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
                 <div className="space-y-4">
                     <div className="h-48 overflow-y-auto border border-gray-100 rounded-2xl p-2 space-y-1">
                         {recipes.map((r: any) => (
-                            <div key={r.id} onClick={() => {
-                                if (selectedRecipes.includes(r.id)) setSelectedRecipes(selectedRecipes.filter(id => id !== r.id));
-                                else setSelectedRecipes([...selectedRecipes, r.id]);
-                            }} className={`p-3 rounded-xl cursor-pointer flex items-center gap-3 transition-colors ${selectedRecipes.includes(r.id) ? 'bg-amber-50 border-amber-200' : 'hover:bg-gray-50'}`}>
-                                <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${selectedRecipes.includes(r.id) ? 'bg-amber-50 border-amber-500' : 'border-gray-300'}`}>
+                            <div 
+                                key={r.id} 
+                                onClick={() => {
+                                    if (selectedRecipes.includes(r.id)) setSelectedRecipes(selectedRecipes.filter(id => id !== r.id));
+                                    else setSelectedRecipes([...selectedRecipes, r.id]);
+                                }} 
+                                // CORRECTION ICI : AJOUT DE "border-2" et "border-orange-500" pour que ça se voie
+                                className={`p-3 rounded-xl cursor-pointer flex items-center gap-3 transition-all border-2 ${
+                                    selectedRecipes.includes(r.id) 
+                                    ? 'bg-orange-50 border-[#a85c48]' 
+                                    : 'border-transparent hover:bg-white/50'
+                                }`}
+                            >
+                                <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${selectedRecipes.includes(r.id) ? 'bg-[#a85c48] border-[#a85c48]' : 'border-gray-300'}`}>
                                     {selectedRecipes.includes(r.id) && <CheckSquare size={12} className="text-white"/>}
                                 </div>
                                 <span className="text-sm font-bold">{r.title}</span>
@@ -706,7 +714,7 @@ const App: React.FC = () => {
            </div>
         )}
 
-        {/* --- JOURNAL AVEC MODALE ET ÉDITION --- */}
+        {/* --- JOURNAL --- */}
         {currentView === 'journal' && (
           <div className="space-y-10">
              <div className="flex flex-col items-center gap-6">
