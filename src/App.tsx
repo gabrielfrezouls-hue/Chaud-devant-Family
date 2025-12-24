@@ -21,7 +21,7 @@ const FAMILY_EMAILS = [
   "valentin.frezouls@gmail.com", 
   "frezouls.pauline@gmail.com",
   "eau.fraise.fille@gmail.com",
-  "m.camillini57@gmail.com" // Ajouté
+  "m.camillini57@gmail.com"
 ];
 
 const ORIGINAL_CONFIG: SiteConfig = {
@@ -125,7 +125,6 @@ const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }
   );
 };
 
-// --- NOUVELLE MODALE JOURNAL ---
 const JournalModal = ({ isOpen, onClose, config, currentJournal, setCurrentJournal, updateEntry, addEntry }: any) => {
   const fileRef = useRef<HTMLInputElement>(null);
   
@@ -178,8 +177,14 @@ const JournalModal = ({ isOpen, onClose, config, currentJournal, setCurrentJourn
 
 const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe, updateEntry, addEntry }: any) => {
   const fileRef = useRef<HTMLInputElement>(null);
-  const handleFile = (e: any, callback: any) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload = () => callback(r.result); r.readAsDataURL(f); }};
+  
+  const handleFile = (e: any, callback: any) => {
+    const f = e.target.files[0];
+    if(f) { const r = new FileReader(); r.onload = () => callback(r.result); r.readAsDataURL(f); }
+  };
+
   if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
@@ -188,19 +193,23 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
           <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><ChefHat size={32} style={{ color: config.primaryColor }} /></div>
           <h3 className="text-2xl font-cinzel font-bold">{currentRecipe.id ? 'Modifier la Recette' : 'Nouvelle Recette'}</h3>
         </div>
+        
         <div className="space-y-4">
           <input value={currentRecipe.title} onChange={e => setCurrentRecipe({...currentRecipe, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Nom du plat (ex: Gratin Dauphinois)" autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} />
+          
           <div className="flex gap-4">
              <input value={currentRecipe.chef} onChange={e => setCurrentRecipe({...currentRecipe, chef: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Chef (ex: Papa)" />
              <select value={currentRecipe.category} onChange={e => setCurrentRecipe({...currentRecipe, category: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
                <option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option>
              </select>
           </div>
+
           <div onClick={() => fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">
             {currentRecipe.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}
           </div>
           <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
-          
+
+          {/* BOUTON ENREGISTRER - EN HAUT */}
           <button onClick={() => { 
               if(currentRecipe.title) {
                   const recipeToSave = { ...currentRecipe };
@@ -217,6 +226,7 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
             <textarea value={currentRecipe.steps} onChange={e => setCurrentRecipe({...currentRecipe, steps: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Étapes de préparation..." />
           </div>
         </div>
+        
         <div className="h-10"></div>
       </div>
     </div>
@@ -240,7 +250,7 @@ const App: React.FC = () => {
   // États Modales
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false); 
-  const [isJournalModalOpen, setIsJournalModalOpen] = useState(false); // Nouvelle modale Journal
+  const [isJournalModalOpen, setIsJournalModalOpen] = useState(false); 
 
   // Formulaires
   const [newEvent, setNewEvent] = useState({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true });
@@ -348,6 +358,204 @@ const App: React.FC = () => {
   const handleArchitect = async () => { if (!aiPrompt.trim()) return; setIsAiLoading(true); const n = await askAIArchitect(aiPrompt, config); if (n) await saveConfig({...config, ...n}, true); setIsAiLoading(false); };
   const handleChat = async () => { if (!aiPrompt.trim()) return; const h = [...chatHistory, {role:'user',text:aiPrompt}]; setChatHistory(h); setAiPrompt(''); setIsAiLoading(true); const r = await askAIChat(h); setChatHistory([...h, {role:'model',text:r}]); setIsAiLoading(false); };
 
+  // --- NOUVELLE FONCTION JOURNAL D'OR ---
+  const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, versions, restore, arch, chat, prompt, setP, load, hist }: any) => {
+    const [tab, setTab] = useState('arch');
+    const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
+    const [tempVersionName, setTempVersionName] = useState('');
+    const [localC, setLocalC] = useState(config);
+    const [goldenTab, setGoldenTab] = useState<'journal' | 'recipes'>('journal');
+    const [dateRange, setDateRange] = useState({ start: '', end: '' });
+    const [selectedRecipes, setSelectedRecipes] = useState<string[]>([]);
+    const [goldenOutput, setGoldenOutput] = useState('');
+    
+    useEffect(() => { setLocalC(config); }, [config]);
+    const fileRef = useRef<HTMLInputElement>(null);
+    const handleFile = (e: any, cb: any) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(f); }};
+    const startEditVersion = (v: any) => { setEditingVersionId(v.id); setTempVersionName(v.name); };
+    const saveVersionName = (id: string) => { upd('site_versions', id, { name: tempVersionName }); setEditingVersionId(null); };
+
+    const generateGolden = async () => {
+        setGoldenOutput("Génération en cours avec l'IA... (Patientez)");
+        try {
+            let userPrompt = "";
+            if (goldenTab === 'journal') {
+                if (!dateRange.start || !dateRange.end) { setGoldenOutput("Erreur: Dates manquantes"); return; }
+                
+                // Filtrer (très basique sur string, améliorable avec timestamp)
+                const relevantEntries = journal.filter((j: any) => {
+                    // On prend tout pour l'instant car le format de date est 'dd/mm/yyyy' (string)
+                    // Pour une vraie filtration, il faudrait convertir.
+                    return true; 
+                });
+                
+                const context = relevantEntries.map((j:any) => `Date: ${j.date}\nAuteur: ${j.author}\nTitre: ${j.title}\nContenu: ${j.content}`).join('\n\n');
+                userPrompt = `Tu es un écrivain familial. Voici les souvenirs de la famille entre le ${dateRange.start} et le ${dateRange.end}. Rédige une chronique chaleureuse et émouvante qui résume ces moments comme un chapitre de livre.\n\nSOURCE:\n${context}`;
+            
+            } else {
+                if (selectedRecipes.length === 0) { setGoldenOutput("Erreur: Aucune recette sélectionnée"); return; }
+                const selected = recipes.filter((r:any) => selectedRecipes.includes(r.id));
+                const context = selected.map((r:any) => `Titre: ${r.title}\nChef: ${r.chef}\nIngrédients: ${r.ingredients}\nPréparation: ${r.steps}`).join('\n\n---RECETTE SUIVANTE---\n\n');
+                userPrompt = `Tu es un éditeur culinaire. Voici une sélection de recettes de famille. Crée la structure textuelle d'un livre de cuisine : une belle introduction générale, un sommaire, puis pour chaque recette, une mise en page soignée et appétissante.\n\nRECETTES:\n${context}`;
+            }
+
+            // APPEL DIRECT À L'IA
+            const result = await askAIChat([{ role: 'user', text: userPrompt }]);
+            setGoldenOutput(result);
+
+        } catch (e) {
+            setGoldenOutput("Erreur lors de la génération. Vérifiez que la clé API est bien configurée dans geminiService.ts");
+        }
+    };
+
+    return (
+      <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[3.5rem] shadow-2xl min-h-[700px] border border-black/5">
+        <div className="flex gap-2 overflow-x-auto mb-10 pb-4 no-scrollbar">
+          {[
+            {id:'arch', l:'ARCHITECTE', i:<Sparkles size={16}/>}, 
+            {id:'gold', l:"JOURNAL D'OR", i:<Book size={16}/>},
+            {id:'chat', l:'MAJORDOME', i:<MessageSquare size={16}/>},
+            {id:'home', l:'ACCUEIL', i:<Home size={16}/>},
+            {id:'code', l:'CODE', i:<Code size={16}/>},
+            {id:'history', l:'HISTORIQUE', i:<History size={16}/>}
+          ].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest whitespace-nowrap transition-all ${tab===t.id ? 'text-white scale-105 shadow-lg' : 'bg-gray-100 text-gray-400'}`} style={{ backgroundColor: tab===t.id ? config.primaryColor : '' }}>{t.i} {t.l}</button>
+          ))}
+        </div>
+
+        {tab === 'arch' && (
+          <div className="space-y-6 animate-in fade-in">
+             <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>ARCHITECTE IA</h3>
+             <textarea value={prompt} onChange={e => setP(e.target.value)} className="w-full p-6 rounded-3xl border border-gray-200 h-32 focus:ring-4 outline-none" placeholder="Ex: 'Met un thème sombre et doré'..." />
+             <button onClick={arch} disabled={load} className="w-full py-5 text-white rounded-2xl font-black uppercase shadow-xl" style={{ backgroundColor: config.primaryColor }}>{load ? <Loader2 className="animate-spin mx-auto"/> : "Transformer le design"}</button>
+          </div>
+        )}
+
+        {/* --- ONGLETS JOURNAL D'OR --- */}
+        {tab === 'gold' && (
+            <div className="space-y-6 animate-in fade-in">
+                <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>JOURNAL D'OR</h3>
+                <div className="flex bg-gray-100 p-1 rounded-xl w-fit mx-auto mb-6">
+                    <button onClick={() => setGoldenTab('journal')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase transition-all ${goldenTab === 'journal' ? 'bg-white shadow-sm text-black' : 'text-gray-400'}`}>Chronique</button>
+                    <button onClick={() => setGoldenTab('recipes')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase transition-all ${goldenTab === 'recipes' ? 'bg-white shadow-sm text-black' : 'text-gray-400'}`}>Livre de Cuisine</button>
+                </div>
+
+                {goldenTab === 'journal' ? (
+                    <div className="space-y-4">
+                        <div className="flex gap-4">
+                            <div className="flex-1">
+                                <label className="text-xs font-bold text-gray-400 ml-2">Début</label>
+                                <input type="date" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} className="w-full p-4 rounded-2xl border border-gray-200" />
+                            </div>
+                            <div className="flex-1">
+                                <label className="text-xs font-bold text-gray-400 ml-2">Fin</label>
+                                <input type="date" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} className="w-full p-4 rounded-2xl border border-gray-200" />
+                            </div>
+                        </div>
+                        <button onClick={generateGolden} className="w-full py-4 text-white font-bold rounded-2xl uppercase shadow-lg hover:scale-[1.02] transition-transform" style={{ backgroundColor: config.primaryColor }}>
+                            <Sparkles size={18} className="inline mr-2"/> Générer la Chronique
+                        </button>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        <div className="h-48 overflow-y-auto border border-gray-100 rounded-2xl p-2 space-y-1">
+                            {recipes.map((r: any) => (
+                                <div key={r.id} onClick={() => {
+                                    if (selectedRecipes.includes(r.id)) setSelectedRecipes(selectedRecipes.filter(id => id !== r.id));
+                                    else setSelectedRecipes([...selectedRecipes, r.id]);
+                                }} className={`p-3 rounded-xl cursor-pointer flex items-center gap-3 transition-colors ${selectedRecipes.includes(r.id) ? 'bg-amber-50 border-amber-200' : 'hover:bg-gray-50'}`}>
+                                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${selectedRecipes.includes(r.id) ? 'bg-amber-500 border-amber-500' : 'border-gray-300'}`}>
+                                        {selectedRecipes.includes(r.id) && <CheckSquare size={12} className="text-white"/>}
+                                    </div>
+                                    <span className="text-sm font-bold">{r.title}</span>
+                                </div>
+                            ))}
+                        </div>
+                        <button onClick={generateGolden} className="w-full py-4 text-white font-bold rounded-2xl uppercase shadow-lg hover:scale-[1.02] transition-transform" style={{ backgroundColor: config.primaryColor }}>
+                            <Sparkles size={18} className="inline mr-2"/> Créer le Livre
+                        </button>
+                    </div>
+                )}
+
+                {goldenOutput && (
+                    <div className="animate-in slide-in-from-bottom-4">
+                        <label className="text-xs font-bold text-gray-400 ml-2 uppercase tracking-widest">Résultat</label>
+                        <textarea value={goldenOutput} readOnly className="w-full h-64 p-6 rounded-3xl border border-gray-200 bg-gray-50 font-serif leading-relaxed mt-2 focus:outline-none" />
+                    </div>
+                )}
+            </div>
+        )}
+
+        {tab === 'chat' && (
+          <div className="space-y-6 animate-in fade-in">
+             <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>MAJORDOME IA</h3>
+             <div className="bg-gray-50 p-6 rounded-[2rem] h-64 overflow-y-auto space-y-4 border border-gray-100">
+               {hist.map((h: any, i: number) => <div key={i} className={`p-4 rounded-2xl text-sm max-w-[85%] ${h.role === 'user' ? 'bg-gray-800 text-white ml-auto' : 'bg-white border text-gray-600'}`}>{h.text}</div>)}
+             </div>
+             <div className="flex gap-2">
+               <input value={prompt} onChange={e => setP(e.target.value)} className="flex-1 p-4 rounded-2xl border" placeholder="Message..." />
+               <button onClick={chat} disabled={load} className="p-4 bg-black text-white rounded-2xl"><Send size={20}/></button>
+             </div>
+          </div>
+        )}
+
+        {tab === 'home' && (
+          <div className="space-y-6 animate-in fade-in">
+             <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>ACCUEIL</h3>
+             <input value={localC.welcomeTitle} onChange={e => setLocalC({...localC, welcomeTitle: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Titre principal" />
+             <textarea value={localC.welcomeText} onChange={e => setLocalC({...localC, welcomeText: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Texte de bienvenue" />
+             <div onClick={() => fileRef.current?.click()} className="p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer text-xs uppercase font-bold text-gray-400">Changer la photo d'accueil</div>
+             <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b: string) => setLocalC({...localC, welcomeImage: b}))} />
+             <textarea value={localC.homeHtml} onChange={e => setLocalC({...localC, homeHtml: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-32 font-mono text-xs" placeholder="Code HTML/Widget pour l'accueil (Optionnel)" />
+             <button onClick={() => { save(localC, true); alert("Accueil sauvegardé !"); }} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Sauvegarder</button>
+          </div>
+        )}
+
+        {tab === 'code' && (
+          <div className="space-y-6 animate-in fade-in">
+             <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>CODE SEMAINIER</h3>
+             <textarea value={localC.cookingHtml} onChange={e => setLocalC({...localC, cookingHtml: e.target.value})} className="w-full p-6 rounded-3xl border border-gray-200 h-64 font-mono text-xs text-gray-600" placeholder="Code HTML iframe..." />
+             <button onClick={() => save(localC, true)} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Sauvegarder le code</button>
+          </div>
+        )}
+
+        {tab === 'history' && (
+          <div className="space-y-6 animate-in fade-in">
+             <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>RESTAURATION</h3>
+             <p className="opacity-60 text-sm">Gérez vos sauvegardes de design.</p>
+             <div className="space-y-3 h-96 overflow-y-auto">
+               {versions.map((v: SiteVersion) => (
+                 <div key={v.id} className="flex justify-between items-center p-5 bg-gray-50 rounded-2xl border border-gray-100 group">
+                   <div className="flex-1">
+                     {editingVersionId === v.id ? (
+                       <div className="flex gap-2 mr-4">
+                         <input value={tempVersionName} onChange={e => setTempVersionName(e.target.value)} className="flex-1 p-2 rounded-lg border border-gray-300 text-sm" autoFocus />
+                         <button onClick={() => saveVersionName(v.id)} className="p-2 bg-green-100 text-green-600 rounded-lg"><Save size={16}/></button>
+                         <button onClick={() => setEditingVersionId(null)} className="p-2 bg-red-100 text-red-600 rounded-lg"><X size={16}/></button>
+                       </div>
+                     ) : (
+                       <div>
+                         <div className="font-bold flex items-center gap-2">
+                           {v.name}
+                           <button onClick={() => startEditVersion(v)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 transition-opacity"><Pencil size={12}/></button>
+                         </div>
+                         <div className="text-xs opacity-50">{new Date(v.date).toLocaleString()}</div>
+                       </div>
+                     )}
+                   </div>
+                   <div className="flex gap-2">
+                     <button onClick={() => del('site_versions', v.id)} className="p-3 bg-white border border-red-100 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-colors" title="Supprimer"><Trash2 size={18}/></button>
+                     <button onClick={() => restore(v)} className="p-3 bg-white border border-gray-200 rounded-xl hover:bg-black hover:text-white transition-colors" title="Restaurer"><RotateCcw size={18}/></button>
+                   </div>
+                 </div>
+               ))}
+             </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#f5ede7]"><Loader2 className="w-12 h-12 animate-spin text-[#a85c48]"/></div>;
   if (!user) return <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-[#f5ede7]"><Background color={ORIGINAL_CONFIG.primaryColor} /><div className="z-10 text-center space-y-8 animate-in fade-in zoom-in duration-700"><div className="mx-auto w-24 h-24 rounded-[2.5rem] flex items-center justify-center shadow-xl bg-[#a85c48]"><Sparkles className="text-white" size={48} /></div><h1 className="text-4xl font-cinzel font-black tracking-widest text-[#a85c48]">CHAUD DEVANT</h1><button onClick={handleLogin} className="bg-white text-black font-black py-4 px-8 rounded-2xl shadow-xl flex items-center gap-3 hover:scale-105 transition-transform"><LogIn size={24} /> CONNEXION GOOGLE</button></div></div>;
   if (!isAuthorized) return <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-red-50 text-center space-y-8"><ShieldAlert className="text-red-500 w-20 h-20" /><h2 className="text-3xl font-bold text-red-800 font-cinzel">ACCÈS RESTREINT</h2><button onClick={handleLogout} className="px-6 py-4 bg-red-500 text-white font-bold rounded-2xl">Déconnexion</button></div>;
@@ -386,7 +594,7 @@ const App: React.FC = () => {
             </section>
             {config.homeHtml && <section className="bg-white/50 rounded-[3rem] overflow-hidden shadow-xl"><iframe srcDoc={config.homeHtml} className="w-full h-[500px]" sandbox="allow-scripts" /></section>}
             <div className="grid md:grid-cols-2 gap-8">
-              <HomeCard icon={<BookHeart size={40}/>} title="Souvenirs" label="Explorer le journal" onClick={() => setCurrentView('journal')} color={config.primaryColor} />
+              <HomeCard icon={<ClipboardList size={40}/>} title="Semainier" label="Le menu de la semaine" onClick={() => setCurrentView('cooking')} color={config.primaryColor} />
               <HomeCard icon={<ChefHat size={40}/>} title="Recettes" label="Nos petits plats" onClick={() => setCurrentView('recipes')} color={config.primaryColor} />
             </div>
           </div>
@@ -472,7 +680,7 @@ const App: React.FC = () => {
            </div>
         )}
 
-        {/* --- JOURNAL AVEC MODALE ET ÉDITION --- */}
+        {/* --- JOURNAL --- */}
         {currentView === 'journal' && (
           <div className="space-y-10">
              <div className="flex flex-col items-center gap-6">
@@ -564,226 +772,6 @@ const App: React.FC = () => {
           )
         )}
       </main>
-    </div>
-  );
-};
-
-// --- SOUS-COMPOSANTS ---
-
-const SideMenu = ({ config, isOpen, close, setView, logout }: any) => (
-  <div className={`fixed inset-0 z-[60] ${isOpen ? '' : 'pointer-events-none'}`}>
-    <div className={`absolute inset-0 bg-black/40 transition-opacity ${isOpen ? 'opacity-100' : 'opacity-0'}`} onClick={close} />
-    <div className={`absolute right-0 top-0 bottom-0 w-80 bg-[#f5ede7] p-10 transition-transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`} style={{ backgroundColor: config.backgroundColor }}>
-      <button onClick={() => close(false)} className="mb-10"><X /></button>
-      <div className="space-y-4">
-        {['home','journal','recipes','cooking','calendar', 'tasks', 'edit'].map(v => (
-          <button key={v} onClick={() => { setView(v); close(false); }} className="block w-full text-left p-4 hover:bg-black/5 rounded-xl uppercase font-bold text-xs tracking-widest">
-            {v === 'edit' ? 'ADMINISTRATION' : config.navigationLabels[v] || v}
-          </button>
-        ))}
-        <button onClick={logout} className="block w-full text-left p-4 text-red-500 font-bold text-xs tracking-widest mt-8">DÉCONNEXION</button>
-      </div>
-    </div>
-  </div>
-);
-
-const BottomNav = ({ config, view, setView }: any) => (
-  <div className="md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 text-white/50 px-4 pb-4 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
-    {[
-      {id:'home', i:<Home size={22}/>}, 
-      {id:'journal', i:<BookHeart size={22}/>},
-      {id:'tasks', i:<ClipboardList size={22}/>},
-      {id:'recipes', i:<ChefHat size={22}/>}, 
-      {id:'edit', i:<Settings size={22}/>}
-    ].map(b => <button key={b.id} onClick={() => setView(b.id)} className={`p-2 ${view === b.id ? 'text-white -translate-y-2 bg-white/20 rounded-xl' : ''}`}>{b.i}</button>)}
-  </div>
-);
-
-const HomeCard = ({ icon, title, label, onClick, color }: any) => (
-  <div onClick={onClick} className="bg-white/70 backdrop-blur-md p-10 rounded-[3rem] cursor-pointer hover:scale-105 transition-transform shadow-lg border border-white/50 group">
-    <div style={{ color }} className="mb-6 group-hover:scale-110 transition-transform">{icon}</div>
-    <h3 className="text-3xl font-cinzel font-bold mb-2">{title}</h3>
-    <p className="text-[10px] font-bold tracking-widest opacity-50 uppercase flex items-center gap-2">{label} <ChevronRight size={14}/></p>
-  </div>
-);
-
-const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, versions, restore, arch, chat, prompt, setP, load, hist }: any) => {
-  const [tab, setTab] = useState('arch');
-  const [newJ, setNewJ] = useState({ id: '', title: '', author: '', content: '', image: '' });
-  const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
-  const [tempVersionName, setTempVersionName] = useState('');
-  
-  const [goldenTab, setGoldenTab] = useState<'journal' | 'recipes'>('journal');
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
-  const [selectedRecipes, setSelectedRecipes] = useState<string[]>([]);
-  const [goldenOutput, setGoldenOutput] = useState('');
-  
-  const [localC, setLocalC] = useState(config);
-  const fileRef = useRef<HTMLInputElement>(null);
-  useEffect(() => { setLocalC(config); }, [config]);
-  const handleFile = (e: any, cb: any) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(f); }};
-  const handleEdit = (item: any, type: 'recipe' | 'journal') => { if (type === 'journal') setNewJ(item); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  const startEditVersion = (v: any) => { setEditingVersionId(v.id); setTempVersionName(v.name); };
-  const saveVersionName = (id: string) => { upd('site_versions', id, { name: tempVersionName }); setEditingVersionId(null); };
-
-  const generateGolden = async () => {
-    if (goldenTab === 'journal') {
-        if (!dateRange.start || !dateRange.end) return alert("Sélectionnez les dates !");
-        const entries = journal.filter((j: any) => true); 
-        const context = entries.map((j:any) => `- ${j.date} (${j.author}): ${j.title} - ${j.content}`).join('\n');
-        const prompt = `Rédige une chronique familiale...`;
-        setGoldenOutput("Fonctionnalité IA non connectée dans cette version."); 
-    } else {
-        if (selectedRecipes.length === 0) return alert("Sélectionnez des recettes !");
-        setGoldenOutput("Génération du livre de cuisine... (IA non connectée)");
-    }
-  };
-
-  return (
-    <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[3.5rem] shadow-2xl min-h-[700px] border border-black/5">
-      <div className="flex gap-2 overflow-x-auto mb-10 pb-4 no-scrollbar">
-        {[
-          {id:'arch', l:'ARCHITECTE', i:<Sparkles size={16}/>}, 
-          {id:'gold', l:"JOURNAL D'OR", i:<Book size={16}/>},
-          {id:'chat', l:'MAJORDOME', i:<MessageSquare size={16}/>},
-          {id:'home', l:'ACCUEIL', i:<Home size={16}/>},
-          {id:'code', l:'CODE', i:<Code size={16}/>},
-          {id:'history', l:'HISTORIQUE', i:<History size={16}/>}
-        ].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest whitespace-nowrap transition-all ${tab===t.id ? 'text-white scale-105 shadow-lg' : 'bg-gray-100 text-gray-400'}`} style={{ backgroundColor: tab===t.id ? config.primaryColor : '' }}>{t.i} {t.l}</button>
-        ))}
-      </div>
-
-      {tab === 'arch' && (
-        <div className="space-y-6 animate-in fade-in">
-           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>ARCHITECTE IA</h3>
-           <textarea value={prompt} onChange={e => setP(e.target.value)} className="w-full p-6 rounded-3xl border border-gray-200 h-32 focus:ring-4 outline-none" placeholder="Ex: 'Met un thème sombre et doré'..." />
-           <button onClick={arch} disabled={load} className="w-full py-5 text-white rounded-2xl font-black uppercase shadow-xl" style={{ backgroundColor: config.primaryColor }}>{load ? <Loader2 className="animate-spin mx-auto"/> : "Transformer le design"}</button>
-        </div>
-      )}
-
-      {/* --- NOUVEAU TAB JOURNAL D'OR --- */}
-      {tab === 'gold' && (
-        <div className="space-y-6 animate-in fade-in">
-            <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>JOURNAL D'OR</h3>
-            
-            <div className="flex bg-gray-100 p-1 rounded-xl w-fit mx-auto mb-6">
-                <button onClick={() => setGoldenTab('journal')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase transition-all ${goldenTab === 'journal' ? 'bg-white shadow-sm text-black' : 'text-gray-400'}`}>Chronique</button>
-                <button onClick={() => setGoldenTab('recipes')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase transition-all ${goldenTab === 'recipes' ? 'bg-white shadow-sm text-black' : 'text-gray-400'}`}>Livre de Cuisine</button>
-            </div>
-
-            {goldenTab === 'journal' ? (
-                <div className="space-y-4">
-                    <div className="flex gap-4">
-                        <div className="flex-1">
-                            <label className="text-xs font-bold text-gray-400 ml-2">Début</label>
-                            <input type="date" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} className="w-full p-4 rounded-2xl border border-gray-200" />
-                        </div>
-                        <div className="flex-1">
-                            <label className="text-xs font-bold text-gray-400 ml-2">Fin</label>
-                            <input type="date" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} className="w-full p-4 rounded-2xl border border-gray-200" />
-                        </div>
-                    </div>
-                    <button onClick={generateGolden} className="w-full py-4 text-white font-bold rounded-2xl uppercase shadow-lg hover:scale-[1.02] transition-transform" style={{ backgroundColor: config.primaryColor }}>
-                        <Sparkles size={18} className="inline mr-2"/> Générer la Chronique
-                    </button>
-                </div>
-            ) : (
-                <div className="space-y-4">
-                    <div className="h-48 overflow-y-auto border border-gray-100 rounded-2xl p-2 space-y-1">
-                        {recipes.map((r: any) => (
-                            <div key={r.id} onClick={() => {
-                                if (selectedRecipes.includes(r.id)) setSelectedRecipes(selectedRecipes.filter(id => id !== r.id));
-                                else setSelectedRecipes([...selectedRecipes, r.id]);
-                            }} className={`p-3 rounded-xl cursor-pointer flex items-center gap-3 transition-colors ${selectedRecipes.includes(r.id) ? 'bg-amber-50 border-amber-200' : 'hover:bg-gray-50'}`}>
-                                <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${selectedRecipes.includes(r.id) ? 'bg-amber-500 border-amber-500' : 'border-gray-300'}`}>
-                                    {selectedRecipes.includes(r.id) && <CheckSquare size={12} className="text-white"/>}
-                                </div>
-                                <span className="text-sm font-bold">{r.title}</span>
-                            </div>
-                        ))}
-                    </div>
-                    <button onClick={generateGolden} className="w-full py-4 text-white font-bold rounded-2xl uppercase shadow-lg hover:scale-[1.02] transition-transform" style={{ backgroundColor: config.primaryColor }}>
-                        <Sparkles size={18} className="inline mr-2"/> Créer le Livre
-                    </button>
-                </div>
-            )}
-
-            {goldenOutput && (
-                <div className="animate-in slide-in-from-bottom-4">
-                    <label className="text-xs font-bold text-gray-400 ml-2 uppercase tracking-widest">Résultat</label>
-                    <textarea value={goldenOutput} readOnly className="w-full h-64 p-6 rounded-3xl border border-gray-200 bg-gray-50 font-serif leading-relaxed mt-2 focus:outline-none" />
-                </div>
-            )}
-        </div>
-      )}
-
-      {tab === 'chat' && (
-        <div className="space-y-6 animate-in fade-in">
-           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>MAJORDOME IA</h3>
-           <div className="bg-gray-50 p-6 rounded-[2rem] h-64 overflow-y-auto space-y-4 border border-gray-100">
-             {hist.map((h: any, i: number) => <div key={i} className={`p-4 rounded-2xl text-sm max-w-[85%] ${h.role === 'user' ? 'bg-gray-800 text-white ml-auto' : 'bg-white border text-gray-600'}`}>{h.text}</div>)}
-           </div>
-           <div className="flex gap-2">
-             <input value={prompt} onChange={e => setP(e.target.value)} className="flex-1 p-4 rounded-2xl border" placeholder="Message..." />
-             <button onClick={chat} disabled={load} className="p-4 bg-black text-white rounded-2xl"><Send size={20}/></button>
-           </div>
-        </div>
-      )}
-
-      {tab === 'home' && (
-        <div className="space-y-6 animate-in fade-in">
-           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>ACCUEIL</h3>
-           <input value={localC.welcomeTitle} onChange={e => setLocalC({...localC, welcomeTitle: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Titre principal" />
-           <textarea value={localC.welcomeText} onChange={e => setLocalC({...localC, welcomeText: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Texte de bienvenue" />
-           <div onClick={() => fileRef.current?.click()} className="p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer text-xs uppercase font-bold text-gray-400">Changer la photo d'accueil</div>
-           <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b: string) => setLocalC({...localC, welcomeImage: b}))} />
-           <textarea value={localC.homeHtml} onChange={e => setLocalC({...localC, homeHtml: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-32 font-mono text-xs" placeholder="Code HTML/Widget pour l'accueil (Optionnel)" />
-           <button onClick={() => { save(localC, true); alert("Accueil sauvegardé !"); }} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Sauvegarder</button>
-        </div>
-      )}
-
-      {tab === 'code' && (
-        <div className="space-y-6 animate-in fade-in">
-           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>CODE SEMAINIER</h3>
-           <textarea value={localC.cookingHtml} onChange={e => setLocalC({...localC, cookingHtml: e.target.value})} className="w-full p-6 rounded-3xl border border-gray-200 h-64 font-mono text-xs text-gray-600" placeholder="Code HTML iframe..." />
-           <button onClick={() => save(localC, true)} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Sauvegarder le code</button>
-        </div>
-      )}
-
-      {tab === 'history' && (
-        <div className="space-y-6 animate-in fade-in">
-           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>RESTAURATION</h3>
-           <p className="opacity-60 text-sm">Gérez vos sauvegardes de design.</p>
-           <div className="space-y-3 h-96 overflow-y-auto">
-             {versions.map((v: SiteVersion) => (
-               <div key={v.id} className="flex justify-between items-center p-5 bg-gray-50 rounded-2xl border border-gray-100 group">
-                 <div className="flex-1">
-                   {editingVersionId === v.id ? (
-                     <div className="flex gap-2 mr-4">
-                       <input value={tempVersionName} onChange={e => setTempVersionName(e.target.value)} className="flex-1 p-2 rounded-lg border border-gray-300 text-sm" autoFocus />
-                       <button onClick={() => saveVersionName(v.id)} className="p-2 bg-green-100 text-green-600 rounded-lg"><Save size={16}/></button>
-                       <button onClick={() => setEditingVersionId(null)} className="p-2 bg-red-100 text-red-600 rounded-lg"><X size={16}/></button>
-                     </div>
-                   ) : (
-                     <div>
-                       <div className="font-bold flex items-center gap-2">
-                         {v.name}
-                         <button onClick={() => startEditVersion(v)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 transition-opacity"><Pencil size={12}/></button>
-                       </div>
-                       <div className="text-xs opacity-50">{new Date(v.date).toLocaleString()}</div>
-                     </div>
-                   )}
-                 </div>
-                 <div className="flex gap-2">
-                   <button onClick={() => del('site_versions', v.id)} className="p-3 bg-white border border-red-100 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-colors" title="Supprimer"><Trash2 size={18}/></button>
-                   <button onClick={() => restore(v)} className="p-3 bg-white border border-gray-200 rounded-xl hover:bg-black hover:text-white transition-colors" title="Restaurer"><RotateCcw size={18}/></button>
-                 </div>
-               </div>
-             ))}
-           </div>
-        </div>
-      )}
     </div>
   );
 };
