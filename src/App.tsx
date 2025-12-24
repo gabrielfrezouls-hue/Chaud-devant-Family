@@ -20,7 +20,8 @@ const FAMILY_EMAILS = [
   "eau.fraise.fils@gmail.com",
   "valentin.frezouls@gmail.com", 
   "frezouls.pauline@gmail.com",
-  "eau.fraise.fille@gmail.com"
+  "eau.fraise.fille@gmail.com",
+  "m.camillini57@gmail.com" // Ajouté
 ];
 
 const ORIGINAL_CONFIG: SiteConfig = {
@@ -78,7 +79,7 @@ const getMonthWeekends = () => {
   return weekends;
 };
 
-// --- COMPOSANTS EXTRAITS (POUR ÉVITER LE BUG DE FOCUS) ---
+// --- COMPOSANTS EXTRAITS ---
 
 const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, myLetter }: any) => {
   const isDone = choreStatus[weekId]?.[letter] || false;
@@ -124,7 +125,8 @@ const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }
   );
 };
 
-const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe, updateEntry, addEntry }: any) => {
+// --- NOUVELLE MODALE JOURNAL ---
+const JournalModal = ({ isOpen, onClose, config, currentJournal, setCurrentJournal, updateEntry, addEntry }: any) => {
   const fileRef = useRef<HTMLInputElement>(null);
   
   const handleFile = (e: any, callback: any) => {
@@ -139,26 +141,66 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
       <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
         <button onClick={() => onClose(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
         <div className="text-center space-y-2">
-          <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><ChefHat size={32} style={{ color: config.primaryColor }} /></div>
-          <h3 className="text-2xl font-cinzel font-bold">{currentRecipe.id ? 'Modifier la Recette' : 'Nouvelle Recette'}</h3>
+          <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><BookHeart size={32} style={{ color: config.primaryColor }} /></div>
+          <h3 className="text-2xl font-cinzel font-bold">{currentJournal.id ? 'Modifier le Souvenir' : 'Nouveau Souvenir'}</h3>
         </div>
         
         <div className="space-y-4">
-          <input value={currentRecipe.title} onChange={e => setCurrentRecipe({...currentRecipe, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Nom du plat (ex: Gratin Dauphinois)" autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} />
+          <input value={currentJournal.title} onChange={e => setCurrentJournal({...currentJournal, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Titre du souvenir" autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} />
           
+          <input value={currentJournal.author} onChange={e => setCurrentJournal({...currentJournal, author: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Auteur (ex: Maman)" />
+
+          <div onClick={() => fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">
+            {currentJournal.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}
+          </div>
+          <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b:string) => setCurrentJournal({...currentJournal, image: b}))} />
+
+          <textarea value={currentJournal.content} onChange={e => setCurrentJournal({...currentJournal, content: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Racontez votre histoire..." />
+        </div>
+        
+        <button onClick={() => { 
+            if(currentJournal.title) {
+                const journalToSave = { ...currentJournal };
+                if (!journalToSave.date) journalToSave.date = new Date().toLocaleDateString();
+                
+                if (journalToSave.id) { updateEntry('family_journal', journalToSave.id, journalToSave); } 
+                else { addEntry('family_journal', journalToSave); }
+                onClose(false);
+            } else { alert("Il faut au moins un titre !"); }
+        }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>
+            Publier le souvenir
+        </button>
+        <div className="h-10"></div>
+      </div>
+    </div>
+  );
+};
+
+const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe, updateEntry, addEntry }: any) => {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const handleFile = (e: any, callback: any) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload = () => callback(r.result); r.readAsDataURL(f); }};
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
+        <button onClick={() => onClose(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
+        <div className="text-center space-y-2">
+          <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><ChefHat size={32} style={{ color: config.primaryColor }} /></div>
+          <h3 className="text-2xl font-cinzel font-bold">{currentRecipe.id ? 'Modifier la Recette' : 'Nouvelle Recette'}</h3>
+        </div>
+        <div className="space-y-4">
+          <input value={currentRecipe.title} onChange={e => setCurrentRecipe({...currentRecipe, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Nom du plat (ex: Gratin Dauphinois)" autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} />
           <div className="flex gap-4">
              <input value={currentRecipe.chef} onChange={e => setCurrentRecipe({...currentRecipe, chef: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Chef (ex: Papa)" />
              <select value={currentRecipe.category} onChange={e => setCurrentRecipe({...currentRecipe, category: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
                <option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option>
              </select>
           </div>
-
           <div onClick={() => fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">
             {currentRecipe.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}
           </div>
           <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
-
-          {/* BOUTON DÉPLACÉ ICI : Au-dessus des ingrédients */}
+          
           <button onClick={() => { 
               if(currentRecipe.title) {
                   const recipeToSave = { ...currentRecipe };
@@ -175,8 +217,6 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
             <textarea value={currentRecipe.steps} onChange={e => setCurrentRecipe({...currentRecipe, steps: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Étapes de préparation..." />
           </div>
         </div>
-        
-        {/* Espace vide en bas pour le scroll sur mobile */}
         <div className="h-10"></div>
       </div>
     </div>
@@ -200,12 +240,16 @@ const App: React.FC = () => {
   // États Modales
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false); 
+  const [isJournalModalOpen, setIsJournalModalOpen] = useState(false); // Nouvelle modale Journal
 
   // Formulaires
   const [newEvent, setNewEvent] = useState({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true });
   
   const defaultRecipeState = { id: '', title: '', chef: '', ingredients: '', steps: '', category: 'plat', image: '' };
   const [currentRecipe, setCurrentRecipe] = useState<any>(defaultRecipeState);
+
+  const defaultJournalState = { id: '', title: '', author: '', content: '', image: '', date: '' };
+  const [currentJournal, setCurrentJournal] = useState<any>(defaultJournalState);
 
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -294,6 +338,11 @@ const App: React.FC = () => {
     const stepsStr = recipe.steps || recipe.instructions || '';
     setCurrentRecipe({ ...recipe, ingredients: ingredientsStr, steps: stepsStr });
     setIsRecipeModalOpen(true);
+  };
+
+  const openEditJournal = (entry: any) => {
+    setCurrentJournal(entry);
+    setIsJournalModalOpen(true);
   };
 
   const handleArchitect = async () => { if (!aiPrompt.trim()) return; setIsAiLoading(true); const n = await askAIArchitect(aiPrompt, config); if (n) await saveConfig({...config, ...n}, true); setIsAiLoading(false); };
@@ -423,12 +472,26 @@ const App: React.FC = () => {
            </div>
         )}
 
+        {/* --- JOURNAL AVEC MODALE ET ÉDITION --- */}
         {currentView === 'journal' && (
           <div className="space-y-10">
-             <h2 className="text-5xl font-cinzel font-black text-center" style={{ color: config.primaryColor }}>JOURNAL</h2>
+             <div className="flex flex-col items-center gap-6">
+               <h2 className="text-5xl font-cinzel font-black text-center" style={{ color: config.primaryColor }}>JOURNAL</h2>
+               <button onClick={() => { setCurrentJournal(defaultJournalState); setIsJournalModalOpen(true); }} className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
+                  <Plus size={20}/> Ajouter un souvenir
+               </button>
+             </div>
+
+             <JournalModal isOpen={isJournalModalOpen} onClose={setIsJournalModalOpen} config={config} currentJournal={currentJournal} setCurrentJournal={setCurrentJournal} updateEntry={updateEntry} addEntry={addEntry} />
+
              <div className="columns-1 md:columns-2 gap-8 space-y-8">
                {journal.map(j => (
-                 <div key={j.id} className="break-inside-avoid bg-white/90 rounded-[2rem] p-8 space-y-4 border border-black/5 shadow-lg">
+                 <div key={j.id} className="break-inside-avoid bg-white/90 rounded-[2rem] p-8 space-y-4 border border-black/5 shadow-lg relative group">
+                   <div className="absolute top-4 right-4 z-20 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openEditJournal(j)} className="p-2 bg-white/90 rounded-full shadow-md text-blue-500 hover:scale-110 transition-transform"><Pencil size={16}/></button>
+                      <button onClick={() => deleteItem('family_journal', j.id)} className="p-2 bg-white/90 rounded-full shadow-md text-red-500 hover:scale-110 transition-transform"><Trash2 size={16}/></button>
+                   </div>
+                   
                    {j.image && <img src={j.image} className="w-full h-64 object-cover rounded-xl" />}
                    <div><h3 className="text-2xl font-bold font-cinzel">{j.title}</h3><p className="text-[10px] uppercase">{j.date} - {j.author}</p></div>
                    <p className="opacity-80 leading-relaxed">{j.content}</p>
@@ -566,8 +629,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
   const generateGolden = async () => {
     if (goldenTab === 'journal') {
         if (!dateRange.start || !dateRange.end) return alert("Sélectionnez les dates !");
-        const start = new Date(dateRange.start).getTime();
-        const end = new Date(dateRange.end).getTime();
         const entries = journal.filter((j: any) => true); 
         const context = entries.map((j:any) => `- ${j.date} (${j.author}): ${j.title} - ${j.content}`).join('\n');
         const prompt = `Rédige une chronique familiale...`;
@@ -586,7 +647,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
           {id:'gold', l:"JOURNAL D'OR", i:<Book size={16}/>},
           {id:'chat', l:'MAJORDOME', i:<MessageSquare size={16}/>},
           {id:'home', l:'ACCUEIL', i:<Home size={16}/>},
-          {id:'journal', l:'JOURNAL', i:<BookHeart size={16}/>},
           {id:'code', l:'CODE', i:<Code size={16}/>},
           {id:'history', l:'HISTORIQUE', i:<History size={16}/>}
         ].map(t => (
@@ -602,6 +662,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
         </div>
       )}
 
+      {/* --- NOUVEAU TAB JOURNAL D'OR --- */}
       {tab === 'gold' && (
         <div className="space-y-6 animate-in fade-in">
             <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>JOURNAL D'OR</h3>
@@ -679,47 +740,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
            <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b: string) => setLocalC({...localC, welcomeImage: b}))} />
            <textarea value={localC.homeHtml} onChange={e => setLocalC({...localC, homeHtml: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-32 font-mono text-xs" placeholder="Code HTML/Widget pour l'accueil (Optionnel)" />
            <button onClick={() => { save(localC, true); alert("Accueil sauvegardé !"); }} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Sauvegarder</button>
-        </div>
-      )}
-
-      {tab === 'journal' && (
-        <div className="space-y-6 animate-in fade-in">
-           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>
-             {newJ.id ? 'MODIFIER SOUVENIR' : 'NOUVEAU SOUVENIR'}
-           </h3>
-           <input value={newJ.title} onChange={e => setNewJ({...newJ, title: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Titre" />
-           <input value={newJ.author} onChange={e => setNewJ({...newJ, author: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Auteur" />
-           <textarea value={newJ.content} onChange={e => setNewJ({...newJ, content: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Histoire..." />
-           <div onClick={() => fileRef.current?.click()} className="p-4 border-dashed border-2 rounded-2xl cursor-pointer text-center">{newJ.image ? 'Image OK' : 'Ajouter Photo'}</div>
-           <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b: string) => setNewJ({...newJ, image: b}))} />
-           
-           <div className="flex gap-2">
-             {newJ.id && <button onClick={() => setNewJ({id:'', title:'', author:'', content:'', image:''})} className="px-6 py-5 bg-gray-100 rounded-2xl font-bold text-gray-500">Annuler</button>}
-             <button onClick={() => { 
-                if(newJ.title) { 
-                  if(newJ.id) upd('family_journal', newJ.id, newJ); 
-                  else add('family_journal', {...newJ, date: new Date().toLocaleDateString()}); 
-                  setNewJ({id:'', title:'',author:'',content:'',image:''}); 
-                } 
-              }} className="flex-1 py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>
-               {newJ.id ? 'Mettre à jour' : 'Publier'}
-             </button>
-           </div>
-
-           <div className="mt-8 pt-8 border-t border-gray-100">
-             <h4 className="font-bold mb-4 opacity-50 text-xs uppercase tracking-widest">Modifier les souvenirs existants</h4>
-             <div className="space-y-2 max-h-60 overflow-y-auto">
-               {journal?.map((j: any) => (
-                 <div key={j.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl hover:bg-white border border-transparent hover:border-gray-200 transition-all">
-                   <span className="text-sm font-bold truncate w-2/3">{j.title}</span>
-                   <div className="flex gap-2">
-                     <button onClick={() => handleEdit(j, 'journal')} className="p-2 bg-blue-50 text-blue-500 rounded-lg hover:bg-blue-100"><Pencil size={14}/></button>
-                     <button onClick={() => del('family_journal', j.id)} className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100"><Trash2 size={14}/></button>
-                   </div>
-                 </div>
-               ))}
-             </div>
-           </div>
         </div>
       )}
 
