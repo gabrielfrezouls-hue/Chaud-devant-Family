@@ -6,7 +6,7 @@ import {
   Lock, Menu, X, Home, BookHeart, ChefHat,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
-  CheckSquare, Square, CheckCircle2, Plus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book
+  CheckSquare, Square, CheckCircle2, Plus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download
 } from 'lucide-react';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -232,43 +232,7 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
   );
 };
 
-const SideMenu = ({ config, isOpen, close, setView, logout }: any) => (
-  <div className={`fixed inset-0 z-[60] ${isOpen ? '' : 'pointer-events-none'}`}>
-    <div className={`absolute inset-0 bg-black/40 transition-opacity ${isOpen ? 'opacity-100' : 'opacity-0'}`} onClick={close} />
-    <div className={`absolute right-0 top-0 bottom-0 w-80 bg-[#f5ede7] p-10 transition-transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`} style={{ backgroundColor: config.backgroundColor }}>
-      <button onClick={() => close(false)} className="mb-10"><X /></button>
-      <div className="space-y-4">
-        {['home','journal','recipes','cooking','calendar', 'tasks', 'edit'].map(v => (
-          <button key={v} onClick={() => { setView(v); close(false); }} className="block w-full text-left p-4 hover:bg-black/5 rounded-xl uppercase font-bold text-xs tracking-widest">
-            {v === 'edit' ? 'ADMINISTRATION' : config.navigationLabels[v] || v}
-          </button>
-        ))}
-        <button onClick={logout} className="block w-full text-left p-4 text-red-500 font-bold text-xs tracking-widest mt-8">DÉCONNEXION</button>
-      </div>
-    </div>
-  </div>
-);
-
-const BottomNav = ({ config, view, setView }: any) => (
-  <div className="md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 text-white/50 px-4 pb-4 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
-    {[
-      {id:'home', i:<Home size={22}/>}, 
-      {id:'journal', i:<BookHeart size={22}/>},
-      {id:'tasks', i:<ClipboardList size={22}/>},
-      {id:'recipes', i:<ChefHat size={22}/>}, 
-      {id:'edit', i:<Settings size={22}/>}
-    ].map(b => <button key={b.id} onClick={() => setView(b.id)} className={`p-2 ${view === b.id ? 'text-white -translate-y-2 bg-white/20 rounded-xl' : ''}`}>{b.i}</button>)}
-  </div>
-);
-
-const HomeCard = ({ icon, title, label, onClick, color }: any) => (
-  <div onClick={onClick} className="bg-white/70 backdrop-blur-md p-10 rounded-[3rem] cursor-pointer hover:scale-105 transition-transform shadow-lg border border-white/50 group">
-    <div style={{ color }} className="mb-6 group-hover:scale-110 transition-transform">{icon}</div>
-    <h3 className="text-3xl font-cinzel font-bold mb-2">{title}</h3>
-    <p className="text-[10px] font-bold tracking-widest opacity-50 uppercase flex items-center gap-2">{label} <ChevronRight size={14}/></p>
-  </div>
-);
-
+// --- ADMIN PANEL AVEC EXPORT PDF COMPLET (TEXTE + IMAGES) ---
 const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, versions, restore, arch, chat, prompt, setP, load, hist }: any) => {
   const [tab, setTab] = useState('arch');
   const [newJ, setNewJ] = useState({ id: '', title: '', author: '', content: '', image: '' });
@@ -292,20 +256,105 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
         let userPrompt = "";
         if (goldenTab === 'journal') {
             if (!dateRange.start || !dateRange.end) { setGoldenOutput("Erreur: Dates manquantes"); return; }
+            // Filtre basique (pour l'exemple)
             const relevantEntries = journal.filter((j: any) => true); 
             const context = relevantEntries.map((j:any) => `Date: ${j.date}\nAuteur: ${j.author}\nTitre: ${j.title}\nContenu: ${j.content}`).join('\n\n');
-            userPrompt = `Tu es un écrivain familial. Voici les souvenirs de la famille entre le ${dateRange.start} et le ${dateRange.end}. Rédige une chronique chaleureuse et émouvante.\n\nSOURCE:\n${context}`;
+            userPrompt = `Tu es un écrivain familial. Rédige UNIQUEMENT une belle préface chaleureuse pour introduire ce recueil de souvenirs familiaux (ne réécris pas les souvenirs eux-mêmes, juste l'intro) : \n\n${context}`;
         } else {
             if (selectedRecipes.length === 0) { setGoldenOutput("Erreur: Aucune recette sélectionnée"); return; }
             const selected = recipes.filter((r:any) => selectedRecipes.includes(r.id));
-            const context = selected.map((r:any) => `Titre: ${r.title}\nChef: ${r.chef}\nIngrédients: ${r.ingredients}\nPréparation: ${r.steps}`).join('\n\n---RECETTE SUIVANTE---\n\n');
-            userPrompt = `Tu es un éditeur culinaire. Crée la structure d'un livre de cuisine avec introduction et sommaire pour ces recettes :\n\n${context}`;
+            const context = selected.map((r:any) => `Titre: ${r.title}`).join(', ');
+            userPrompt = `Tu es un éditeur culinaire. Rédige UNIQUEMENT une préface appétissante et élégante pour ce livre de recettes contenant : ${context}.`;
         }
         const result = await askAIChat([{ role: 'user', text: userPrompt }]);
         setGoldenOutput(result);
     } catch (e) {
-        setGoldenOutput("Erreur lors de la génération. Vérifiez la clé API.");
+        setGoldenOutput("Erreur IA. (Vérifiez la clé API)");
     }
+  };
+
+  // --- FONCTION D'EXPORT PDF ---
+  const handleExportPDF = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return alert("Autorisez les pop-ups pour exporter le PDF");
+
+    const title = goldenTab === 'journal' ? "Chronique Familiale" : "Livre de Recettes";
+    
+    // Récupération des données réelles
+    let itemsToPrint = [];
+    if (goldenTab === 'journal') {
+        itemsToPrint = journal.filter((j: any) => true); // Ajoutez ici le filtrage par date si nécessaire
+    } else {
+        itemsToPrint = recipes.filter((r: any) => selectedRecipes.includes(r.id));
+    }
+
+    // Construction du HTML pour le PDF
+    let contentHtml = '';
+    itemsToPrint.forEach((item: any) => {
+        contentHtml += `
+            <div class="page-break"></div>
+            <div class="item">
+                <h2>${item.title}</h2>
+                ${goldenTab === 'journal' ? `<p class="meta">${item.date} - Par ${item.author}</p>` : `<p class="meta">Chef : ${item.chef}</p>`}
+                
+                ${item.image ? `<div class="img-container"><img src="${item.image}" /></div>` : ''}
+                
+                <div class="content">
+                    ${goldenTab === 'journal' 
+                        ? `<p>${item.content.replace(/\n/g, '<br/>')}</p>` 
+                        : `
+                           <h3>Ingrédients</h3>
+                           <p>${Array.isArray(item.ingredients) ? item.ingredients.join('<br/>') : item.ingredients.replace(/\n/g, '<br/>')}</p>
+                           <h3>Préparation</h3>
+                           <p>${item.steps ? item.steps.replace(/\n/g, '<br/>') : ''}</p>
+                          `
+                    }
+                </div>
+            </div>
+        `;
+    });
+
+    const htmlContent = `
+      <html>
+        <head>
+          <title>${title}</title>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Merriweather&display=swap');
+            body { font-family: 'Merriweather', serif; padding: 40px; color: #1a1a1a; max-width: 800px; margin: 0 auto; background-color: #fff; }
+            h1 { font-family: 'Cinzel', serif; text-align: center; color: #a85c48; font-size: 40px; margin-bottom: 20px; }
+            h2 { font-family: 'Cinzel', serif; color: #a85c48; margin-top: 40px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+            h3 { font-family: 'Cinzel', serif; color: #666; margin-top: 20px; font-size: 18px; }
+            .preface { font-style: italic; background: #f9f9f9; padding: 20px; border-left: 5px solid #a85c48; margin-bottom: 40px; }
+            .meta { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
+            .img-container { text-align: center; margin: 20px 0; }
+            img { max-width: 100%; max-height: 400px; border-radius: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+            .content { line-height: 1.8; text-align: justify; }
+            .page-break { page-break-after: always; }
+            @media print {
+               body { padding: 0; }
+               .page-break { page-break-after: always; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>${title}</h1>
+          
+          <div class="preface">
+            <h3>Préface</h3>
+            ${goldenOutput ? goldenOutput.replace(/\n/g, '<br/>') : "Généré automatiquement par Chaud Devant."}
+          </div>
+
+          ${contentHtml}
+
+          <script>
+            window.onload = function() { window.print(); }
+          </script>
+        </body>
+      </html>
+    `;
+    
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
   };
 
   return (
@@ -331,7 +380,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
         </div>
       )}
 
-      {/* --- ONGLETS JOURNAL D'OR (CORRIGÉ AVEC BORDURE VISIBLE) --- */}
       {tab === 'gold' && (
         <div className="space-y-6 animate-in fade-in">
             <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>JOURNAL D'OR</h3>
@@ -353,7 +401,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
                         </div>
                     </div>
                     <button onClick={generateGolden} className="w-full py-4 text-white font-bold rounded-2xl uppercase shadow-lg hover:scale-[1.02] transition-transform" style={{ backgroundColor: config.primaryColor }}>
-                        <Sparkles size={18} className="inline mr-2"/> Générer la Chronique
+                        <Sparkles size={18} className="inline mr-2"/> Générer la Préface
                     </button>
                 </div>
             ) : (
@@ -366,7 +414,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
                                     if (selectedRecipes.includes(r.id)) setSelectedRecipes(selectedRecipes.filter(id => id !== r.id));
                                     else setSelectedRecipes([...selectedRecipes, r.id]);
                                 }} 
-                                // CORRECTION ICI : AJOUT DE "border-2" et "border-orange-500" pour que ça se voie
                                 className={`p-3 rounded-xl cursor-pointer flex items-center gap-3 transition-all border-2 ${
                                     selectedRecipes.includes(r.id) 
                                     ? 'bg-orange-50 border-[#a85c48]' 
@@ -381,15 +428,20 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
                         ))}
                     </div>
                     <button onClick={generateGolden} className="w-full py-4 text-white font-bold rounded-2xl uppercase shadow-lg hover:scale-[1.02] transition-transform" style={{ backgroundColor: config.primaryColor }}>
-                        <Sparkles size={18} className="inline mr-2"/> Créer le Livre
+                        <Sparkles size={18} className="inline mr-2"/> Générer la Préface
                     </button>
                 </div>
             )}
 
             {goldenOutput && (
-                <div className="animate-in slide-in-from-bottom-4">
-                    <label className="text-xs font-bold text-gray-400 ml-2 uppercase tracking-widest">Résultat</label>
-                    <textarea value={goldenOutput} readOnly className="w-full h-64 p-6 rounded-3xl border border-gray-200 bg-gray-50 font-serif leading-relaxed mt-2 focus:outline-none" />
+                <div className="animate-in slide-in-from-bottom-4 relative">
+                    <div className="flex items-center justify-between mb-2">
+                        <label className="text-xs font-bold text-gray-400 ml-2 uppercase tracking-widest">Préface (Générée par IA)</label>
+                        <button onClick={handleExportPDF} className="flex items-center gap-2 text-xs font-bold uppercase text-white px-4 py-2 rounded-lg hover:scale-105 transition-transform" style={{ backgroundColor: config.primaryColor }}>
+                            <Download size={14}/> Télécharger le Livre (PDF)
+                        </button>
+                    </div>
+                    <textarea value={goldenOutput} readOnly className="w-full h-40 p-6 rounded-3xl border border-gray-200 bg-gray-50 font-serif leading-relaxed focus:outline-none" />
                 </div>
             )}
         </div>
@@ -714,7 +766,7 @@ const App: React.FC = () => {
            </div>
         )}
 
-        {/* --- JOURNAL --- */}
+        {/* --- JOURNAL AVEC MODALE ET ÉDITION --- */}
         {currentView === 'journal' && (
           <div className="space-y-10">
              <div className="flex flex-col items-center gap-6">
