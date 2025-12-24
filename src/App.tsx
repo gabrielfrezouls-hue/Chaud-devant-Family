@@ -78,7 +78,7 @@ const getMonthWeekends = () => {
   return weekends;
 };
 
-// --- COMPOSANTS EXTRAITS (POUR STABILITÉ ET PERFORMANCE) ---
+// --- COMPOSANTS EXTRAITS (POUR ÉVITER LE BUG DE FOCUS) ---
 
 const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, myLetter }: any) => {
   const isDone = choreStatus[weekId]?.[letter] || false;
@@ -98,7 +98,6 @@ const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, m
 };
 
 const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }: any) => {
-  const [isSubmitting, setIsSubmitting] = useState(false);
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
@@ -119,29 +118,13 @@ const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }
             <div className="animate-in slide-in-from-top-2"><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label><input type="text" value={newEvent.time} onChange={e => setNewEvent({...newEvent, time: e.target.value})} placeholder="Ex: 20h00, Midi..." className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-bold text-lg" /></div>
           )}
         </div>
-        <button 
-            disabled={isSubmitting}
-            onClick={async () => { 
-                if (newEvent.title && newEvent.date) { 
-                    setIsSubmitting(true);
-                    await addEntry('family_events', { title: newEvent.title, date: newEvent.date, time: newEvent.isAllDay ? null : (newEvent.time || '') }); 
-                    setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true }); 
-                    setIsSubmitting(false);
-                    onClose(false); 
-                } else { alert("Titre et date requis !"); } 
-            }} 
-            className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting ? 'opacity-50' : ''}`} 
-            style={{ backgroundColor: config.primaryColor }}
-        >
-            {isSubmitting ? "Ajout..." : "Ajouter au calendrier"}
-        </button>
+        <button onClick={() => { if (newEvent.title && newEvent.date) { addEntry('family_events', { title: newEvent.title, date: newEvent.date, time: newEvent.isAllDay ? null : (newEvent.time || '') }); setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true }); onClose(false); } else { alert("Titre et date requis !"); } }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>Ajouter au calendrier</button>
       </div>
     </div>
   );
 };
 
 const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe, updateEntry, addEntry }: any) => {
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   
   const handleFile = (e: any, callback: any) => {
@@ -175,27 +158,16 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
           </div>
           <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
 
-          {/* BOUTON ENREGISTRER - CORRIGÉ (Anti double-clic + Position haute) */}
-          <button 
-            disabled={isSubmitting}
-            onClick={async () => { 
+          {/* BOUTON DÉPLACÉ ICI : Au-dessus des ingrédients */}
+          <button onClick={() => { 
               if(currentRecipe.title) {
-                  setIsSubmitting(true);
                   const recipeToSave = { ...currentRecipe };
-                  try {
-                    if (recipeToSave.id) { await updateEntry('family_recipes', recipeToSave.id, recipeToSave); } 
-                    else { await addEntry('family_recipes', recipeToSave); }
-                    onClose(false);
-                  } catch (e) {
-                    alert("Erreur technique lors de l'enregistrement.");
-                    setIsSubmitting(false);
-                  }
+                  if (recipeToSave.id) { updateEntry('family_recipes', recipeToSave.id, recipeToSave); } 
+                  else { addEntry('family_recipes', recipeToSave); }
+                  onClose(false);
               } else { alert("Il faut au moins un titre !"); }
-            }} 
-            className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`} 
-            style={{ backgroundColor: config.primaryColor }}
-          >
-              {isSubmitting ? "Enregistrement..." : "Enregistrer la recette"}
+          }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>
+              Enregistrer la recette
           </button>
 
           <div className="grid md:grid-cols-2 gap-4">
@@ -204,7 +176,7 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
           </div>
         </div>
         
-        {/* Espace pour le scroll mobile */}
+        {/* Espace vide en bas pour le scroll sur mobile */}
         <div className="h-10"></div>
       </div>
     </div>
@@ -264,14 +236,11 @@ const App: React.FC = () => {
     const unsubC = onSnapshot(doc(db, 'site_config', 'main'), (d) => { if (d.exists()) setConfig(d.data() as SiteConfig); }, ignoreError);
     const unsubJ = onSnapshot(query(collection(db, 'family_journal'), orderBy('timestamp', 'desc')), (s) => setJournal(s.docs.map(d => ({ ...d.data(), id: d.id } as JournalEntry))), ignoreError);
     const unsubR = onSnapshot(collection(db, 'family_recipes'), (s) => setRecipes(s.docs.map(d => ({ ...d.data(), id: d.id } as Recipe))), ignoreError);
-    
-    // Calendrier (Tri chronologique)
     const unsubE = onSnapshot(collection(db, 'family_events'), (s) => {
       const rawEvents = s.docs.map(d => ({ ...d.data(), id: d.id } as FamilyEvent));
       rawEvents.sort((a, b) => a.date.localeCompare(b.date));
       setEvents(rawEvents);
     }, ignoreError);
-
     const unsubV = onSnapshot(query(collection(db, 'site_versions'), orderBy('date', 'desc')), (s) => setVersions(s.docs.map(d => ({ ...d.data(), id: d.id } as SiteVersion))), ignoreError);
     const unsubT = onSnapshot(collection(db, 'chores_status'), (s) => {
       const status: Record<string, any> = {};
@@ -299,23 +268,10 @@ const App: React.FC = () => {
     try { 
       const { id, ...cleanData } = data; 
       await addDoc(collection(db, col), { ...cleanData, timestamp: serverTimestamp() }); 
-    } catch(e) { 
-      console.error(e);
-      alert("Erreur lors de l'ajout. Vérifiez votre connexion."); 
-      throw e; // Propage l'erreur pour arrêter le chargement du bouton
-    } 
+    } catch(e) { alert("Erreur ajout"); } 
   };
 
-  const updateEntry = async (col: string, id: string, data: any) => { 
-    try { 
-      const { id: _, ...c } = data; 
-      await setDoc(doc(db, col, id), { ...c, timestamp: serverTimestamp() }, { merge: true }); 
-    } catch (e) { 
-      console.error(e); 
-      alert("Erreur lors de la modification."); 
-      throw e;
-    } 
-  };
+  const updateEntry = async (col: string, id: string, data: any) => { try { const { id: _, ...c } = data; await setDoc(doc(db, col, id), { ...c, timestamp: serverTimestamp() }, { merge: true }); alert("Sauvegardé"); } catch (e) { alert("Erreur"); } };
   
   const deleteItem = async (col: string, id: string) => { 
     if(!id) { alert("Erreur: ID introuvable. Rafraîchissez la page."); return; }
@@ -610,6 +566,8 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
   const generateGolden = async () => {
     if (goldenTab === 'journal') {
         if (!dateRange.start || !dateRange.end) return alert("Sélectionnez les dates !");
+        const start = new Date(dateRange.start).getTime();
+        const end = new Date(dateRange.end).getTime();
         const entries = journal.filter((j: any) => true); 
         const context = entries.map((j:any) => `- ${j.date} (${j.author}): ${j.title} - ${j.content}`).join('\n');
         const prompt = `Rédige une chronique familiale...`;
@@ -644,7 +602,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
         </div>
       )}
 
-      {/* --- NOUVEAU TAB JOURNAL D'OR --- */}
       {tab === 'gold' && (
         <div className="space-y-6 animate-in fade-in">
             <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>JOURNAL D'OR</h3>
