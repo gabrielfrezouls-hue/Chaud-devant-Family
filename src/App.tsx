@@ -24,10 +24,11 @@ const FAMILY_EMAILS = [
   "m.camillini57@gmail.com"
 ];
 
+// --- CONFIGURATION PAR DÉFAUT ---
 const ORIGINAL_CONFIG: SiteConfig = {
   primaryColor: '#a85c48',
   backgroundColor: '#f5ede7', // BEIGE SABLE
-  fontFamily: 'Inter',
+  fontFamily: 'Montserrat', // POLICE DEMANDÉE
   welcomeTitle: 'CHAUD DEVANT',
   welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
   welcomeImage: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
@@ -305,39 +306,72 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
         const result = await askAIChat([{ role: 'user', text: userPrompt }]);
         setGoldenOutput(result);
     } catch (e) {
-        setGoldenOutput("Erreur IA. (Vérifiez la clé API)");
+        setGoldenOutput("Erreur lors de la génération. Vérifiez la clé API.");
     }
   };
 
+  // --- FONCTION D'EXPORT PDF ---
   const handleExportPDF = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return alert("Autorisez les pop-ups pour exporter le PDF");
 
-    const title = goldenTab === 'journal' ? "Chronique Familiale" : "Livre de Recettes";
-    
+    const title = goldenTab === 'journal' ? "Chronique Familiale" : "Les Recettes Familiales";
+    const aiText = goldenOutput || "Préface|||Introduction";
+    const [preface, intro] = aiText.split('|||');
+
     let itemsToPrint = [];
     if (goldenTab === 'journal') {
-        itemsToPrint = journal.filter((j: any) => true); 
+        itemsToPrint = journal.filter((j: any) => true);
     } else {
         itemsToPrint = recipes.filter((r: any) => selectedRecipes.includes(r.id));
     }
 
+    let chefs = "Par la Famille";
+    if(goldenTab === 'recipes') {
+        const chefsList = Array.from(new Set(itemsToPrint.map((r:any) => r.chef).filter(Boolean)));
+        if(chefsList.length > 0) chefs = "Par " + chefsList.join(', ');
+    }
+
+    let sommaireHtml = '<ul class="sommaire">';
+    itemsToPrint.forEach((item: any, index: number) => {
+        const pageNum = 3 + (index * 2); 
+        sommaireHtml += `<li><span class="recipe-name">${item.title}</span> <span class="dots">................................................</span> <span class="page-num">${pageNum}</span></li>`;
+    });
+    sommaireHtml += '</ul>';
+
     let contentHtml = '';
     itemsToPrint.forEach((item: any) => {
-        contentHtml += `
-            <div class="page-break"></div>
-            <div class="item">
-                <h2>${item.title}</h2>
-                ${goldenTab === 'journal' ? `<p class="meta">${item.date} - Par ${item.author}</p>` : `<p class="meta">Chef : ${item.chef}</p>`}
-                ${item.image ? `<div class="img-container"><img src="${item.image}" /></div>` : ''}
-                <div class="content">
-                    ${goldenTab === 'journal' 
-                        ? `<p>${item.content.replace(/\n/g, '<br/>')}</p>` 
-                        : `<h3>Ingrédients</h3><p>${Array.isArray(item.ingredients) ? item.ingredients.join('<br/>') : item.ingredients.replace(/\n/g, '<br/>')}</p><h3>Préparation</h3><p>${item.steps ? item.steps.replace(/\n/g, '<br/>') : ''}</p>`
-                    }
+        const ingredientsList = Array.isArray(item.ingredients) 
+            ? item.ingredients.map((i:string) => `<li>${i}</li>`).join('') 
+            : item.ingredients.split('\n').map((i:string) => `<li>${i}</li>`).join('');
+        const stepsText = item.steps ? item.steps.replace(/\n/g, '<br/><br/>') : '';
+
+        if (goldenTab === 'recipes') {
+             contentHtml += `
+                <div class="page-break"></div>
+                <div class="page recipe-page-1">
+                    <h2 class="recipe-title">${item.title}</h2>
+                    <p class="recipe-meta">Occasion : Repas de famille &bull; Chef : ${item.chef || 'Inconnu'}</p>
+                    ${item.image ? `<div class="recipe-img"><img src="${item.image}" /></div>` : '<div class="no-img">Pas de photo</div>'}
+                    <div class="ingredients-box"><h3>Ingrédients</h3><ul>${ingredientsList}</ul></div>
                 </div>
-            </div>
-        `;
+                <div class="page-break"></div>
+                <div class="page recipe-page-2">
+                    <h3 class="steps-title">Préparation</h3>
+                    <div class="steps-text">${stepsText}</div>
+                </div>
+            `;
+        } else {
+             contentHtml += `
+                <div class="page-break"></div>
+                <div class="page">
+                    <h2>${item.title}</h2>
+                    <p class="meta">${item.date} - Par ${item.author}</p>
+                    ${item.image ? `<div class="recipe-img"><img src="${item.image}" /></div>` : ''}
+                    <div class="steps-text"><p>${item.content.replace(/\n/g, '<br/>')}</p></div>
+                </div>
+             `;
+        }
     });
 
     const htmlContent = `
@@ -345,23 +379,58 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
         <head>
           <title>${title}</title>
           <style>
-            @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700&family=Merriweather&display=swap');
-            body { font-family: 'Merriweather', serif; padding: 40px; color: #1a1a1a; max-width: 800px; margin: 0 auto; background-color: #fff; }
-            h1 { font-family: 'Cinzel', serif; text-align: center; color: #a85c48; font-size: 40px; margin-bottom: 20px; }
-            h2 { font-family: 'Cinzel', serif; color: #a85c48; margin-top: 40px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-            h3 { font-family: 'Cinzel', serif; color: #666; margin-top: 20px; font-size: 18px; }
-            .preface { font-style: italic; background: #f9f9f9; padding: 20px; border-left: 5px solid #a85c48; margin-bottom: 40px; }
-            .meta { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
-            .img-container { text-align: center; margin: 20px 0; }
-            img { max-width: 100%; max-height: 400px; border-radius: 4px; }
-            .content { line-height: 1.8; text-align: justify; }
+            @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
+            @page { size: A4; margin: 0; }
+            body { font-family: 'Montserrat', sans-serif; margin: 0; padding: 0; background: #fff; color: #1a1a1a; }
+            .page { width: 210mm; height: 296mm; padding: 20mm; box-sizing: border-box; position: relative; overflow: hidden; }
             .page-break { page-break-after: always; }
-            @media print { body { padding: 0; } .page-break { page-break-after: always; } }
+            
+            /* TYPOGRAPHIE */
+            h1, h2, h3, .recipe-name, .subtitle, .intro-title { font-family: 'Playfair Display', serif; }
+
+            /* PAGE 1 */
+            .cover-page { text-align: center; display: flex; flex-direction: column; justify-content: center; height: 100%; border: 20px solid #a85c48; }
+            h1.main-title { font-size: 60px; color: #a85c48; margin: 0; line-height: 1; }
+            p.subtitle { font-size: 24px; color: #555; margin-top: 20px; font-style: italic; }
+            .preface-box { margin-top: 50px; font-style: italic; font-size: 14px; padding: 0 40px; color: #666; font-family: 'Playfair Display', serif; }
+
+            /* PAGE 2 */
+            .intro-title { font-size: 30px; color: #a85c48; border-bottom: 2px solid #a85c48; padding-bottom: 10px; margin-bottom: 20px; }
+            .intro-text { text-align: justify; margin-bottom: 50px; line-height: 1.6; }
+            .sommaire { list-style: none; padding: 0; }
+            .sommaire li { display: flex; align-items: baseline; margin-bottom: 10px; font-size: 18px; }
+            .recipe-name { font-weight: bold; }
+            .dots { flex: 1; border-bottom: 1px dotted #ccc; margin: 0 10px; }
+            .page-num { color: #a85c48; font-weight: bold; }
+
+            /* PAGES RECETTES */
+            .recipe-title { font-size: 42px; color: #a85c48; margin: 0 0 10px 0; text-align: center; }
+            .recipe-meta { text-align: center; text-transform: uppercase; font-size: 10px; letter-spacing: 2px; color: #888; margin-bottom: 30px; }
+            .recipe-img { width: 100%; height: 400px; overflow: hidden; border-radius: 4px; margin-bottom: 30px; }
+            .recipe-img img { width: 100%; height: 100%; object-fit: cover; }
+            .no-img { width: 100%; height: 200px; background: #eee; display: flex; align-items: center; justify-content: center; color: #aaa; margin-bottom: 30px; }
+            .ingredients-box h3 { font-size: 24px; color: #a85c48; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
+            .ingredients-box ul { column-count: 2; column-gap: 40px; }
+            .ingredients-box li { margin-bottom: 8px; font-size: 14px; }
+            .steps-title { font-size: 32px; color: #a85c48; text-align: center; margin-bottom: 40px; }
+            .steps-text { font-size: 16px; line-height: 1.8; text-align: justify; padding: 0 20px; }
+
+            @media print { body { background: none; } }
           </style>
         </head>
         <body>
-          <h1>${title}</h1>
-          <div class="preface"><h3>Préface</h3>${goldenOutput ? goldenOutput.replace(/\n/g, '<br/>') : "Généré automatiquement par Chaud Devant."}</div>
+          <div class="page cover-page">
+             <h1 class="main-title">${title}</h1>
+             <p class="subtitle">${chefs}</p>
+             <div class="preface-box">${preface ? preface.replace(/\n/g, '<br/>') : ''}</div>
+          </div>
+          <div class="page-break"></div>
+          <div class="page">
+             <h2 class="intro-title">Introduction</h2>
+             <div class="intro-text">${intro ? intro.replace(/\n/g, '<br/>') : ''}</div>
+             <h2 class="intro-title">Sommaire</h2>
+             ${sommaireHtml}
+          </div>
           ${contentHtml}
           <script>window.onload = function() { window.print(); }</script>
         </body>
@@ -425,8 +494,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
                             <div 
                                 key={r.id} 
                                 onClick={() => {
-                                    if (selectedRecipes.includes(r.id)) setSelectedRecipes(selectedRecipes.filter(id => id !== r.id));
-                                    else setSelectedRecipes([...selectedRecipes, r.id]);
+                                    setSelectedRecipes(prev => prev.includes(r.id) ? prev.filter(id => id !== r.id) : [...prev, r.id]);
                                 }} 
                                 className={`p-3 rounded-xl cursor-pointer flex items-center gap-3 transition-all border-2 ${
                                     selectedRecipes.includes(r.id) 
@@ -450,17 +518,18 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
             {goldenOutput && (
                 <div className="animate-in slide-in-from-bottom-4 relative">
                     <div className="flex items-center justify-between mb-2">
-                        <label className="text-xs font-bold text-gray-400 ml-2 uppercase tracking-widest">Résultat</label>
+                        <label className="text-xs font-bold text-gray-400 ml-2 uppercase tracking-widest">Résultat (Généré par IA)</label>
                         <button onClick={handleExportPDF} className="flex items-center gap-2 text-xs font-bold uppercase text-white px-4 py-2 rounded-lg hover:scale-105 transition-transform" style={{ backgroundColor: config.primaryColor }}>
                             <Download size={14}/> Télécharger le Livre (PDF)
                         </button>
                     </div>
-                    <textarea value={goldenOutput} readOnly className="w-full h-64 p-6 rounded-3xl border border-gray-200 bg-gray-50 font-serif leading-relaxed focus:outline-none" />
+                    <textarea value={goldenOutput} readOnly className="w-full h-40 p-6 rounded-3xl border border-gray-200 bg-gray-50 font-serif leading-relaxed focus:outline-none" />
                 </div>
             )}
         </div>
       )}
 
+      {/* Reste des onglets inchangés... */}
       {tab === 'chat' && (
         <div className="space-y-6 animate-in fade-in">
            <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>MAJORDOME IA</h3>
@@ -532,6 +601,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
 };
 
 // --- APP COMPONENT ---
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
