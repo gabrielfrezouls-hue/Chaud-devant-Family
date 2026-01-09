@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, googleProvider, db } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { 
-  Lock, Menu, X, Home, BookHeart, ChefHat,
+  Lock, Menu, X, Home, BookHeart, ChefHat, Wallet, PiggyBank,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
-  CheckSquare, Square, CheckCircle2, Plus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download
+  CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent
 } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
 import Background from './components/Background';
@@ -24,6 +25,12 @@ const FAMILY_EMAILS = [
   "m.camillini57@gmail.com"
 ];
 
+const USER_MAPPING: Record<string, string> = {
+  "gabriel.frezouls@gmail.com": "G",
+  "frezouls.pauline@gmail.com": "P",
+  "valentin.frezouls@gmail.com": "V"
+};
+
 // --- CONFIGURATION PAR DÉFAUT ---
 const ORIGINAL_CONFIG: SiteConfig = {
   primaryColor: '#a85c48',
@@ -32,19 +39,13 @@ const ORIGINAL_CONFIG: SiteConfig = {
   welcomeTitle: 'CHAUD DEVANT',
   welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
   welcomeImage: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
-  navigationLabels: { home: 'ACCUEIL', journal: 'JOURNAL', cooking: 'SEMAINIER', recipes: 'RECETTES', calendar: 'CALENDRIER', tasks: 'TÂCHES' },
+  navigationLabels: { home: 'ACCUEIL', journal: 'JOURNAL', cooking: 'SEMAINIER', recipes: 'RECETTES', calendar: 'CALENDRIER', tasks: 'TÂCHES', wallet: 'PORTE-MONNAIE' },
   homeHtml: '', cookingHtml: ''
 };
 
 // --- LOGIQUE DES TÂCHES ---
 const ROTATION = ['G', 'P', 'V'];
 const REF_DATE = new Date('2025-12-20T12:00:00'); 
-
-const USER_MAPPING: Record<string, string> = {
-  "gabriel.frezouls@gmail.com": "G",
-  "frezouls.pauline@gmail.com": "P",
-  "valentin.frezouls@gmail.com": "V"
-};
 
 const getChores = (date: Date) => {
   const saturday = new Date(date);
@@ -99,6 +100,224 @@ const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, m
   );
 };
 
+// --- NOUVEAU COMPOSANT : PORTE-MONNAIE ---
+const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
+  const [activeTab, setActiveTab] = useState<'family' | 'personal'>('family');
+  
+  // États Dettes Familiales
+  const [debts, setDebts] = useState<any[]>([]);
+  const [newDebt, setNewDebt] = useState({ from: '', to: '', amount: '', interest: '', reason: '' });
+  
+  // États Tirelire Personnelle
+  const [myWallet, setMyWallet] = useState<any>({ balance: 0, history: [], tasks: [] });
+  const [walletAmount, setWalletAmount] = useState('');
+  const [newTask, setNewTask] = useState('');
+
+  // 1. Charger les données
+  useEffect(() => {
+    if (!user) return;
+    
+    // Dettes
+    const qDebts = query(collection(db, 'family_debts'), orderBy('createdAt', 'desc'));
+    const unsubDebts = onSnapshot(qDebts, (s) => setDebts(s.docs.map(d => ({id: d.id, ...d.data()}))));
+
+    // Tirelire Perso
+    const unsubWallet = onSnapshot(doc(db, 'user_wallets', user.email!), (s) => {
+      if (s.exists()) setMyWallet(s.data());
+      else setDoc(doc(db, 'user_wallets', user.email!), { balance: 0, history: [], tasks: [] });
+    });
+
+    return () => { unsubDebts(); unsubWallet(); };
+  }, [user]);
+
+  // 2. Logique Dettes
+  const addDebt = async () => {
+    if (!newDebt.from || !newDebt.to || !newDebt.amount) return alert("Remplissez les champs !");
+    await addDoc(collection(db, 'family_debts'), {
+      ...newDebt,
+      amount: parseFloat(newDebt.amount),
+      interest: parseFloat(newDebt.interest || '0'),
+      createdAt: new Date().toISOString()
+    });
+    setNewDebt({ from: '', to: '', amount: '', interest: '', reason: '' });
+  };
+
+  const calculateDebt = (debt: any) => {
+    if (!debt.interest || debt.interest === 0) return debt.amount;
+    const start = new Date(debt.createdAt);
+    const now = new Date();
+    const days = Math.floor((now.getTime() - start.getTime()) / (1000 * 3600 * 24));
+    // Calcul intérêt simple : Capital * (Taux/100) * (Jours/365)
+    const interestAmount = debt.amount * (debt.interest / 100) * (days / 365);
+    return (debt.amount + interestAmount).toFixed(2);
+  };
+
+  // 3. Logique Tirelire
+  const updateBalance = async (type: 'add' | 'sub') => {
+    const val = parseFloat(walletAmount);
+    if (!val || val <= 0) return;
+    
+    const newBal = type === 'add' ? myWallet.balance + val : myWallet.balance - val;
+    const entry = {
+      date: new Date().toISOString(),
+      amount: type === 'add' ? val : -val,
+      newBalance: newBal,
+      month: new Date().getMonth() // Pour filtrer
+    };
+
+    await updateDoc(doc(db, 'user_wallets', user.email!), {
+      balance: newBal,
+      history: [...(myWallet.history || []), entry]
+    });
+    setWalletAmount('');
+  };
+
+  const addWalletTask = async () => {
+    if (!newTask) return;
+    await updateDoc(doc(db, 'user_wallets', user.email!), {
+      tasks: [...(myWallet.tasks || []), { id: Date.now(), text: newTask, done: false }]
+    });
+    setNewTask('');
+  };
+
+  const toggleWalletTask = async (taskId: number) => {
+    const newTasks = myWallet.tasks.map((t: any) => t.id === taskId ? { ...t, done: !t.done } : t);
+    await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: newTasks });
+  };
+
+  const deleteWalletTask = async (taskId: number) => {
+    const newTasks = myWallet.tasks.filter((t: any) => t.id !== taskId);
+    await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: newTasks });
+  };
+
+  // Filtrage Historique Mois en cours
+  const currentMonth = new Date().getMonth();
+  const currentMonthHistory = (myWallet.history || []).filter((h: any) => new Date(h.date).getMonth() === currentMonth);
+  
+  // Données Graphique
+  const graphData = currentMonthHistory.map((h: any, i: number) => ({
+    name: new Date(h.date).getDate(),
+    solde: h.newBalance
+  }));
+
+  return (
+    <div className="space-y-6 pb-20 animate-in fade-in">
+      <div className="flex justify-center gap-4 mb-8">
+        <button onClick={() => setActiveTab('family')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'family' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}>
+          <ShieldAlert className="inline mr-2 mb-1" size={16}/> Dettes Famille
+        </button>
+        <button onClick={() => setActiveTab('personal')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'personal' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}>
+          <PiggyBank className="inline mr-2 mb-1" size={16}/> Ma Tirelire
+        </button>
+      </div>
+
+      {activeTab === 'family' ? (
+        <div className="bg-white/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-xl border border-white space-y-8">
+           <div className="flex flex-col md:flex-row gap-4 items-end bg-gray-50 p-6 rounded-3xl">
+             <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Qui doit ?</label><input value={newDebt.from} onChange={e => setNewDebt({...newDebt, from: e.target.value})} placeholder="ex: G" className="w-full p-3 rounded-xl border-none font-bold" /></div>
+             <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">À qui ?</label><input value={newDebt.to} onChange={e => setNewDebt({...newDebt, to: e.target.value})} placeholder="ex: P" className="w-full p-3 rounded-xl border-none font-bold" /></div>
+             <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Montant (€)</label><input type="number" value={newDebt.amount} onChange={e => setNewDebt({...newDebt, amount: e.target.value})} placeholder="0" className="w-full p-3 rounded-xl border-none font-bold" /></div>
+             <div className="w-24"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Taux (%)</label><input type="number" value={newDebt.interest} onChange={e => setNewDebt({...newDebt, interest: e.target.value})} placeholder="0%" className="w-full p-3 rounded-xl border-none font-bold text-orange-500" /></div>
+             <button onClick={addDebt} className="p-4 bg-black text-white rounded-xl shadow-lg hover:scale-105 transition-transform"><Plus/></button>
+           </div>
+
+           <div className="grid md:grid-cols-2 gap-4">
+             {debts.map(d => (
+               <div key={d.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 relative group">
+                 <button onClick={() => deleteDoc(doc(db, 'family_debts', d.id))} className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-red-400"><Trash2 size={16}/></button>
+                 <div className="flex justify-between items-center mb-2">
+                    <span className="font-cinzel font-bold text-xl">{d.from} <span className="text-gray-300 text-xs mx-1">DOIT À</span> {d.to}</span>
+                    <span className="text-2xl font-black" style={{color: config.primaryColor}}>{calculateDebt(d)}€</span>
+                 </div>
+                 <div className="flex gap-4 text-[10px] font-bold uppercase text-gray-400">
+                   <span>Initial: {d.amount}€</span>
+                   {d.interest > 0 && <span className="text-orange-400 flex items-center"><Percent size={10} className="mr-1"/> Intérêt: {d.interest}%</span>}
+                   <span>{new Date(d.createdAt).toLocaleDateString()}</span>
+                 </div>
+               </div>
+             ))}
+           </div>
+        </div>
+      ) : (
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* GAUCHE: Compte & Actions */}
+          <div className="lg:col-span-1 space-y-6">
+             <div className="bg-black text-white p-8 rounded-[2.5rem] shadow-2xl text-center relative overflow-hidden">
+               <div className="absolute top-0 left-0 w-full h-full bg-white/5 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20"></div>
+               <p className="text-xs font-black uppercase tracking-[0.2em] opacity-50 mb-4">Mon Solde Actuel</p>
+               <h2 className="text-6xl font-cinzel font-bold mb-8">{myWallet.balance?.toFixed(2)}€</h2>
+               
+               <div className="flex items-center gap-2 bg-white/10 p-2 rounded-2xl backdrop-blur-md">
+                 <button onClick={() => updateBalance('sub')} className="p-4 bg-white/10 hover:bg-red-500 rounded-xl transition-colors"><Minus/></button>
+                 <input type="number" value={walletAmount} onChange={e => setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-xl outline-none" placeholder="Montant..." />
+                 <button onClick={() => updateBalance('add')} className="p-4 bg-white/10 hover:bg-green-500 rounded-xl transition-colors"><Plus/></button>
+               </div>
+             </div>
+
+             <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100">
+               <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><ClipboardList size={14}/> Mes Tâches Financières</h3>
+               <div className="flex gap-2 mb-4">
+                 <input value={newTask} onChange={e => setNewTask(e.target.value)} placeholder="Ex: Rembourser Papa..." className="flex-1 bg-gray-50 rounded-xl px-3 text-sm font-bold outline-none" />
+                 <button onClick={addWalletTask} className="p-2 bg-gray-200 rounded-xl"><Plus size={16}/></button>
+               </div>
+               <div className="space-y-2 max-h-40 overflow-y-auto">
+                 {(myWallet.tasks || []).map((t: any) => (
+                   <div key={t.id} className="flex items-center gap-3 group">
+                     <button onClick={() => toggleWalletTask(t.id)}>{t.done ? <CheckCircle2 size={16} className="text-green-500"/> : <Square size={16} className="text-gray-300"/>}</button>
+                     <span className={`text-sm font-bold flex-1 ${t.done ? 'line-through text-gray-300' : 'text-gray-600'}`}>{t.text}</span>
+                     <button onClick={() => deleteWalletTask(t.id)} className="opacity-0 group-hover:opacity-100 text-red-300"><X size={14}/></button>
+                   </div>
+                 ))}
+               </div>
+             </div>
+          </div>
+
+          {/* DROITE: Graphique & Historique */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 h-64">
+               <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Évolution du Mois</h3>
+               <ResponsiveContainer width="100%" height="85%">
+                 <AreaChart data={graphData}>
+                   <defs>
+                     <linearGradient id="colorBal" x1="0" y1="0" x2="0" y2="1">
+                       <stop offset="5%" stopColor={config.primaryColor} stopOpacity={0.3}/>
+                       <stop offset="95%" stopColor={config.primaryColor} stopOpacity={0}/>
+                     </linearGradient>
+                   </defs>
+                   <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+                   <Area type="monotone" dataKey="solde" stroke={config.primaryColor} fillOpacity={1} fill="url(#colorBal)" strokeWidth={3} />
+                 </AreaChart>
+               </ResponsiveContainer>
+            </div>
+
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-gray-100">
+               <div className="flex justify-between items-center mb-6">
+                 <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14}/> Historique (Mois en cours)</h3>
+                 <span className="text-[10px] font-bold bg-gray-100 px-3 py-1 rounded-full text-gray-500">{new Date().toLocaleString('default', { month: 'long' })}</span>
+               </div>
+               <div className="space-y-4 max-h-60 overflow-y-auto pr-2">
+                 {currentMonthHistory.length === 0 && <div className="text-center text-gray-300 italic py-4">Aucun mouvement ce mois-ci</div>}
+                 {currentMonthHistory.slice().reverse().map((h: any, i: number) => (
+                   <div key={i} className="flex justify-between items-center p-3 bg-gray-50 rounded-2xl">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-full ${h.amount > 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                          {h.amount > 0 ? <TrendingUp size={16}/> : <TrendingDown size={16}/>}
+                        </div>
+                        <div className="text-xs font-bold text-gray-400 uppercase">{new Date(h.date).toLocaleDateString()}</div>
+                      </div>
+                      <span className={`font-black ${h.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>{h.amount > 0 ? '+' : ''}{h.amount}€</span>
+                   </div>
+                 ))}
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- AUTRES MODALES (Event, Journal, Recipe) ... ---
 const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }: any) => {
   if (!isOpen) return null;
   return (
@@ -128,14 +347,11 @@ const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }
 
 const JournalModal = ({ isOpen, onClose, config, currentJournal, setCurrentJournal, updateEntry, addEntry }: any) => {
   const fileRef = useRef<HTMLInputElement>(null);
-  
   const handleFile = (e: any, callback: any) => {
     const f = e.target.files[0];
     if(f) { const r = new FileReader(); r.onload = () => callback(r.result); r.readAsDataURL(f); }
   };
-
   if (!isOpen) return null;
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
@@ -144,33 +360,24 @@ const JournalModal = ({ isOpen, onClose, config, currentJournal, setCurrentJourn
           <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><BookHeart size={32} style={{ color: config.primaryColor }} /></div>
           <h3 className="text-2xl font-cinzel font-bold">{currentJournal.id ? 'Modifier le Souvenir' : 'Nouveau Souvenir'}</h3>
         </div>
-        
         <div className="space-y-4">
           <input value={currentJournal.title} onChange={e => setCurrentJournal({...currentJournal, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Titre du souvenir" autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} />
-          
           <input value={currentJournal.author} onChange={e => setCurrentJournal({...currentJournal, author: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Auteur (ex: Maman)" />
-
           <div onClick={() => fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">
             {currentJournal.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}
           </div>
           <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b:string) => setCurrentJournal({...currentJournal, image: b}))} />
-
           <textarea value={currentJournal.content} onChange={e => setCurrentJournal({...currentJournal, content: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Racontez votre histoire..." />
         </div>
-        
         <button onClick={() => { 
             if(currentJournal.title) {
                 const journalToSave = { ...currentJournal };
                 if (!journalToSave.date) journalToSave.date = new Date().toLocaleDateString();
-                
                 if (journalToSave.id) { updateEntry('family_journal', journalToSave.id, journalToSave); } 
                 else { addEntry('family_journal', journalToSave); }
                 onClose(false);
             } else { alert("Il faut au moins un titre !"); }
-        }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>
-            Publier le souvenir
-        </button>
-        <div className="h-10"></div>
+        }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>Publier le souvenir</button>
       </div>
     </div>
   );
@@ -178,14 +385,11 @@ const JournalModal = ({ isOpen, onClose, config, currentJournal, setCurrentJourn
 
 const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe, updateEntry, addEntry }: any) => {
   const fileRef = useRef<HTMLInputElement>(null);
-  
   const handleFile = (e: any, callback: any) => {
     const f = e.target.files[0];
     if(f) { const r = new FileReader(); r.onload = () => callback(r.result); r.readAsDataURL(f); }
   };
-
   if (!isOpen) return null;
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
@@ -194,22 +398,18 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
           <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><ChefHat size={32} style={{ color: config.primaryColor }} /></div>
           <h3 className="text-2xl font-cinzel font-bold">{currentRecipe.id ? 'Modifier la Recette' : 'Nouvelle Recette'}</h3>
         </div>
-        
         <div className="space-y-4">
           <input value={currentRecipe.title} onChange={e => setCurrentRecipe({...currentRecipe, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Nom du plat (ex: Gratin Dauphinois)" autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} />
-          
           <div className="flex gap-4">
              <input value={currentRecipe.chef} onChange={e => setCurrentRecipe({...currentRecipe, chef: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Chef (ex: Papa)" />
              <select value={currentRecipe.category} onChange={e => setCurrentRecipe({...currentRecipe, category: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
                <option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option>
              </select>
           </div>
-
           <div onClick={() => fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">
             {currentRecipe.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}
           </div>
           <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
-
           <button onClick={() => { 
               if(currentRecipe.title) {
                   const recipeToSave = { ...currentRecipe };
@@ -217,16 +417,12 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
                   else { addEntry('family_recipes', recipeToSave); }
                   onClose(false);
               } else { alert("Il faut au moins un titre !"); }
-          }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>
-              Enregistrer la recette
-          </button>
-
+          }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>Enregistrer la recette</button>
           <div className="grid md:grid-cols-2 gap-4">
             <textarea value={currentRecipe.ingredients} onChange={e => setCurrentRecipe({...currentRecipe, ingredients: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Ingrédients (un par ligne)..." />
             <textarea value={currentRecipe.steps} onChange={e => setCurrentRecipe({...currentRecipe, steps: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Étapes de préparation..." />
           </div>
         </div>
-        
         <div className="h-10"></div>
       </div>
     </div>
@@ -239,7 +435,7 @@ const SideMenu = ({ config, isOpen, close, setView, logout }: any) => (
     <div className={`absolute right-0 top-0 bottom-0 w-80 bg-[#f5ede7] p-10 transition-transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`} style={{ backgroundColor: config.backgroundColor }}>
       <button onClick={() => close(false)} className="mb-10"><X /></button>
       <div className="space-y-4">
-        {['home','journal','recipes','cooking','calendar', 'tasks', 'edit'].map(v => (
+        {['home','journal','recipes','cooking','calendar', 'tasks', 'wallet', 'edit'].map(v => (
           <button key={v} onClick={() => { setView(v); close(false); }} className="block w-full text-left p-4 hover:bg-black/5 rounded-xl uppercase font-bold text-xs tracking-widest">
             {v === 'edit' ? 'ADMINISTRATION' : config.navigationLabels[v] || v}
           </button>
@@ -254,10 +450,10 @@ const BottomNav = ({ config, view, setView }: any) => (
   <div className="md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 text-white/50 px-4 pb-4 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
     {[
       {id:'home', i:<Home size={22}/>}, 
+      {id:'wallet', i:<Wallet size={22}/>},
       {id:'journal', i:<BookHeart size={22}/>},
       {id:'tasks', i:<ClipboardList size={22}/>},
-      {id:'recipes', i:<ChefHat size={22}/>}, 
-      {id:'edit', i:<Settings size={22}/>}
+      {id:'recipes', i:<ChefHat size={22}/>}
     ].map(b => <button key={b.id} onClick={() => setView(b.id)} className={`p-2 ${view === b.id ? 'text-white -translate-y-2 bg-white/20 rounded-xl' : ''}`}>{b.i}</button>)}
   </div>
 );
@@ -270,10 +466,9 @@ const HomeCard = ({ icon, title, label, onClick, color }: any) => (
   </div>
 );
 
-// --- ADMIN PANEL AVEC EXPORT PDF (INDÉPENDANT) ---
+// --- ADMIN PANEL ---
 const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, versions, restore, arch, chat, prompt, setP, load, hist }: any) => {
   const [tab, setTab] = useState('arch');
-  const [newJ, setNewJ] = useState({ id: '', title: '', author: '', content: '', image: '' });
   const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
   const [tempVersionName, setTempVersionName] = useState('');
   const [localC, setLocalC] = useState(config);
@@ -310,21 +505,16 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
     }
   };
 
-  // --- FONCTION D'EXPORT PDF ---
   const handleExportPDF = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return alert("Autorisez les pop-ups pour exporter le PDF");
-
     const title = goldenTab === 'journal' ? "Chronique Familiale" : "Les Recettes Familiales";
     const aiText = goldenOutput || "Préface|||Introduction";
     const [preface, intro] = aiText.split('|||');
 
     let itemsToPrint = [];
-    if (goldenTab === 'journal') {
-        itemsToPrint = journal.filter((j: any) => true);
-    } else {
-        itemsToPrint = recipes.filter((r: any) => selectedRecipes.includes(r.id));
-    }
+    if (goldenTab === 'journal') { itemsToPrint = journal.filter((j: any) => true); } 
+    else { itemsToPrint = recipes.filter((r: any) => selectedRecipes.includes(r.id)); }
 
     let chefs = "Par la Famille";
     if(goldenTab === 'recipes') {
@@ -341,9 +531,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
 
     let contentHtml = '';
     itemsToPrint.forEach((item: any) => {
-        const ingredientsList = Array.isArray(item.ingredients) 
-            ? item.ingredients.map((i:string) => `<li>${i}</li>`).join('') 
-            : item.ingredients.split('\n').map((i:string) => `<li>${i}</li>`).join('');
+        const ingredientsList = Array.isArray(item.ingredients) ? item.ingredients.map((i:string) => `<li>${i}</li>`).join('') : item.ingredients.split('\n').map((i:string) => `<li>${i}</li>`).join('');
         const stepsText = item.steps ? item.steps.replace(/\n/g, '<br/><br/>') : '';
 
         if (goldenTab === 'recipes') {
@@ -384,17 +572,11 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
             body { font-family: 'Montserrat', sans-serif; margin: 0; padding: 0; background: #fff; color: #1a1a1a; }
             .page { width: 210mm; height: 296mm; padding: 20mm; box-sizing: border-box; position: relative; overflow: hidden; }
             .page-break { page-break-after: always; }
-            
-            /* TYPOGRAPHIE */
             h1, h2, h3, .recipe-name, .subtitle, .intro-title { font-family: 'Playfair Display', serif; }
-
-            /* PAGE 1 */
             .cover-page { text-align: center; display: flex; flex-direction: column; justify-content: center; height: 100%; border: 20px solid #a85c48; }
             h1.main-title { font-size: 60px; color: #a85c48; margin: 0; line-height: 1; }
             p.subtitle { font-size: 24px; color: #555; margin-top: 20px; font-style: italic; }
             .preface-box { margin-top: 50px; font-style: italic; font-size: 14px; padding: 0 40px; color: #666; font-family: 'Playfair Display', serif; }
-
-            /* PAGE 2 */
             .intro-title { font-size: 30px; color: #a85c48; border-bottom: 2px solid #a85c48; padding-bottom: 10px; margin-bottom: 20px; }
             .intro-text { text-align: justify; margin-bottom: 50px; line-height: 1.6; }
             .sommaire { list-style: none; padding: 0; }
@@ -402,8 +584,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
             .recipe-name { font-weight: bold; }
             .dots { flex: 1; border-bottom: 1px dotted #ccc; margin: 0 10px; }
             .page-num { color: #a85c48; font-weight: bold; }
-
-            /* PAGES RECETTES */
             .recipe-title { font-size: 42px; color: #a85c48; margin: 0 0 10px 0; text-align: center; }
             .recipe-meta { text-align: center; text-transform: uppercase; font-size: 10px; letter-spacing: 2px; color: #888; margin-bottom: 30px; }
             .recipe-img { width: 100%; height: 400px; overflow: hidden; border-radius: 4px; margin-bottom: 30px; }
@@ -414,7 +594,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
             .ingredients-box li { margin-bottom: 8px; font-size: 14px; }
             .steps-title { font-size: 32px; color: #a85c48; text-align: center; margin-bottom: 40px; }
             .steps-text { font-size: 16px; line-height: 1.8; text-align: justify; padding: 0 20px; }
-
             @media print { body { background: none; } }
           </style>
         </head>
@@ -529,7 +708,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
         </div>
       )}
 
-      {/* Reste des onglets inchangés... */}
       {tab === 'chat' && (
         <div className="space-y-6 animate-in fade-in">
            <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>MAJORDOME IA</h3>
@@ -628,7 +806,7 @@ const App: React.FC = () => {
   const defaultJournalState = { id: '', title: '', author: '', content: '', image: '', date: '' };
   const [currentJournal, setCurrentJournal] = useState<any>(defaultJournalState);
 
-  const [currentView, setCurrentView] = useState<ViewType>('home');
+  const [currentView, setCurrentView] = useState<ViewType | 'wallet'>('home');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isEditUnlocked, setIsEditUnlocked] = useState(false);
   const [password, setPassword] = useState('');
@@ -739,7 +917,7 @@ const App: React.FC = () => {
           <span className="font-cinzel font-black text-xl hidden md:block" style={{ color: config.primaryColor }}>CHAUD.DEVANT</span>
         </div>
         <div className="hidden md:flex gap-6">
-           {['home','journal','recipes','cooking','calendar', 'tasks'].map(v => (
+           {['home','journal','recipes','cooking','calendar', 'tasks', 'wallet'].map(v => (
              <button key={v} onClick={() => setCurrentView(v as ViewType)} className="text-xs font-black tracking-widest opacity-40 hover:opacity-100 uppercase" style={{ color: currentView === v ? config.primaryColor : 'inherit' }}>{config.navigationLabels[v as keyof typeof config.navigationLabels] || v}</button>
            ))}
            <button onClick={() => setIsMenuOpen(true)} style={{ color: config.primaryColor }}><Menu size={20}/></button>
@@ -763,10 +941,15 @@ const App: React.FC = () => {
             </section>
             {config.homeHtml && <section className="bg-white/50 rounded-[3rem] overflow-hidden shadow-xl"><iframe srcDoc={config.homeHtml} className="w-full h-[500px]" sandbox="allow-scripts" /></section>}
             <div className="grid md:grid-cols-2 gap-8">
-              <HomeCard icon={<ClipboardList size={40}/>} title="Semainier" label="Le menu de la semaine" onClick={() => setCurrentView('cooking')} color={config.primaryColor} />
+              <HomeCard icon={<Wallet size={40}/>} title="Porte-Monnaie" label="Famille & Tirelire Perso" onClick={() => setCurrentView('wallet')} color={config.primaryColor} />
               <HomeCard icon={<ChefHat size={40}/>} title="Recettes" label="Nos petits plats" onClick={() => setCurrentView('recipes')} color={config.primaryColor} />
             </div>
           </div>
+        )}
+
+        {/* --- PORTE-MONNAIE --- */}
+        {currentView === 'wallet' && (
+           <WalletView user={user} config={config} />
         )}
 
         {/* --- TÂCHES --- */}
