@@ -22,14 +22,14 @@ const FAMILY_EMAILS = [
   "frezouls.pauline@gmail.com",
   "eau.fraise.fille@gmail.com",
   "m.camillini57@gmail.com",
-  "axisman705@gmail.com" // AJOUTÉ
+  "axisman705@gmail.com" 
 ];
 
 const USER_MAPPING: Record<string, string> = {
   "gabriel.frezouls@gmail.com": "G",
   "frezouls.pauline@gmail.com": "P",
   "valentin.frezouls@gmail.com": "V",
-  "axisman705@gmail.com": "A" // AJOUTÉ
+  "axisman705@gmail.com": "A"
 };
 
 // --- CONFIGURATION PAR DÉFAUT ---
@@ -82,7 +82,7 @@ const getMonthWeekends = () => {
   return weekends;
 };
 
-// --- COMPOSANT GRAPHIQUE SVG NATIF ---
+// --- COMPOSANT GRAPHIQUE SVG NATIF (SIMPLE LINE) ---
 const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
   if (!data || data.length < 2) return <div className="h-full flex items-center justify-center text-gray-300 italic text-xs">Pas assez de données sur cette période</div>;
 
@@ -120,39 +120,54 @@ const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
   );
 };
 
-// --- VISUEL COCHON SVG ---
-const PiggyShape = ({ fillPercentage }: { fillPercentage: number }) => {
-  // Générer des "pièces" aléatoires basées sur le pourcentage (max 50 pièces pour 100%)
-  const coinCount = Math.min(Math.floor(fillPercentage / 2), 50);
-  const coins = Array.from({ length: coinCount }).map((_, i) => ({
-    cx: 80 + Math.random() * 140, // Zone "ventre" X
-    cy: 80 + Math.random() * 100, // Zone "ventre" Y
-    r: 8 + Math.random() * 4
-  }));
+// --- NOUVEAU COMPOSANT COCHON (LIQUID FILL) ---
+const PiggyLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
+  // Clamp percentage between 0 and 100 for visual sanity
+  const safePercent = Math.min(Math.max(fillPercentage, 0), 100);
+  
+  // Calculate the Y position for the "liquid" (100% full = y:0, 0% full = y:220)
+  const svgHeight = 220;
+  const liquidHeight = (safePercent / 100) * svgHeight;
+  const liquidY = svgHeight - liquidHeight;
+
+  // SVG Path du cochon
+  const pigPath = "M260,110 Q280,110 290,130 Q295,140 285,150 L270,150 Q270,180 280,200 L250,200 Q240,180 240,160 L100,160 Q100,180 110,200 L80,200 Q90,180 90,150 Q60,150 40,130 Q20,110 30,80 Q40,50 80,40 Q90,20 110,20 L120,40 Q160,20 200,40 Q240,50 250,80 Q255,60 270,60 L270,80 Q290,80 290,100 Z";
 
   return (
-    <div className="relative w-full h-full">
-        <svg viewBox="0 0 300 220" className="w-full h-full drop-shadow-xl">
-            {/* Silhouette Cochon */}
-            <path 
-                d="M260,110 Q280,110 290,130 Q295,140 285,150 L270,150 Q270,180 280,200 L250,200 Q240,180 240,160 L100,160 Q100,180 110,200 L80,200 Q90,180 90,150 Q60,150 40,130 Q20,110 30,80 Q40,50 80,40 Q90,20 110,20 L120,40 Q160,20 200,40 Q240,50 250,80 Q255,60 270,60 L270,80 Q290,80 290,100 Z" 
-                fill="#fef08a" // Jaune clair (yellow-200)
-                stroke="#fde047" // Contour Jaune plus fort
-                strokeWidth="4"
+    <div className="relative w-full h-full flex justify-center items-center">
+        <svg viewBox="0 0 300 220" className="w-full h-full drop-shadow-xl overflow-visible">
+            <defs>
+               <clipPath id="piggyClip">
+                  <path d={pigPath} />
+               </clipPath>
+               {/* Gradient pour le liquide (plus foncé en bas) */}
+               <linearGradient id="liquidGrad" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="#facc15" />   {/* Haut (yellow-400) */}
+                  <stop offset="100%" stopColor="#ca8a04" /> {/* Bas (yellow-600) */}
+               </linearGradient>
+            </defs>
+
+            {/* 1. Fond du cochon (vide / jaune très pâle) */}
+            <path d={pigPath} fill="#fef9c3" stroke="none" /> 
+
+            {/* 2. Le Liquide (Rectangle masqué par la forme du cochon) */}
+            <rect 
+                x="0" 
+                y={liquidY} 
+                width="300" 
+                height={liquidHeight} 
+                fill="url(#liquidGrad)" 
+                clipPath="url(#piggyClip)"
+                className="transition-all duration-1000 ease-in-out" // Animation fluide
             />
-            {/* Oreille */}
-            <path d="M200,40 Q220,10 240,40" fill="none" stroke="#eab308" strokeWidth="3" opacity="0.5"/>
-            {/* Oeil */}
-            <circle cx="250" cy="80" r="5" fill="#000" opacity="0.7"/>
-            {/* Groin */}
-            <ellipse cx="280" cy="130" rx="10" ry="15" fill="#fde047" opacity="0.6"/>
-            
-            {/* Pièces à l'intérieur (clip path simulé par placement) */}
-            <g>
-                {coins.map((c, i) => (
-                    <circle key={i} cx={c.cx} cy={c.cy} r={c.r} fill="#eab308" stroke="#ca8a04" strokeWidth="1" className="animate-in fade-in zoom-in duration-500" style={{animationDelay: `${i*10}ms`}} />
-                ))}
-            </g>
+
+            {/* 3. Contour du cochon (Dessus) */}
+            <path d={pigPath} fill="none" stroke="#eab308" strokeWidth="4" />
+
+            {/* Détails du visage (superposés) */}
+            <path d="M200,40 Q220,10 240,40" fill="none" stroke="#ca8a04" strokeWidth="3" opacity="0.5"/> {/* Oreille */}
+            <circle cx="250" cy="80" r="5" fill="#000" opacity="0.6"/> {/* Oeil */}
+            <ellipse cx="280" cy="130" rx="10" ry="15" fill="none" stroke="#ca8a04" strokeWidth="2" opacity="0.4"/> {/* Groin */}
         </svg>
     </div>
   );
@@ -271,7 +286,6 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
       if(chartRange === '5Y') cutoff.setFullYear(now.getFullYear() - 5);
 
       const filtered = (myWallet.history || []).filter((h:any) => new Date(h.date) >= cutoff);
-      // Trier par date
       filtered.sort((a:any, b:any) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
       return filtered.map((h: any) => ({
@@ -285,7 +299,7 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   const currentMonth = new Date().getMonth();
   const currentMonthHistory = (myWallet.history || []).filter((h: any) => new Date(h.date).getMonth() === currentMonth);
   
-  // Calcul % Remplissage Cochon
+  // Calcul % Remplissage (Solde / Objectif)
   const fillPercent = myWallet.savingsGoal > 0 ? (myWallet.balance / myWallet.savingsGoal) * 100 : 0;
 
   return (
@@ -330,36 +344,39 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
         <div className="grid lg:grid-cols-3 gap-6">
           {/* GAUCHE: COCHON & Actions */}
           <div className="lg:col-span-1 space-y-6">
-             {/* VISUEL COCHON */}
+             {/* 1. VISUEL COCHON */}
              <div className="relative h-64 w-full">
-                 <PiggyShape fillPercentage={fillPercent} />
-                 {/* CONTENU SUPERPOSÉ AU COCHON */}
-                 <div className="absolute inset-0 flex flex-col items-center justify-center pt-8">
-                     <p className="text-[10px] font-black uppercase text-yellow-800 tracking-widest opacity-60 mb-1">Mon Solde</p>
-                     <h2 className="text-5xl font-cinzel font-black text-yellow-900 mb-4 drop-shadow-sm">{myWallet.balance?.toFixed(0)}€</h2>
+                 <PiggyLiquid fillPercentage={fillPercent} />
+                 
+                 {/* INFO SUPERPOSÉE (Solde) */}
+                 <div className="absolute inset-0 flex flex-col items-center justify-center pt-6">
+                     <p className="text-[10px] font-black uppercase text-yellow-800/60 tracking-widest mb-1">Solde Actuel</p>
+                     <h2 className="text-5xl font-cinzel font-black text-yellow-900 drop-shadow-sm mb-4">{myWallet.balance?.toFixed(0)}€</h2>
                      
+                     {/* BOUTONS +/- */}
                      <div className="flex items-center gap-2 bg-white/40 p-1.5 rounded-2xl backdrop-blur-sm shadow-sm border border-white/50 w-48">
                         <button onClick={() => updateBalance('sub')} className="p-2 bg-white/50 hover:bg-red-400 hover:text-white rounded-xl transition-colors"><Minus size={16}/></button>
-                        <input type="number" value={walletAmount} onChange={e => setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-lg outline-none text-yellow-900 placeholder-yellow-700/50" placeholder="..." />
+                        <input type="number" value={walletAmount} onChange={e => setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-lg outline-none text-yellow-900 placeholder-yellow-800/40" placeholder="..." />
                         <button onClick={() => updateBalance('add')} className="p-2 bg-white/50 hover:bg-green-400 hover:text-white rounded-xl transition-colors"><Plus size={16}/></button>
                      </div>
                  </div>
              </div>
              
-             {/* INPUT OBJECTIF */}
+             {/* 2. CASE OBJECTIF (JUSTE EN DESSOUS) */}
              <div className="bg-white p-4 rounded-3xl shadow-sm border border-yellow-100 flex items-center gap-3">
                  <div className="p-3 bg-yellow-100 text-yellow-600 rounded-full"><Target size={20}/></div>
                  <div className="flex-1">
-                     <label className="text-[10px] font-bold uppercase text-gray-400">Objectif d'Économie</label>
-                     <input type="number" value={goalInput} onChange={e => setGoalInput(e.target.value)} onBlur={saveGoal} className="w-full font-black text-gray-700 outline-none" placeholder="Ex: 500" />
+                     <label className="text-[10px] font-bold uppercase text-gray-400">Objectif (pour le 100%)</label>
+                     <input type="number" value={goalInput} onChange={e => setGoalInput(e.target.value)} onBlur={saveGoal} className="w-full font-black text-gray-700 outline-none" placeholder="Ex: 1000" />
                  </div>
-                 {fillPercent > 0 && <span className="text-xs font-bold text-yellow-600">{fillPercent.toFixed(0)}%</span>}
+                 {fillPercent > 0 && <span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-1 rounded-lg">{fillPercent.toFixed(0)}%</span>}
              </div>
 
+             {/* TÂCHES */}
              <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100">
-               <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><ClipboardList size={14}/> Mes Tâches Financières</h3>
+               <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><ClipboardList size={14}/> Tâches Rémunérées</h3>
                <div className="flex gap-2 mb-4">
-                 <input value={newTask} onChange={e => setNewTask(e.target.value)} placeholder="Ex: Rembourser Papa..." className="flex-1 bg-gray-50 rounded-xl px-3 text-sm font-bold outline-none" />
+                 <input value={newTask} onChange={e => setNewTask(e.target.value)} placeholder="Ajouter une tâche..." className="flex-1 bg-gray-50 rounded-xl px-3 text-sm font-bold outline-none" />
                  <button onClick={addWalletTask} className="p-2 bg-gray-200 rounded-xl"><Plus size={16}/></button>
                </div>
                <div className="space-y-2 max-h-40 overflow-y-auto">
@@ -378,7 +395,7 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 h-80 relative">
                <div className="flex justify-between items-center mb-4">
-                   <h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Évolution</h3>
+                   <h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Évolution du Solde</h3>
                    <div className="flex bg-gray-100 p-1 rounded-lg">
                        {(['1M', '1Y', '5Y'] as const).map(range => (
                            <button key={range} onClick={() => setChartRange(range)} className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${chartRange === range ? 'bg-white shadow text-black' : 'text-gray-400'}`}>
@@ -394,7 +411,7 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
 
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-gray-100">
                <div className="flex justify-between items-center mb-6">
-                 <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14}/> Historique (Mois en cours)</h3>
+                 <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14}/> Historique (Ce Mois)</h3>
                  <span className="text-[10px] font-bold bg-gray-100 px-3 py-1 rounded-full text-gray-500">{new Date().toLocaleString('default', { month: 'long' })}</span>
                </div>
                <div className="space-y-4 max-h-60 overflow-y-auto pr-2">
