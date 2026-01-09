@@ -120,54 +120,55 @@ const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
   );
 };
 
-// --- NOUVEAU COMPOSANT COCHON (LIQUID FILL) ---
-const PiggyLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
-  // Clamp percentage between 0 and 100 for visual sanity
+// --- NOUVEAU COMPOSANT CERCLE (LIQUID FILL) ---
+const CircleLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
+  // Clamp entre 0 et 100
   const safePercent = Math.min(Math.max(fillPercentage, 0), 100);
   
-  // Calculate the Y position for the "liquid" (100% full = y:0, 0% full = y:220)
-  const svgHeight = 220;
-  const liquidHeight = (safePercent / 100) * svgHeight;
-  const liquidY = svgHeight - liquidHeight;
-
-  // SVG Path du cochon
-  const pigPath = "M260,110 Q280,110 290,130 Q295,140 285,150 L270,150 Q270,180 280,200 L250,200 Q240,180 240,160 L100,160 Q100,180 110,200 L80,200 Q90,180 90,150 Q60,150 40,130 Q20,110 30,80 Q40,50 80,40 Q90,20 110,20 L120,40 Q160,20 200,40 Q240,50 250,80 Q255,60 270,60 L270,80 Q290,80 290,100 Z";
+  // Paramètres du cercle SVG
+  const size = 200;
+  const radius = 90;
+  const center = size / 2;
+  
+  // Hauteur du liquide (0% = en bas, 100% = en haut)
+  // On mappe 0-100% sur la hauteur du rectangle de remplissage
+  const liquidHeight = (safePercent / 100) * size;
+  const liquidY = size - liquidHeight;
 
   return (
     <div className="relative w-full h-full flex justify-center items-center">
-        <svg viewBox="0 0 300 220" className="w-full h-full drop-shadow-xl overflow-visible">
+        <svg viewBox={`0 0 ${size} ${size}`} className="w-full h-full drop-shadow-xl overflow-visible">
             <defs>
-               <clipPath id="piggyClip">
-                  <path d={pigPath} />
+               {/* Masque circulaire pour le liquide */}
+               <clipPath id="circleClip">
+                  <circle cx={center} cy={center} r={radius} />
                </clipPath>
-               {/* Gradient pour le liquide (plus foncé en bas) */}
+               {/* Dégradé Liquide Jaune/Or */}
                <linearGradient id="liquidGrad" x1="0" x2="0" y1="0" y2="1">
                   <stop offset="0%" stopColor="#facc15" />   {/* Haut (yellow-400) */}
                   <stop offset="100%" stopColor="#ca8a04" /> {/* Bas (yellow-600) */}
                </linearGradient>
             </defs>
 
-            {/* 1. Fond du cochon (vide / jaune très pâle) */}
-            <path d={pigPath} fill="#fef9c3" stroke="none" /> 
+            {/* 1. Fond du cercle (vide) */}
+            <circle cx={center} cy={center} r={radius} fill="#fef9c3" stroke="none" /> 
 
-            {/* 2. Le Liquide (Rectangle masqué par la forme du cochon) */}
+            {/* 2. Le Liquide (Rectangle masqué par le cercle) */}
             <rect 
                 x="0" 
                 y={liquidY} 
-                width="300" 
+                width={size} 
                 height={liquidHeight} 
                 fill="url(#liquidGrad)" 
-                clipPath="url(#piggyClip)"
-                className="transition-all duration-1000 ease-in-out" // Animation fluide
+                clipPath="url(#circleClip)"
+                className="transition-all duration-1000 ease-in-out" 
             />
 
-            {/* 3. Contour du cochon (Dessus) */}
-            <path d={pigPath} fill="none" stroke="#eab308" strokeWidth="4" />
-
-            {/* Détails du visage (superposés) */}
-            <path d="M200,40 Q220,10 240,40" fill="none" stroke="#ca8a04" strokeWidth="3" opacity="0.5"/> {/* Oreille */}
-            <circle cx="250" cy="80" r="5" fill="#000" opacity="0.6"/> {/* Oeil */}
-            <ellipse cx="280" cy="130" rx="10" ry="15" fill="none" stroke="#ca8a04" strokeWidth="2" opacity="0.4"/> {/* Groin */}
+            {/* 3. Contour du cercle (Dessus) */}
+            <circle cx={center} cy={center} r={radius} fill="none" stroke="#eab308" strokeWidth="6" />
+            
+            {/* 4. Effet de reflets (Optionnel pour effet verre) */}
+            <ellipse cx={center} cy={center - radius + 15} rx={radius/2} ry={10} fill="white" opacity="0.2" />
         </svg>
     </div>
   );
@@ -184,7 +185,7 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   const [newDebt, setNewDebt] = useState({ from: '', to: '', amount: '', interest: '', reason: '' });
   
   // États Tirelire Personnelle
-  const [myWallet, setMyWallet] = useState<any>({ balance: 0, history: [], tasks: [], savingsGoal: 0 });
+  const [myWallet, setMyWallet] = useState<any>({ balance: 0, history: [], tasks: [], savingsGoal: 0, startBalance: 0 });
   const [walletAmount, setWalletAmount] = useState('');
   const [newTask, setNewTask] = useState('');
   const [goalInput, setGoalInput] = useState('');
@@ -204,7 +205,7 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
           setMyWallet(data);
           if(data.savingsGoal) setGoalInput(data.savingsGoal.toString());
       } else {
-          setDoc(doc(db, 'user_wallets', user.email!), { balance: 0, history: [], tasks: [], savingsGoal: 0 });
+          setDoc(doc(db, 'user_wallets', user.email!), { balance: 0, history: [], tasks: [], savingsGoal: 0, startBalance: 0 });
       }
     });
 
@@ -253,9 +254,16 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   };
 
   const saveGoal = async () => {
-      const val = parseFloat(goalInput);
-      if(!isNaN(val)) {
-          await updateDoc(doc(db, 'user_wallets', user.email!), { savingsGoal: val });
+      const newVal = parseFloat(goalInput);
+      if(!isNaN(newVal)) {
+          // Si l'objectif change, on réinitialise le point de départ (startBalance) au solde actuel
+          // Cela permet de calculer le pourcentage sur l'effort à fournir à partir de maintenant.
+          if (newVal !== myWallet.savingsGoal) {
+             await updateDoc(doc(db, 'user_wallets', user.email!), { 
+                 savingsGoal: newVal,
+                 startBalance: myWallet.balance // On fige le départ ici
+             });
+          }
       }
   };
 
@@ -299,8 +307,23 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   const currentMonth = new Date().getMonth();
   const currentMonthHistory = (myWallet.history || []).filter((h: any) => new Date(h.date).getMonth() === currentMonth);
   
-  // Calcul % Remplissage (Solde / Objectif)
-  const fillPercent = myWallet.savingsGoal > 0 ? (myWallet.balance / myWallet.savingsGoal) * 100 : 0;
+  // --- CALCUL DU POURCENTAGE (Basé sur l'écart Départ -> Objectif) ---
+  const startBal = myWallet.startBalance || 0;
+  const goalBal = myWallet.savingsGoal || 0;
+  const currentBal = myWallet.balance || 0;
+
+  // Montant total à parcourir (Objectif - Départ)
+  const totalGap = goalBal - startBal;
+  // Montant déjà parcouru (Actuel - Départ)
+  const progressMade = currentBal - startBal;
+
+  let fillPercent = 0;
+  // Si on a un objectif supérieur au départ
+  if (totalGap > 0) {
+      fillPercent = (progressMade / totalGap) * 100;
+  }
+  // Cas où on a déjà dépassé l'objectif ou bug
+  if (currentBal >= goalBal && goalBal > 0) fillPercent = 100;
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in">
@@ -342,14 +365,14 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
         </div>
       ) : (
         <div className="grid lg:grid-cols-3 gap-6">
-          {/* GAUCHE: COCHON & Actions */}
+          {/* GAUCHE: CERCLE & Actions */}
           <div className="lg:col-span-1 space-y-6">
-             {/* 1. VISUEL COCHON */}
+             {/* 1. VISUEL CERCLE */}
              <div className="relative h-64 w-full">
-                 <PiggyLiquid fillPercentage={fillPercent} />
+                 <CircleLiquid fillPercentage={fillPercent} />
                  
                  {/* INFO SUPERPOSÉE (Solde) */}
-                 <div className="absolute inset-0 flex flex-col items-center justify-center pt-6">
+                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                      <p className="text-[10px] font-black uppercase text-yellow-800/60 tracking-widest mb-1">Solde Actuel</p>
                      <h2 className="text-5xl font-cinzel font-black text-yellow-900 drop-shadow-sm mb-4">{myWallet.balance?.toFixed(0)}€</h2>
                      
@@ -362,12 +385,13 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
                  </div>
              </div>
              
-             {/* 2. CASE OBJECTIF (JUSTE EN DESSOUS) */}
+             {/* 2. CASE OBJECTIF */}
              <div className="bg-white p-4 rounded-3xl shadow-sm border border-yellow-100 flex items-center gap-3">
                  <div className="p-3 bg-yellow-100 text-yellow-600 rounded-full"><Target size={20}/></div>
                  <div className="flex-1">
-                     <label className="text-[10px] font-bold uppercase text-gray-400">Objectif (pour le 100%)</label>
-                     <input type="number" value={goalInput} onChange={e => setGoalInput(e.target.value)} onBlur={saveGoal} className="w-full font-black text-gray-700 outline-none" placeholder="Ex: 1000" />
+                     <label className="text-[10px] font-bold uppercase text-gray-400">Objectif</label>
+                     <input type="number" value={goalInput} onChange={e => setGoalInput(e.target.value)} onBlur={saveGoal} className="w-full font-black text-gray-700 outline-none" placeholder="Définir..." />
+                     {myWallet.startBalance > 0 && <span className="text-[10px] text-gray-300">Départ: {myWallet.startBalance}€</span>}
                  </div>
                  {fillPercent > 0 && <span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-1 rounded-lg">{fillPercent.toFixed(0)}%</span>}
              </div>
