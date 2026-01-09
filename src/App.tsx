@@ -6,7 +6,7 @@ import {
   Lock, Menu, X, Home, BookHeart, ChefHat, Wallet, PiggyBank,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
-  CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent
+  CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target
 } from 'lucide-react';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -21,13 +21,15 @@ const FAMILY_EMAILS = [
   "valentin.frezouls@gmail.com", 
   "frezouls.pauline@gmail.com",
   "eau.fraise.fille@gmail.com",
-  "m.camillini57@gmail.com"
+  "m.camillini57@gmail.com",
+  "axisman705@gmail.com" // AJOUTÉ
 ];
 
 const USER_MAPPING: Record<string, string> = {
   "gabriel.frezouls@gmail.com": "G",
   "frezouls.pauline@gmail.com": "P",
-  "valentin.frezouls@gmail.com": "V"
+  "valentin.frezouls@gmail.com": "V",
+  "axisman705@gmail.com": "A" // AJOUTÉ
 };
 
 // --- CONFIGURATION PAR DÉFAUT ---
@@ -80,9 +82,9 @@ const getMonthWeekends = () => {
   return weekends;
 };
 
-// --- COMPOSANT GRAPHIQUE SVG NATIF (SANS MODULE) ---
+// --- COMPOSANT GRAPHIQUE SVG NATIF ---
 const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
-  if (!data || data.length < 2) return <div className="h-full flex items-center justify-center text-gray-300 italic text-xs">Pas assez de données pour le graphique</div>;
+  if (!data || data.length < 2) return <div className="h-full flex items-center justify-center text-gray-300 italic text-xs">Pas assez de données sur cette période</div>;
 
   const width = 300;
   const height = 100;
@@ -93,33 +95,21 @@ const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
   const max = Math.max(...values);
   const range = max - min || 1;
 
-  // Calcul des points SVG
   const points = data.map((d, i) => {
     const x = (i / (data.length - 1)) * (width - padding * 2) + padding;
-    // Inverser Y car SVG 0 est en haut
     const y = height - ((d.solde - min) / range) * (height - padding * 2) - padding;
     return `${x},${y}`;
   }).join(' ');
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
-      {/* Ligne */}
-      <polyline
-        fill="none"
-        stroke={color}
-        strokeWidth="3"
-        points={points}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {/* Points */}
+      <polyline fill="none" stroke={color} strokeWidth="3" points={points} strokeLinecap="round" strokeLinejoin="round"/>
       {data.map((d, i) => {
         const x = (i / (data.length - 1)) * (width - padding * 2) + padding;
         const y = height - ((d.solde - min) / range) * (height - padding * 2) - padding;
         return (
           <g key={i} className="group">
              <circle cx={x} cy={y} r="4" fill="white" stroke={color} strokeWidth="2" />
-             {/* Tooltip natif simple au survol */}
              <text x={x} y={y - 10} textAnchor="middle" fontSize="10" fill="black" className="opacity-0 group-hover:opacity-100 font-bold bg-white transition-opacity">
                {d.solde}€
              </text>
@@ -130,18 +120,59 @@ const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
   );
 };
 
+// --- VISUEL COCHON SVG ---
+const PiggyShape = ({ fillPercentage }: { fillPercentage: number }) => {
+  // Générer des "pièces" aléatoires basées sur le pourcentage (max 50 pièces pour 100%)
+  const coinCount = Math.min(Math.floor(fillPercentage / 2), 50);
+  const coins = Array.from({ length: coinCount }).map((_, i) => ({
+    cx: 80 + Math.random() * 140, // Zone "ventre" X
+    cy: 80 + Math.random() * 100, // Zone "ventre" Y
+    r: 8 + Math.random() * 4
+  }));
+
+  return (
+    <div className="relative w-full h-full">
+        <svg viewBox="0 0 300 220" className="w-full h-full drop-shadow-xl">
+            {/* Silhouette Cochon */}
+            <path 
+                d="M260,110 Q280,110 290,130 Q295,140 285,150 L270,150 Q270,180 280,200 L250,200 Q240,180 240,160 L100,160 Q100,180 110,200 L80,200 Q90,180 90,150 Q60,150 40,130 Q20,110 30,80 Q40,50 80,40 Q90,20 110,20 L120,40 Q160,20 200,40 Q240,50 250,80 Q255,60 270,60 L270,80 Q290,80 290,100 Z" 
+                fill="#fef08a" // Jaune clair (yellow-200)
+                stroke="#fde047" // Contour Jaune plus fort
+                strokeWidth="4"
+            />
+            {/* Oreille */}
+            <path d="M200,40 Q220,10 240,40" fill="none" stroke="#eab308" strokeWidth="3" opacity="0.5"/>
+            {/* Oeil */}
+            <circle cx="250" cy="80" r="5" fill="#000" opacity="0.7"/>
+            {/* Groin */}
+            <ellipse cx="280" cy="130" rx="10" ry="15" fill="#fde047" opacity="0.6"/>
+            
+            {/* Pièces à l'intérieur (clip path simulé par placement) */}
+            <g>
+                {coins.map((c, i) => (
+                    <circle key={i} cx={c.cx} cy={c.cy} r={c.r} fill="#eab308" stroke="#ca8a04" strokeWidth="1" className="animate-in fade-in zoom-in duration-500" style={{animationDelay: `${i*10}ms`}} />
+                ))}
+            </g>
+        </svg>
+    </div>
+  );
+};
+
+
 // --- COMPOSANT PORTE-MONNAIE ---
 const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   const [activeTab, setActiveTab] = useState<'family' | 'personal'>('family');
+  const [chartRange, setChartRange] = useState<'1M' | '1Y' | '5Y'>('1M');
   
   // États Dettes Familiales
   const [debts, setDebts] = useState<any[]>([]);
   const [newDebt, setNewDebt] = useState({ from: '', to: '', amount: '', interest: '', reason: '' });
   
   // États Tirelire Personnelle
-  const [myWallet, setMyWallet] = useState<any>({ balance: 0, history: [], tasks: [] });
+  const [myWallet, setMyWallet] = useState<any>({ balance: 0, history: [], tasks: [], savingsGoal: 0 });
   const [walletAmount, setWalletAmount] = useState('');
   const [newTask, setNewTask] = useState('');
+  const [goalInput, setGoalInput] = useState('');
 
   // 1. Charger les données
   useEffect(() => {
@@ -153,8 +184,13 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
 
     // Tirelire Perso
     const unsubWallet = onSnapshot(doc(db, 'user_wallets', user.email!), (s) => {
-      if (s.exists()) setMyWallet(s.data());
-      else setDoc(doc(db, 'user_wallets', user.email!), { balance: 0, history: [], tasks: [] });
+      if (s.exists()) {
+          const data = s.data();
+          setMyWallet(data);
+          if(data.savingsGoal) setGoalInput(data.savingsGoal.toString());
+      } else {
+          setDoc(doc(db, 'user_wallets', user.email!), { balance: 0, history: [], tasks: [], savingsGoal: 0 });
+      }
     });
 
     return () => { unsubDebts(); unsubWallet(); };
@@ -177,7 +213,6 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
     const start = new Date(debt.createdAt);
     const now = new Date();
     const days = Math.floor((now.getTime() - start.getTime()) / (1000 * 3600 * 24));
-    // Calcul intérêt simple : Capital * (Taux/100) * (Jours/365)
     const interestAmount = debt.amount * (debt.interest / 100) * (days / 365);
     return (debt.amount + interestAmount).toFixed(2);
   };
@@ -192,7 +227,7 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
       date: new Date().toISOString(),
       amount: type === 'add' ? val : -val,
       newBalance: newBal,
-      month: new Date().getMonth() // Pour filtrer
+      month: new Date().getMonth()
     };
 
     await updateDoc(doc(db, 'user_wallets', user.email!), {
@@ -200,6 +235,13 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
       history: [...(myWallet.history || []), entry]
     });
     setWalletAmount('');
+  };
+
+  const saveGoal = async () => {
+      const val = parseFloat(goalInput);
+      if(!isNaN(val)) {
+          await updateDoc(doc(db, 'user_wallets', user.email!), { savingsGoal: val });
+      }
   };
 
   const addWalletTask = async () => {
@@ -220,15 +262,31 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
     await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: newTasks });
   };
 
-  // Filtrage Historique Mois en cours
+  // Filtrage Graphique (Dynamique)
+  const getGraphData = () => {
+      const now = new Date();
+      let cutoff = new Date();
+      if(chartRange === '1M') cutoff.setMonth(now.getMonth() - 1);
+      if(chartRange === '1Y') cutoff.setFullYear(now.getFullYear() - 1);
+      if(chartRange === '5Y') cutoff.setFullYear(now.getFullYear() - 5);
+
+      const filtered = (myWallet.history || []).filter((h:any) => new Date(h.date) >= cutoff);
+      // Trier par date
+      filtered.sort((a:any, b:any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
+      return filtered.map((h: any) => ({
+          name: new Date(h.date).toLocaleDateString(),
+          solde: h.newBalance
+      }));
+  };
+  const graphData = getGraphData();
+
+  // Filtrage Liste (Toujours mois en cours)
   const currentMonth = new Date().getMonth();
   const currentMonthHistory = (myWallet.history || []).filter((h: any) => new Date(h.date).getMonth() === currentMonth);
   
-  // Données Graphique
-  const graphData = currentMonthHistory.map((h: any, i: number) => ({
-    name: new Date(h.date).getDate(),
-    solde: h.newBalance
-  }));
+  // Calcul % Remplissage Cochon
+  const fillPercent = myWallet.savingsGoal > 0 ? (myWallet.balance / myWallet.savingsGoal) * 100 : 0;
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in">
@@ -270,18 +328,32 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
         </div>
       ) : (
         <div className="grid lg:grid-cols-3 gap-6">
-          {/* GAUCHE: Compte & Actions */}
+          {/* GAUCHE: COCHON & Actions */}
           <div className="lg:col-span-1 space-y-6">
-             <div className="bg-black text-white p-8 rounded-[2.5rem] shadow-2xl text-center relative overflow-hidden">
-               <div className="absolute top-0 left-0 w-full h-full bg-white/5 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20"></div>
-               <p className="text-xs font-black uppercase tracking-[0.2em] opacity-50 mb-4">Mon Solde Actuel</p>
-               <h2 className="text-6xl font-cinzel font-bold mb-8">{myWallet.balance?.toFixed(2)}€</h2>
-               
-               <div className="flex items-center gap-2 bg-white/10 p-2 rounded-2xl backdrop-blur-md">
-                 <button onClick={() => updateBalance('sub')} className="p-4 bg-white/10 hover:bg-red-500 rounded-xl transition-colors"><Minus/></button>
-                 <input type="number" value={walletAmount} onChange={e => setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-xl outline-none" placeholder="Montant..." />
-                 <button onClick={() => updateBalance('add')} className="p-4 bg-white/10 hover:bg-green-500 rounded-xl transition-colors"><Plus/></button>
-               </div>
+             {/* VISUEL COCHON */}
+             <div className="relative h-64 w-full">
+                 <PiggyShape fillPercentage={fillPercent} />
+                 {/* CONTENU SUPERPOSÉ AU COCHON */}
+                 <div className="absolute inset-0 flex flex-col items-center justify-center pt-8">
+                     <p className="text-[10px] font-black uppercase text-yellow-800 tracking-widest opacity-60 mb-1">Mon Solde</p>
+                     <h2 className="text-5xl font-cinzel font-black text-yellow-900 mb-4 drop-shadow-sm">{myWallet.balance?.toFixed(0)}€</h2>
+                     
+                     <div className="flex items-center gap-2 bg-white/40 p-1.5 rounded-2xl backdrop-blur-sm shadow-sm border border-white/50 w-48">
+                        <button onClick={() => updateBalance('sub')} className="p-2 bg-white/50 hover:bg-red-400 hover:text-white rounded-xl transition-colors"><Minus size={16}/></button>
+                        <input type="number" value={walletAmount} onChange={e => setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-lg outline-none text-yellow-900 placeholder-yellow-700/50" placeholder="..." />
+                        <button onClick={() => updateBalance('add')} className="p-2 bg-white/50 hover:bg-green-400 hover:text-white rounded-xl transition-colors"><Plus size={16}/></button>
+                     </div>
+                 </div>
+             </div>
+             
+             {/* INPUT OBJECTIF */}
+             <div className="bg-white p-4 rounded-3xl shadow-sm border border-yellow-100 flex items-center gap-3">
+                 <div className="p-3 bg-yellow-100 text-yellow-600 rounded-full"><Target size={20}/></div>
+                 <div className="flex-1">
+                     <label className="text-[10px] font-bold uppercase text-gray-400">Objectif d'Économie</label>
+                     <input type="number" value={goalInput} onChange={e => setGoalInput(e.target.value)} onBlur={saveGoal} className="w-full font-black text-gray-700 outline-none" placeholder="Ex: 500" />
+                 </div>
+                 {fillPercent > 0 && <span className="text-xs font-bold text-yellow-600">{fillPercent.toFixed(0)}%</span>}
              </div>
 
              <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100">
@@ -304,10 +376,18 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
 
           {/* DROITE: Graphique & Historique */}
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 h-64">
-               <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Évolution du Mois</h3>
-               {/* Utilisation du composant SVG maison sans Recharts */}
-               <div className="h-48 w-full p-2">
+            <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 h-80 relative">
+               <div className="flex justify-between items-center mb-4">
+                   <h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Évolution</h3>
+                   <div className="flex bg-gray-100 p-1 rounded-lg">
+                       {(['1M', '1Y', '5Y'] as const).map(range => (
+                           <button key={range} onClick={() => setChartRange(range)} className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${chartRange === range ? 'bg-white shadow text-black' : 'text-gray-400'}`}>
+                               {range}
+                           </button>
+                       ))}
+                   </div>
+               </div>
+               <div className="h-60 w-full p-2">
                   <SimpleLineChart data={graphData} color={config.primaryColor} />
                </div>
             </div>
@@ -981,7 +1061,8 @@ const App: React.FC = () => {
             </section>
             {config.homeHtml && <section className="bg-white/50 rounded-[3rem] overflow-hidden shadow-xl"><iframe srcDoc={config.homeHtml} className="w-full h-[500px]" sandbox="allow-scripts" /></section>}
             <div className="grid md:grid-cols-2 gap-8">
-              <HomeCard icon={<Wallet size={40}/>} title="Porte-Monnaie" label="Famille & Tirelire Perso" onClick={() => setCurrentView('wallet')} color={config.primaryColor} />
+              {/* MODIFICATION ICI : CARTE SEMAINIER AU LIEU DE PORTE-MONNAIE */}
+              <HomeCard icon={<CalIcon size={40}/>} title="Semainier" label="Menus & Organisation" onClick={() => setCurrentView('cooking')} color={config.primaryColor} />
               <HomeCard icon={<ChefHat size={40}/>} title="Recettes" label="Nos petits plats" onClick={() => setCurrentView('recipes')} color={config.primaryColor} />
             </div>
           </div>
