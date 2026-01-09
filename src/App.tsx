@@ -8,7 +8,6 @@ import {
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
 import Background from './components/Background';
@@ -34,8 +33,8 @@ const USER_MAPPING: Record<string, string> = {
 // --- CONFIGURATION PAR DÉFAUT ---
 const ORIGINAL_CONFIG: SiteConfig = {
   primaryColor: '#a85c48',
-  backgroundColor: '#f5ede7', // BEIGE SABLE
-  fontFamily: 'Montserrat', // POLICE DEMANDÉE
+  backgroundColor: '#f5ede7',
+  fontFamily: 'Montserrat',
   welcomeTitle: 'CHAUD DEVANT',
   welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
   welcomeImage: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
@@ -81,26 +80,57 @@ const getMonthWeekends = () => {
   return weekends;
 };
 
-// --- COMPOSANTS INDÉPENDANTS ---
+// --- COMPOSANT GRAPHIQUE SVG NATIF (SANS MODULE) ---
+const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
+  if (!data || data.length < 2) return <div className="h-full flex items-center justify-center text-gray-300 italic text-xs">Pas assez de données pour le graphique</div>;
 
-const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, myLetter }: any) => {
-  const isDone = choreStatus[weekId]?.[letter] || false;
-  const canCheck = !isLocked && myLetter === letter; 
+  const width = 300;
+  const height = 100;
+  const padding = 5;
+
+  const values = data.map(d => d.solde);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+
+  // Calcul des points SVG
+  const points = data.map((d, i) => {
+    const x = (i / (data.length - 1)) * (width - padding * 2) + padding;
+    // Inverser Y car SVG 0 est en haut
+    const y = height - ((d.solde - min) / range) * (height - padding * 2) - padding;
+    return `${x},${y}`;
+  }).join(' ');
+
   return (
-    <td className="p-4 text-center align-middle">
-      <div className="flex flex-col items-center gap-2">
-        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${
-          isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-        }`}> {letter} </span>
-        <button onClick={() => canCheck && toggleChore(weekId, letter)} disabled={!canCheck} className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20 cursor-not-allowed' : ''}`} title={isLocked ? "Trop tôt pour cocher !" : ""}>
-          {isDone ? <CheckSquare className="text-green-500" size={24} /> : (canCheck ? <Square className="text-green-500 hover:fill-green-50" size={24} /> : <Square className="text-gray-200" size={24} />)}
-        </button>
-      </div>
-    </td>
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
+      {/* Ligne */}
+      <polyline
+        fill="none"
+        stroke={color}
+        strokeWidth="3"
+        points={points}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Points */}
+      {data.map((d, i) => {
+        const x = (i / (data.length - 1)) * (width - padding * 2) + padding;
+        const y = height - ((d.solde - min) / range) * (height - padding * 2) - padding;
+        return (
+          <g key={i} className="group">
+             <circle cx={x} cy={y} r="4" fill="white" stroke={color} strokeWidth="2" />
+             {/* Tooltip natif simple au survol */}
+             <text x={x} y={y - 10} textAnchor="middle" fontSize="10" fill="black" className="opacity-0 group-hover:opacity-100 font-bold bg-white transition-opacity">
+               {d.solde}€
+             </text>
+          </g>
+        );
+      })}
+    </svg>
   );
 };
 
-// --- NOUVEAU COMPOSANT : PORTE-MONNAIE ---
+// --- COMPOSANT PORTE-MONNAIE ---
 const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   const [activeTab, setActiveTab] = useState<'family' | 'personal'>('family');
   
@@ -276,18 +306,10 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 h-64">
                <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Évolution du Mois</h3>
-               <ResponsiveContainer width="100%" height="85%">
-                 <AreaChart data={graphData}>
-                   <defs>
-                     <linearGradient id="colorBal" x1="0" y1="0" x2="0" y2="1">
-                       <stop offset="5%" stopColor={config.primaryColor} stopOpacity={0.3}/>
-                       <stop offset="95%" stopColor={config.primaryColor} stopOpacity={0}/>
-                     </linearGradient>
-                   </defs>
-                   <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
-                   <Area type="monotone" dataKey="solde" stroke={config.primaryColor} fillOpacity={1} fill="url(#colorBal)" strokeWidth={3} />
-                 </AreaChart>
-               </ResponsiveContainer>
+               {/* Utilisation du composant SVG maison sans Recharts */}
+               <div className="h-48 w-full p-2">
+                  <SimpleLineChart data={graphData} color={config.primaryColor} />
+               </div>
             </div>
 
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-gray-100">
@@ -317,7 +339,25 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   );
 };
 
-// --- AUTRES MODALES (Event, Journal, Recipe) ... ---
+// --- AUTRES COMPOSANTS (Event, Journal, Recipe) ---
+
+const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, myLetter }: any) => {
+  const isDone = choreStatus[weekId]?.[letter] || false;
+  const canCheck = !isLocked && myLetter === letter; 
+  return (
+    <td className="p-4 text-center align-middle">
+      <div className="flex flex-col items-center gap-2">
+        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${
+          isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+        }`}> {letter} </span>
+        <button onClick={() => canCheck && toggleChore(weekId, letter)} disabled={!canCheck} className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20 cursor-not-allowed' : ''}`} title={isLocked ? "Trop tôt pour cocher !" : ""}>
+          {isDone ? <CheckSquare className="text-green-500" size={24} /> : (canCheck ? <Square className="text-green-500 hover:fill-green-50" size={24} /> : <Square className="text-gray-200" size={24} />)}
+        </button>
+      </div>
+    </td>
+  );
+};
+
 const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }: any) => {
   if (!isOpen) return null;
   return (
