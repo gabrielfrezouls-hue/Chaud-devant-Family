@@ -6,9 +6,10 @@ import {
   Lock, Menu, X, Home, BookHeart, ChefHat, Wallet, PiggyBank,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
-  CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target
+  CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
+  Map, MonitorPlay, Eye
 } from 'lucide-react';
-import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
+import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
 import Background from './components/Background';
 import RecipeCard from './components/RecipeCard';
@@ -40,7 +41,8 @@ const ORIGINAL_CONFIG: SiteConfig = {
   welcomeTitle: 'CHAUD DEVANT',
   welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
   welcomeImage: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
-  navigationLabels: { home: 'ACCUEIL', journal: 'JOURNAL', cooking: 'SEMAINIER', recipes: 'RECETTES', calendar: 'CALENDRIER', tasks: 'TÂCHES', wallet: 'PORTE-MONNAIE' },
+  // REMPLACEMENT DE JOURNAL PAR XSITE DANS LA NAV
+  navigationLabels: { home: 'ACCUEIL', xsite: 'XSITE', cooking: 'SEMAINIER', recipes: 'RECETTES', calendar: 'CALENDRIER', tasks: 'TÂCHES', wallet: 'PORTE-MONNAIE' },
   homeHtml: '', cookingHtml: ''
 };
 
@@ -120,18 +122,12 @@ const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
   );
 };
 
-// --- NOUVEAU COMPOSANT CERCLE (LIQUID FILL) ---
+// --- COMPOSANT CERCLE (LIQUID FILL) ---
 const CircleLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
-  // Clamp entre 0 et 100
   const safePercent = Math.min(Math.max(fillPercentage, 0), 100);
-  
-  // Paramètres du cercle SVG
   const size = 200;
   const radius = 90;
   const center = size / 2;
-  
-  // Hauteur du liquide (0% = en bas, 100% = en haut)
-  // On mappe 0-100% sur la hauteur du rectangle de remplissage
   const liquidHeight = (safePercent / 100) * size;
   const liquidY = size - liquidHeight;
 
@@ -139,35 +135,17 @@ const CircleLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
     <div className="relative w-full h-full flex justify-center items-center">
         <svg viewBox={`0 0 ${size} ${size}`} className="w-full h-full drop-shadow-xl overflow-visible">
             <defs>
-               {/* Masque circulaire pour le liquide */}
                <clipPath id="circleClip">
                   <circle cx={center} cy={center} r={radius} />
                </clipPath>
-               {/* Dégradé Liquide Jaune/Or */}
                <linearGradient id="liquidGrad" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#facc15" />   {/* Haut (yellow-400) */}
-                  <stop offset="100%" stopColor="#ca8a04" /> {/* Bas (yellow-600) */}
+                  <stop offset="0%" stopColor="#facc15" /> 
+                  <stop offset="100%" stopColor="#ca8a04" />
                </linearGradient>
             </defs>
-
-            {/* 1. Fond du cercle (vide) */}
             <circle cx={center} cy={center} r={radius} fill="#fef9c3" stroke="none" /> 
-
-            {/* 2. Le Liquide (Rectangle masqué par le cercle) */}
-            <rect 
-                x="0" 
-                y={liquidY} 
-                width={size} 
-                height={liquidHeight} 
-                fill="url(#liquidGrad)" 
-                clipPath="url(#circleClip)"
-                className="transition-all duration-1000 ease-in-out" 
-            />
-
-            {/* 3. Contour du cercle (Dessus) */}
+            <rect x="0" y={liquidY} width={size} height={liquidHeight} fill="url(#liquidGrad)" clipPath="url(#circleClip)" className="transition-all duration-1000 ease-in-out" />
             <circle cx={center} cy={center} r={radius} fill="none" stroke="#eab308" strokeWidth="6" />
-            
-            {/* 4. Effet de reflets (Optionnel pour effet verre) */}
             <ellipse cx={center} cy={center - radius + 15} rx={radius/2} ry={10} fill="white" opacity="0.2" />
         </svg>
     </div>
@@ -180,25 +158,18 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   const [activeTab, setActiveTab] = useState<'family' | 'personal'>('family');
   const [chartRange, setChartRange] = useState<'1M' | '1Y' | '5Y'>('1M');
   
-  // États Dettes Familiales
   const [debts, setDebts] = useState<any[]>([]);
   const [newDebt, setNewDebt] = useState({ from: '', to: '', amount: '', interest: '', reason: '' });
   
-  // États Tirelire Personnelle
   const [myWallet, setMyWallet] = useState<any>({ balance: 0, history: [], tasks: [], savingsGoal: 0, startBalance: 0 });
   const [walletAmount, setWalletAmount] = useState('');
   const [newTask, setNewTask] = useState('');
   const [goalInput, setGoalInput] = useState('');
 
-  // 1. Charger les données
   useEffect(() => {
     if (!user) return;
-    
-    // Dettes
     const qDebts = query(collection(db, 'family_debts'), orderBy('createdAt', 'desc'));
     const unsubDebts = onSnapshot(qDebts, (s) => setDebts(s.docs.map(d => ({id: d.id, ...d.data()}))));
-
-    // Tirelire Perso
     const unsubWallet = onSnapshot(doc(db, 'user_wallets', user.email!), (s) => {
       if (s.exists()) {
           const data = s.data();
@@ -208,11 +179,9 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
           setDoc(doc(db, 'user_wallets', user.email!), { balance: 0, history: [], tasks: [], savingsGoal: 0, startBalance: 0 });
       }
     });
-
     return () => { unsubDebts(); unsubWallet(); };
   }, [user]);
 
-  // 2. Logique Dettes
   const addDebt = async () => {
     if (!newDebt.from || !newDebt.to || !newDebt.amount) return alert("Remplissez les champs !");
     await addDoc(collection(db, 'family_debts'), {
@@ -233,11 +202,9 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
     return (debt.amount + interestAmount).toFixed(2);
   };
 
-  // 3. Logique Tirelire
   const updateBalance = async (type: 'add' | 'sub') => {
     const val = parseFloat(walletAmount);
     if (!val || val <= 0) return;
-    
     const newBal = type === 'add' ? myWallet.balance + val : myWallet.balance - val;
     const entry = {
       date: new Date().toISOString(),
@@ -245,33 +212,22 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
       newBalance: newBal,
       month: new Date().getMonth()
     };
-
-    await updateDoc(doc(db, 'user_wallets', user.email!), {
-      balance: newBal,
-      history: [...(myWallet.history || []), entry]
-    });
+    await updateDoc(doc(db, 'user_wallets', user.email!), { balance: newBal, history: [...(myWallet.history || []), entry] });
     setWalletAmount('');
   };
 
   const saveGoal = async () => {
       const newVal = parseFloat(goalInput);
       if(!isNaN(newVal)) {
-          // Si l'objectif change, on réinitialise le point de départ (startBalance) au solde actuel
-          // Cela permet de calculer le pourcentage sur l'effort à fournir à partir de maintenant.
           if (newVal !== myWallet.savingsGoal) {
-             await updateDoc(doc(db, 'user_wallets', user.email!), { 
-                 savingsGoal: newVal,
-                 startBalance: myWallet.balance // On fige le départ ici
-             });
+             await updateDoc(doc(db, 'user_wallets', user.email!), { savingsGoal: newVal, startBalance: myWallet.balance });
           }
       }
   };
 
   const addWalletTask = async () => {
     if (!newTask) return;
-    await updateDoc(doc(db, 'user_wallets', user.email!), {
-      tasks: [...(myWallet.tasks || []), { id: Date.now(), text: newTask, done: false }]
-    });
+    await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: [...(myWallet.tasks || []), { id: Date.now(), text: newTask, done: false }] });
     setNewTask('');
   };
 
@@ -285,44 +241,26 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
     await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: newTasks });
   };
 
-  // Filtrage Graphique (Dynamique)
   const getGraphData = () => {
       const now = new Date();
       let cutoff = new Date();
       if(chartRange === '1M') cutoff.setMonth(now.getMonth() - 1);
       if(chartRange === '1Y') cutoff.setFullYear(now.getFullYear() - 1);
       if(chartRange === '5Y') cutoff.setFullYear(now.getFullYear() - 5);
-
       const filtered = (myWallet.history || []).filter((h:any) => new Date(h.date) >= cutoff);
       filtered.sort((a:any, b:any) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      
-      return filtered.map((h: any) => ({
-          name: new Date(h.date).toLocaleDateString(),
-          solde: h.newBalance
-      }));
+      return filtered.map((h: any) => ({ name: new Date(h.date).toLocaleDateString(), solde: h.newBalance }));
   };
   const graphData = getGraphData();
-
-  // Filtrage Liste (Toujours mois en cours)
   const currentMonth = new Date().getMonth();
   const currentMonthHistory = (myWallet.history || []).filter((h: any) => new Date(h.date).getMonth() === currentMonth);
-  
-  // --- CALCUL DU POURCENTAGE (Basé sur l'écart Départ -> Objectif) ---
   const startBal = myWallet.startBalance || 0;
   const goalBal = myWallet.savingsGoal || 0;
   const currentBal = myWallet.balance || 0;
-
-  // Montant total à parcourir (Objectif - Départ)
   const totalGap = goalBal - startBal;
-  // Montant déjà parcouru (Actuel - Départ)
   const progressMade = currentBal - startBal;
-
   let fillPercent = 0;
-  // Si on a un objectif supérieur au départ
-  if (totalGap > 0) {
-      fillPercent = (progressMade / totalGap) * 100;
-  }
-  // Cas où on a déjà dépassé l'objectif ou bug
+  if (totalGap > 0) { fillPercent = (progressMade / totalGap) * 100; }
   if (currentBal >= goalBal && goalBal > 0) fillPercent = 100;
 
   return (
@@ -335,7 +273,6 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
           <PiggyBank className="inline mr-2 mb-1" size={16}/> Ma Tirelire
         </button>
       </div>
-
       {activeTab === 'family' ? (
         <div className="bg-white/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-xl border border-white space-y-8">
            <div className="flex flex-col md:flex-row gap-4 items-end bg-gray-50 p-6 rounded-3xl">
@@ -345,7 +282,6 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
              <div className="w-24"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Taux (%)</label><input type="number" value={newDebt.interest} onChange={e => setNewDebt({...newDebt, interest: e.target.value})} placeholder="0%" className="w-full p-3 rounded-xl border-none font-bold text-orange-500" /></div>
              <button onClick={addDebt} className="p-4 bg-black text-white rounded-xl shadow-lg hover:scale-105 transition-transform"><Plus/></button>
            </div>
-
            <div className="grid md:grid-cols-2 gap-4">
              {debts.map(d => (
                <div key={d.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 relative group">
@@ -365,18 +301,12 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
         </div>
       ) : (
         <div className="grid lg:grid-cols-3 gap-6">
-          {/* GAUCHE: CERCLE & Actions */}
           <div className="lg:col-span-1 space-y-6">
-             {/* 1. VISUEL CERCLE */}
              <div className="relative h-64 w-full">
                  <CircleLiquid fillPercentage={fillPercent} />
-                 
-                 {/* INFO SUPERPOSÉE (Solde) */}
                  <div className="absolute inset-0 flex flex-col items-center justify-center">
                      <p className="text-[10px] font-black uppercase text-yellow-800/60 tracking-widest mb-1">Solde Actuel</p>
                      <h2 className="text-5xl font-cinzel font-black text-yellow-900 drop-shadow-sm mb-4">{myWallet.balance?.toFixed(0)}€</h2>
-                     
-                     {/* BOUTONS +/- */}
                      <div className="flex items-center gap-2 bg-white/40 p-1.5 rounded-2xl backdrop-blur-sm shadow-sm border border-white/50 w-48">
                         <button onClick={() => updateBalance('sub')} className="p-2 bg-white/50 hover:bg-red-400 hover:text-white rounded-xl transition-colors"><Minus size={16}/></button>
                         <input type="number" value={walletAmount} onChange={e => setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-lg outline-none text-yellow-900 placeholder-yellow-800/40" placeholder="..." />
@@ -384,8 +314,6 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
                      </div>
                  </div>
              </div>
-             
-             {/* 2. CASE OBJECTIF */}
              <div className="bg-white p-4 rounded-3xl shadow-sm border border-yellow-100 flex items-center gap-3">
                  <div className="p-3 bg-yellow-100 text-yellow-600 rounded-full"><Target size={20}/></div>
                  <div className="flex-1">
@@ -395,8 +323,6 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
                  </div>
                  {fillPercent > 0 && <span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-1 rounded-lg">{fillPercent.toFixed(0)}%</span>}
              </div>
-
-             {/* TÂCHES */}
              <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100">
                <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><ClipboardList size={14}/> Tâches Rémunérées</h3>
                <div className="flex gap-2 mb-4">
@@ -414,8 +340,6 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
                </div>
              </div>
           </div>
-
-          {/* DROITE: Graphique & Historique */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 h-80 relative">
                <div className="flex justify-between items-center mb-4">
@@ -432,7 +356,6 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
                   <SimpleLineChart data={graphData} color={config.primaryColor} />
                </div>
             </div>
-
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-gray-100">
                <div className="flex justify-between items-center mb-6">
                  <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14}/> Historique (Ce Mois)</h3>
@@ -460,7 +383,7 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   );
 };
 
-// --- AUTRES COMPOSANTS (Event, Journal, Recipe) ---
+// --- AUTRES COMPOSANTS (Event, Recipe, Tasks) ---
 
 const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, myLetter }: any) => {
   const isDone = choreStatus[weekId]?.[letter] || false;
@@ -501,44 +424,6 @@ const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }
           )}
         </div>
         <button onClick={() => { if (newEvent.title && newEvent.date) { addEntry('family_events', { title: newEvent.title, date: newEvent.date, time: newEvent.isAllDay ? null : (newEvent.time || '') }); setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true }); onClose(false); } else { alert("Titre et date requis !"); } }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>Ajouter au calendrier</button>
-      </div>
-    </div>
-  );
-};
-
-const JournalModal = ({ isOpen, onClose, config, currentJournal, setCurrentJournal, updateEntry, addEntry }: any) => {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const handleFile = (e: any, callback: any) => {
-    const f = e.target.files[0];
-    if(f) { const r = new FileReader(); r.onload = () => callback(r.result); r.readAsDataURL(f); }
-  };
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
-        <button onClick={() => onClose(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
-        <div className="text-center space-y-2">
-          <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><BookHeart size={32} style={{ color: config.primaryColor }} /></div>
-          <h3 className="text-2xl font-cinzel font-bold">{currentJournal.id ? 'Modifier le Souvenir' : 'Nouveau Souvenir'}</h3>
-        </div>
-        <div className="space-y-4">
-          <input value={currentJournal.title} onChange={e => setCurrentJournal({...currentJournal, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Titre du souvenir" autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} />
-          <input value={currentJournal.author} onChange={e => setCurrentJournal({...currentJournal, author: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Auteur (ex: Maman)" />
-          <div onClick={() => fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">
-            {currentJournal.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}
-          </div>
-          <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b:string) => setCurrentJournal({...currentJournal, image: b}))} />
-          <textarea value={currentJournal.content} onChange={e => setCurrentJournal({...currentJournal, content: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Racontez votre histoire..." />
-        </div>
-        <button onClick={() => { 
-            if(currentJournal.title) {
-                const journalToSave = { ...currentJournal };
-                if (!journalToSave.date) journalToSave.date = new Date().toLocaleDateString();
-                if (journalToSave.id) { updateEntry('family_journal', journalToSave.id, journalToSave); } 
-                else { addEntry('family_journal', journalToSave); }
-                onClose(false);
-            } else { alert("Il faut au moins un titre !"); }
-        }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>Publier le souvenir</button>
       </div>
     </div>
   );
@@ -596,7 +481,7 @@ const SideMenu = ({ config, isOpen, close, setView, logout }: any) => (
     <div className={`absolute right-0 top-0 bottom-0 w-80 bg-[#f5ede7] p-10 transition-transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`} style={{ backgroundColor: config.backgroundColor }}>
       <button onClick={() => close(false)} className="mb-10"><X /></button>
       <div className="space-y-4">
-        {['home','journal','recipes','cooking','calendar', 'tasks', 'wallet', 'edit'].map(v => (
+        {['home','xsite','recipes','cooking','calendar', 'tasks', 'wallet', 'edit'].map(v => (
           <button key={v} onClick={() => { setView(v); close(false); }} className="block w-full text-left p-4 hover:bg-black/5 rounded-xl uppercase font-bold text-xs tracking-widest">
             {v === 'edit' ? 'ADMINISTRATION' : config.navigationLabels[v] || v}
           </button>
@@ -612,7 +497,7 @@ const BottomNav = ({ config, view, setView }: any) => (
     {[
       {id:'home', i:<Home size={22}/>}, 
       {id:'wallet', i:<Wallet size={22}/>},
-      {id:'journal', i:<BookHeart size={22}/>},
+      {id:'xsite', i:<Map size={22}/>},
       {id:'tasks', i:<ClipboardList size={22}/>},
       {id:'recipes', i:<ChefHat size={22}/>}
     ].map(b => <button key={b.id} onClick={() => setView(b.id)} className={`p-2 ${view === b.id ? 'text-white -translate-y-2 bg-white/20 rounded-xl' : ''}`}>{b.i}</button>)}
@@ -628,167 +513,30 @@ const HomeCard = ({ icon, title, label, onClick, color }: any) => (
 );
 
 // --- ADMIN PANEL ---
-const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, versions, restore, arch, chat, prompt, setP, load, hist }: any) => {
+const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist }: any) => {
   const [tab, setTab] = useState('arch');
   const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
   const [tempVersionName, setTempVersionName] = useState('');
   const [localC, setLocalC] = useState(config);
-  const [goldenTab, setGoldenTab] = useState<'journal' | 'recipes'>('journal');
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
-  const [selectedRecipes, setSelectedRecipes] = useState<string[]>([]);
-  const [goldenOutput, setGoldenOutput] = useState('');
   
+  // XSITE STATE
+  const [currentXSite, setCurrentXSite] = useState({ id: '', name: '', html: '' });
+
   useEffect(() => { setLocalC(config); }, [config]);
   const fileRef = useRef<HTMLInputElement>(null);
   const handleFile = (e: any, cb: any) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(f); }};
   const startEditVersion = (v: any) => { setEditingVersionId(v.id); setTempVersionName(v.name); };
   const saveVersionName = (id: string) => { upd('site_versions', id, { name: tempVersionName }); setEditingVersionId(null); };
 
-  const generateGolden = async () => {
-    setGoldenOutput("Génération en cours avec l'IA... (Patientez)");
-    try {
-        let userPrompt = "";
-        if (goldenTab === 'journal') {
-            if (!dateRange.start || !dateRange.end) { setGoldenOutput("Erreur: Dates manquantes"); return; }
-            const relevantEntries = journal.filter((j: any) => true); 
-            const context = relevantEntries.map((j:any) => `Date: ${j.date}\nAuteur: ${j.author}\nTitre: ${j.title}\nContenu: ${j.content}`).join('\n\n');
-            userPrompt = `Tu es un écrivain familial. Voici les souvenirs de la famille entre le ${dateRange.start} et le ${dateRange.end}. Rédige une chronique chaleureuse et émouvante qui résume ces moments comme un chapitre de livre.\n\nSOURCE:\n${context}`;
-        } else {
-            if (selectedRecipes.length === 0) { setGoldenOutput("Erreur: Aucune recette sélectionnée"); return; }
-            const selected = recipes.filter((r:any) => selectedRecipes.includes(r.id));
-            const context = selected.map((r:any) => `Titre: ${r.title}\nChef: ${r.chef}\nIngrédients: ${r.ingredients}\nPréparation: ${r.steps}`).join('\n\n---RECETTE SUIVANTE---\n\n');
-            userPrompt = `Tu es un éditeur culinaire. Voici une sélection de recettes de famille. Crée la structure textuelle d'un livre de cuisine : une belle introduction générale, un sommaire, puis pour chaque recette, une mise en page soignée et appétissante.\n\nRECETTES:\n${context}`;
-        }
-        const result = await askAIChat([{ role: 'user', text: userPrompt }]);
-        setGoldenOutput(result);
-    } catch (e) {
-        setGoldenOutput("Erreur lors de la génération. Vérifiez la clé API.");
-    }
-  };
-
-  const handleExportPDF = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return alert("Autorisez les pop-ups pour exporter le PDF");
-    const title = goldenTab === 'journal' ? "Chronique Familiale" : "Les Recettes Familiales";
-    const aiText = goldenOutput || "Préface|||Introduction";
-    const [preface, intro] = aiText.split('|||');
-
-    let itemsToPrint = [];
-    if (goldenTab === 'journal') { itemsToPrint = journal.filter((j: any) => true); } 
-    else { itemsToPrint = recipes.filter((r: any) => selectedRecipes.includes(r.id)); }
-
-    let chefs = "Par la Famille";
-    if(goldenTab === 'recipes') {
-        const chefsList = Array.from(new Set(itemsToPrint.map((r:any) => r.chef).filter(Boolean)));
-        if(chefsList.length > 0) chefs = "Par " + chefsList.join(', ');
-    }
-
-    let sommaireHtml = '<ul class="sommaire">';
-    itemsToPrint.forEach((item: any, index: number) => {
-        const pageNum = 3 + (index * 2); 
-        sommaireHtml += `<li><span class="recipe-name">${item.title}</span> <span class="dots">................................................</span> <span class="page-num">${pageNum}</span></li>`;
-    });
-    sommaireHtml += '</ul>';
-
-    let contentHtml = '';
-    itemsToPrint.forEach((item: any) => {
-        const ingredientsList = Array.isArray(item.ingredients) ? item.ingredients.map((i:string) => `<li>${i}</li>`).join('') : item.ingredients.split('\n').map((i:string) => `<li>${i}</li>`).join('');
-        const stepsText = item.steps ? item.steps.replace(/\n/g, '<br/><br/>') : '';
-
-        if (goldenTab === 'recipes') {
-             contentHtml += `
-                <div class="page-break"></div>
-                <div class="page recipe-page-1">
-                    <h2 class="recipe-title">${item.title}</h2>
-                    <p class="recipe-meta">Occasion : Repas de famille &bull; Chef : ${item.chef || 'Inconnu'}</p>
-                    ${item.image ? `<div class="recipe-img"><img src="${item.image}" /></div>` : '<div class="no-img">Pas de photo</div>'}
-                    <div class="ingredients-box"><h3>Ingrédients</h3><ul>${ingredientsList}</ul></div>
-                </div>
-                <div class="page-break"></div>
-                <div class="page recipe-page-2">
-                    <h3 class="steps-title">Préparation</h3>
-                    <div class="steps-text">${stepsText}</div>
-                </div>
-            `;
-        } else {
-             contentHtml += `
-                <div class="page-break"></div>
-                <div class="page">
-                    <h2>${item.title}</h2>
-                    <p class="meta">${item.date} - Par ${item.author}</p>
-                    ${item.image ? `<div class="recipe-img"><img src="${item.image}" /></div>` : ''}
-                    <div class="steps-text"><p>${item.content.replace(/\n/g, '<br/>')}</p></div>
-                </div>
-             `;
-        }
-    });
-
-    const htmlContent = `
-      <html>
-        <head>
-          <title>${title}</title>
-          <style>
-            @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
-            @page { size: A4; margin: 0; }
-            body { font-family: 'Montserrat', sans-serif; margin: 0; padding: 0; background: #fff; color: #1a1a1a; }
-            .page { width: 210mm; height: 296mm; padding: 20mm; box-sizing: border-box; position: relative; overflow: hidden; }
-            .page-break { page-break-after: always; }
-            h1, h2, h3, .recipe-name, .subtitle, .intro-title { font-family: 'Playfair Display', serif; }
-            .cover-page { text-align: center; display: flex; flex-direction: column; justify-content: center; height: 100%; border: 20px solid #a85c48; }
-            h1.main-title { font-size: 60px; color: #a85c48; margin: 0; line-height: 1; }
-            p.subtitle { font-size: 24px; color: #555; margin-top: 20px; font-style: italic; }
-            .preface-box { margin-top: 50px; font-style: italic; font-size: 14px; padding: 0 40px; color: #666; font-family: 'Playfair Display', serif; }
-            .intro-title { font-size: 30px; color: #a85c48; border-bottom: 2px solid #a85c48; padding-bottom: 10px; margin-bottom: 20px; }
-            .intro-text { text-align: justify; margin-bottom: 50px; line-height: 1.6; }
-            .sommaire { list-style: none; padding: 0; }
-            .sommaire li { display: flex; align-items: baseline; margin-bottom: 10px; font-size: 18px; }
-            .recipe-name { font-weight: bold; }
-            .dots { flex: 1; border-bottom: 1px dotted #ccc; margin: 0 10px; }
-            .page-num { color: #a85c48; font-weight: bold; }
-            .recipe-title { font-size: 42px; color: #a85c48; margin: 0 0 10px 0; text-align: center; }
-            .recipe-meta { text-align: center; text-transform: uppercase; font-size: 10px; letter-spacing: 2px; color: #888; margin-bottom: 30px; }
-            .recipe-img { width: 100%; height: 400px; overflow: hidden; border-radius: 4px; margin-bottom: 30px; }
-            .recipe-img img { width: 100%; height: 100%; object-fit: cover; }
-            .no-img { width: 100%; height: 200px; background: #eee; display: flex; align-items: center; justify-content: center; color: #aaa; margin-bottom: 30px; }
-            .ingredients-box h3 { font-size: 24px; color: #a85c48; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
-            .ingredients-box ul { column-count: 2; column-gap: 40px; }
-            .ingredients-box li { margin-bottom: 8px; font-size: 14px; }
-            .steps-title { font-size: 32px; color: #a85c48; text-align: center; margin-bottom: 40px; }
-            .steps-text { font-size: 16px; line-height: 1.8; text-align: justify; padding: 0 20px; }
-            @media print { body { background: none; } }
-          </style>
-        </head>
-        <body>
-          <div class="page cover-page">
-             <h1 class="main-title">${title}</h1>
-             <p class="subtitle">${chefs}</p>
-             <div class="preface-box">${preface ? preface.replace(/\n/g, '<br/>') : ''}</div>
-          </div>
-          <div class="page-break"></div>
-          <div class="page">
-             <h2 class="intro-title">Introduction</h2>
-             <div class="intro-text">${intro ? intro.replace(/\n/g, '<br/>') : ''}</div>
-             <h2 class="intro-title">Sommaire</h2>
-             ${sommaireHtml}
-          </div>
-          ${contentHtml}
-          <script>window.onload = function() { window.print(); }</script>
-        </body>
-      </html>
-    `;
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-  };
-
   return (
     <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[3.5rem] shadow-2xl min-h-[700px] border border-black/5">
       <div className="flex gap-2 overflow-x-auto mb-10 pb-4 no-scrollbar">
         {[
           {id:'arch', l:'ARCHITECTE', i:<Sparkles size={16}/>}, 
-          {id:'gold', l:"JOURNAL D'OR", i:<Book size={16}/>},
+          {id:'xsite', l:"XSITE WEB", i:<Map size={16}/>},
           {id:'chat', l:'MAJORDOME', i:<MessageSquare size={16}/>},
           {id:'home', l:'ACCUEIL', i:<Home size={16}/>},
-          {id:'code', l:'CODE', i:<Code size={16}/>},
+          {id:'code', l:'CODE SEM.', i:<Code size={16}/>},
           {id:'history', l:'HISTORIQUE', i:<History size={16}/>}
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest whitespace-nowrap transition-all ${tab===t.id ? 'text-white scale-105 shadow-lg' : 'bg-gray-100 text-gray-400'}`} style={{ backgroundColor: tab===t.id ? config.primaryColor : '' }}>{t.i} {t.l}</button>
@@ -803,69 +551,47 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, journal, ver
         </div>
       )}
 
-      {tab === 'gold' && (
-        <div className="space-y-6 animate-in fade-in">
-            <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>JOURNAL D'OR</h3>
-            <div className="flex bg-gray-100 p-1 rounded-xl w-fit mx-auto mb-6">
-                <button onClick={() => setGoldenTab('journal')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase transition-all ${goldenTab === 'journal' ? 'bg-white shadow-sm text-black' : 'text-gray-400'}`}>Chronique</button>
-                <button onClick={() => setGoldenTab('recipes')} className={`px-6 py-2 rounded-lg text-xs font-bold uppercase transition-all ${goldenTab === 'recipes' ? 'bg-white shadow-sm text-black' : 'text-gray-400'}`}>Livre de Cuisine</button>
+      {tab === 'xsite' && (
+        <div className="space-y-8 animate-in fade-in">
+            <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>GESTION XSITE</h3>
+            
+            {/* 1. LISTE DES SITES (RECTANGLES ALLONGÉS) */}
+            <div className="space-y-3">
+               {xsitePages.length === 0 && <p className="text-gray-400 italic">Aucun site XSite créé.</p>}
+               {xsitePages.map((site: any) => (
+                  <div key={site.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-200 hover:shadow-md transition-shadow">
+                     <span className="font-bold text-lg">{site.name}</span>
+                     <div className="flex gap-2">
+                        <button onClick={() => setCurrentXSite(site)} className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" title="Modifier"><Pencil size={18}/></button>
+                        <button onClick={() => del('xsite_pages', site.id)} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Supprimer"><Trash2 size={18}/></button>
+                     </div>
+                  </div>
+               ))}
             </div>
 
-            {goldenTab === 'journal' ? (
-                <div className="space-y-4">
-                    <div className="flex gap-4">
-                        <div className="flex-1">
-                            <label className="text-xs font-bold text-gray-400 ml-2">Début</label>
-                            <input type="date" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} className="w-full p-4 rounded-2xl border border-gray-200" />
-                        </div>
-                        <div className="flex-1">
-                            <label className="text-xs font-bold text-gray-400 ml-2">Fin</label>
-                            <input type="date" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} className="w-full p-4 rounded-2xl border border-gray-200" />
-                        </div>
-                    </div>
-                    <button onClick={generateGolden} className="w-full py-4 text-white font-bold rounded-2xl uppercase shadow-lg hover:scale-[1.02] transition-transform" style={{ backgroundColor: config.primaryColor }}>
-                        <Sparkles size={18} className="inline mr-2"/> Générer la Chronique
-                    </button>
-                </div>
-            ) : (
-                <div className="space-y-4">
-                    <div className="h-48 overflow-y-auto border border-gray-100 rounded-2xl p-2 space-y-1">
-                        {recipes.map((r: any) => (
-                            <div 
-                                key={r.id} 
-                                onClick={() => {
-                                    setSelectedRecipes(prev => prev.includes(r.id) ? prev.filter(id => id !== r.id) : [...prev, r.id]);
-                                }} 
-                                className={`p-3 rounded-xl cursor-pointer flex items-center gap-3 transition-all border-2 ${
-                                    selectedRecipes.includes(r.id) 
-                                    ? 'bg-orange-50 border-[#a85c48]' 
-                                    : 'border-transparent hover:bg-white/50'
-                                }`}
-                            >
-                                <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${selectedRecipes.includes(r.id) ? 'bg-[#a85c48] border-[#a85c48]' : 'border-gray-300'}`}>
-                                    {selectedRecipes.includes(r.id) && <CheckSquare size={12} className="text-white"/>}
-                                </div>
-                                <span className="text-sm font-bold">{r.title}</span>
-                            </div>
-                        ))}
-                    </div>
-                    <button onClick={generateGolden} className="w-full py-4 text-white font-bold rounded-2xl uppercase shadow-lg hover:scale-[1.02] transition-transform" style={{ backgroundColor: config.primaryColor }}>
-                        <Sparkles size={18} className="inline mr-2"/> Créer le Livre
-                    </button>
-                </div>
-            )}
+            <hr className="border-gray-100"/>
 
-            {goldenOutput && (
-                <div className="animate-in slide-in-from-bottom-4 relative">
-                    <div className="flex items-center justify-between mb-2">
-                        <label className="text-xs font-bold text-gray-400 ml-2 uppercase tracking-widest">Résultat (Généré par IA)</label>
-                        <button onClick={handleExportPDF} className="flex items-center gap-2 text-xs font-bold uppercase text-white px-4 py-2 rounded-lg hover:scale-105 transition-transform" style={{ backgroundColor: config.primaryColor }}>
-                            <Download size={14}/> Télécharger le Livre (PDF)
-                        </button>
-                    </div>
-                    <textarea value={goldenOutput} readOnly className="w-full h-40 p-6 rounded-3xl border border-gray-200 bg-gray-50 font-serif leading-relaxed focus:outline-none" />
+            {/* 2. FORMULAIRE D'ÉDITION/AJOUT */}
+            <div className="bg-white p-6 rounded-[2.5rem] shadow-lg border border-gray-100 space-y-4">
+                <h4 className="text-sm font-bold uppercase tracking-widest text-gray-400">{currentXSite.id ? 'Modifier le Site' : 'Nouveau Site'}</h4>
+                <div>
+                   <label className="text-xs font-bold text-gray-400 ml-2">Nom du fichier</label>
+                   <input value={currentXSite.name} onChange={e => setCurrentXSite({...currentXSite, name: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 font-bold outline-none" placeholder="Ex: Page de Noël" />
                 </div>
-            )}
+                <div>
+                   <label className="text-xs font-bold text-gray-400 ml-2">Code HTML</label>
+                   <textarea value={currentXSite.html} onChange={e => setCurrentXSite({...currentXSite, html: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 font-mono text-xs h-48 outline-none" placeholder="<h1>Mon Site...</h1>" />
+                </div>
+                <div className="flex gap-4">
+                    {currentXSite.id && <button onClick={() => setCurrentXSite({id:'', name:'', html:''})} className="px-6 py-4 bg-gray-200 text-gray-600 rounded-xl font-bold uppercase">Annuler</button>}
+                    <button onClick={() => {
+                        if(!currentXSite.name) return alert("Nom requis");
+                        if(currentXSite.id) { upd('xsite_pages', currentXSite.id, currentXSite); }
+                        else { add('xsite_pages', currentXSite); }
+                        setCurrentXSite({id:'', name:'', html:''});
+                    }} className="flex-1 py-4 text-white font-bold rounded-xl uppercase shadow-lg" style={{ backgroundColor: config.primaryColor }}>{currentXSite.id ? 'Mettre à jour' : 'Créer le site'}</button>
+                </div>
+            </div>
         </div>
       )}
 
@@ -947,7 +673,7 @@ const App: React.FC = () => {
   
   // Données
   const [config, setConfig] = useState<SiteConfig>(ORIGINAL_CONFIG);
-  const [journal, setJournal] = useState<JournalEntry[]>([]);
+  const [xsitePages, setXsitePages] = useState<any[]>([]); // REMPLACE JOURNAL
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [events, setEvents] = useState<FamilyEvent[]>([]);
   const [versions, setVersions] = useState<SiteVersion[]>([]);
@@ -956,7 +682,9 @@ const App: React.FC = () => {
   // États Modales
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false); 
-  const [isJournalModalOpen, setIsJournalModalOpen] = useState(false); 
+  
+  // XSite Viewer State
+  const [selectedXSite, setSelectedXSite] = useState<any>(null);
 
   // Formulaires
   const [newEvent, setNewEvent] = useState({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true });
@@ -964,10 +692,7 @@ const App: React.FC = () => {
   const defaultRecipeState = { id: '', title: '', chef: '', ingredients: '', steps: '', category: 'plat', image: '' };
   const [currentRecipe, setCurrentRecipe] = useState<any>(defaultRecipeState);
 
-  const defaultJournalState = { id: '', title: '', author: '', content: '', image: '', date: '' };
-  const [currentJournal, setCurrentJournal] = useState<any>(defaultJournalState);
-
-  const [currentView, setCurrentView] = useState<ViewType | 'wallet'>('home');
+  const [currentView, setCurrentView] = useState<ViewType | 'wallet' | 'xsite'>('home');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isEditUnlocked, setIsEditUnlocked] = useState(false);
   const [password, setPassword] = useState('');
@@ -994,7 +719,8 @@ const App: React.FC = () => {
     const ignoreError = (err: any) => { console.log("Info: ", err.code); };
 
     const unsubC = onSnapshot(doc(db, 'site_config', 'main'), (d) => { if (d.exists()) setConfig(d.data() as SiteConfig); }, ignoreError);
-    const unsubJ = onSnapshot(query(collection(db, 'family_journal'), orderBy('timestamp', 'desc')), (s) => setJournal(s.docs.map(d => ({ ...d.data(), id: d.id } as JournalEntry))), ignoreError);
+    // REMPLACEMENT LISTENER JOURNAL -> XSITE
+    const unsubX = onSnapshot(query(collection(db, 'xsite_pages'), orderBy('timestamp', 'desc')), (s) => setXsitePages(s.docs.map(d => ({ ...d.data(), id: d.id }))), ignoreError);
     const unsubR = onSnapshot(collection(db, 'family_recipes'), (s) => setRecipes(s.docs.map(d => ({ ...d.data(), id: d.id } as Recipe))), ignoreError);
     const unsubE = onSnapshot(collection(db, 'family_events'), (s) => {
       const rawEvents = s.docs.map(d => ({ ...d.data(), id: d.id } as FamilyEvent));
@@ -1008,7 +734,7 @@ const App: React.FC = () => {
       setChoreStatus(status);
     }, ignoreError);
 
-    return () => { unsubC(); unsubJ(); unsubR(); unsubE(); unsubV(); unsubT(); };
+    return () => { unsubC(); unsubX(); unsubR(); unsubE(); unsubV(); unsubT(); };
   }, [user]);
 
   // ACTIONS
@@ -1056,11 +782,6 @@ const App: React.FC = () => {
     setIsRecipeModalOpen(true);
   };
 
-  const openEditJournal = (entry: any) => {
-    setCurrentJournal(entry);
-    setIsJournalModalOpen(true);
-  };
-
   const handleArchitect = async () => { if (!aiPrompt.trim()) return; setIsAiLoading(true); const n = await askAIArchitect(aiPrompt, config); if (n) await saveConfig({...config, ...n}, true); setIsAiLoading(false); };
   const handleChat = async () => { if (!aiPrompt.trim()) return; const h = [...chatHistory, {role:'user',text:aiPrompt}]; setChatHistory(h); setAiPrompt(''); setIsAiLoading(true); const r = await askAIChat(h); setChatHistory([...h, {role:'model',text:r}]); setIsAiLoading(false); };
 
@@ -1078,7 +799,7 @@ const App: React.FC = () => {
           <span className="font-cinzel font-black text-xl hidden md:block" style={{ color: config.primaryColor }}>CHAUD.DEVANT</span>
         </div>
         <div className="hidden md:flex gap-6">
-           {['home','journal','recipes','cooking','calendar', 'tasks', 'wallet'].map(v => (
+           {['home','xsite','recipes','cooking','calendar', 'tasks', 'wallet'].map(v => (
              <button key={v} onClick={() => setCurrentView(v as ViewType)} className="text-xs font-black tracking-widest opacity-40 hover:opacity-100 uppercase" style={{ color: currentView === v ? config.primaryColor : 'inherit' }}>{config.navigationLabels[v as keyof typeof config.navigationLabels] || v}</button>
            ))}
            <button onClick={() => setIsMenuOpen(true)} style={{ color: config.primaryColor }}><Menu size={20}/></button>
@@ -1102,7 +823,6 @@ const App: React.FC = () => {
             </section>
             {config.homeHtml && <section className="bg-white/50 rounded-[3rem] overflow-hidden shadow-xl"><iframe srcDoc={config.homeHtml} className="w-full h-[500px]" sandbox="allow-scripts" /></section>}
             <div className="grid md:grid-cols-2 gap-8">
-              {/* MODIFICATION ICI : CARTE SEMAINIER AU LIEU DE PORTE-MONNAIE */}
               <HomeCard icon={<CalIcon size={40}/>} title="Semainier" label="Menus & Organisation" onClick={() => setCurrentView('cooking')} color={config.primaryColor} />
               <HomeCard icon={<ChefHat size={40}/>} title="Recettes" label="Nos petits plats" onClick={() => setCurrentView('recipes')} color={config.primaryColor} />
             </div>
@@ -1194,32 +914,38 @@ const App: React.FC = () => {
            </div>
         )}
 
-        {/* --- JOURNAL AVEC MODALE ET ÉDITION --- */}
-        {currentView === 'journal' && (
+        {/* --- XSITE WEB (REMPLACE JOURNAL) --- */}
+        {currentView === 'xsite' && (
           <div className="space-y-10">
-             <div className="flex flex-col items-center gap-6">
-               <h2 className="text-5xl font-cinzel font-black text-center" style={{ color: config.primaryColor }}>JOURNAL</h2>
-               <button onClick={() => { setCurrentJournal(defaultJournalState); setIsJournalModalOpen(true); }} className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
-                  <Plus size={20}/> Ajouter un souvenir
-               </button>
-             </div>
-
-             <JournalModal isOpen={isJournalModalOpen} onClose={setIsJournalModalOpen} config={config} currentJournal={currentJournal} setCurrentJournal={setCurrentJournal} updateEntry={updateEntry} addEntry={addEntry} />
-
-             <div className="columns-1 md:columns-2 gap-8 space-y-8">
-               {journal.map(j => (
-                 <div key={j.id} className="break-inside-avoid bg-white/90 rounded-[2rem] p-8 space-y-4 border border-black/5 shadow-lg relative group">
-                   <div className="absolute top-4 right-4 z-20 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => openEditJournal(j)} className="p-2 bg-white/90 rounded-full shadow-md text-blue-500 hover:scale-110 transition-transform"><Pencil size={16}/></button>
-                      <button onClick={() => deleteItem('family_journal', j.id)} className="p-2 bg-white/90 rounded-full shadow-md text-red-500 hover:scale-110 transition-transform"><Trash2 size={16}/></button>
+             {!selectedXSite ? (
+                <>
+                  <div className="flex flex-col items-center gap-6">
+                    <h2 className="text-5xl font-cinzel font-black text-center" style={{ color: config.primaryColor }}>NOS SITES</h2>
+                    <p className="text-gray-400 italic">Explorez les pages de la famille</p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                    {xsitePages.map(site => (
+                      <div key={site.id} onClick={() => setSelectedXSite(site)} className="bg-white p-8 rounded-[2rem] shadow-lg border border-gray-100 cursor-pointer hover:scale-105 transition-transform group">
+                         <div className="flex items-center justify-between mb-4">
+                            <div className="p-3 bg-gray-50 rounded-full group-hover:bg-black group-hover:text-white transition-colors"><Map size={24}/></div>
+                            <ArrowLeft size={20} className="rotate-180 opacity-0 group-hover:opacity-50"/>
+                         </div>
+                         <h3 className="text-xl font-bold uppercase tracking-wide">{site.name}</h3>
+                         <div className="mt-2 text-xs text-gray-400">Cliquez pour ouvrir</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+             ) : (
+                <div className="animate-in fade-in slide-in-from-right-10">
+                   <button onClick={() => setSelectedXSite(null)} className="mb-6 flex items-center gap-2 px-6 py-3 bg-white rounded-full shadow-md font-bold text-sm hover:bg-black hover:text-white transition-colors">
+                      <ArrowLeft size={16}/> Retour aux sites
+                   </button>
+                   <div className="bg-white rounded-[2rem] shadow-2xl overflow-hidden min-h-[80vh] border border-gray-200">
+                      <iframe srcDoc={selectedXSite.html} className="w-full h-[80vh] border-none" title={selectedXSite.name} sandbox="allow-scripts allow-same-origin"/>
                    </div>
-                   
-                   {j.image && <img src={j.image} className="w-full h-64 object-cover rounded-xl" />}
-                   <div><h3 className="text-2xl font-bold font-cinzel">{j.title}</h3><p className="text-[10px] uppercase">{j.date} - {j.author}</p></div>
-                   <p className="opacity-80 leading-relaxed">{j.content}</p>
-                 </div>
-               ))}
-             </div>
+                </div>
+             )}
           </div>
         )}
 
@@ -1279,7 +1005,7 @@ const App: React.FC = () => {
               upd={updateEntry}
               events={events} versions={versions} restore={restoreVersion}
               recipes={recipes}
-              journal={journal}
+              xsitePages={xsitePages} // PASSED HERE
               arch={handleArchitect} chat={handleChat} 
               prompt={aiPrompt} setP={setAiPrompt} load={isAiLoading} hist={chatHistory} 
             />
