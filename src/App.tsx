@@ -3,7 +3,7 @@ import { auth, googleProvider, db } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { 
-  Lock, Menu, X, Home, BookHeart, ChefHat, Wallet, PiggyBank,
+  Lock, Menu, X, Home, ChefHat, Wallet, PiggyBank, Globe, Layout,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target
@@ -13,7 +13,7 @@ import { askAIArchitect, askAIChat } from './services/geminiService';
 import Background from './components/Background';
 import RecipeCard from './components/RecipeCard';
 
-// --- SÉCURITÉ : LISTE DES INVITÉS ---
+// --- SÉCURITÉ ---
 const FAMILY_EMAILS = [
   "gabriel.frezouls@gmail.com",
   "o.frezouls@gmail.com",
@@ -22,19 +22,328 @@ const FAMILY_EMAILS = [
   "frezouls.pauline@gmail.com",
   "eau.fraise.fille@gmail.com",
   "m.camillini57@gmail.com",
-  "axisman705@gmail.com" 
+  "axisman705@gmail.com"
 ];
 
 const USER_MAPPING: Record<string, string> = {
   "gabriel.frezouls@gmail.com": "G",
   "frezouls.pauline@gmail.com": "P",
-  "valentin.frezouls@gmail.com": "V",
-  "axisman705@gmail.com": "A"
+  "valentin.frezouls@gmail.com": "V"
 };
 
 // --- CONFIGURATION PAR DÉFAUT ---
 const ORIGINAL_CONFIG: SiteConfig = {
   primaryColor: '#a85c48',
+  backgroundColor: '#f5ede7',
+  fontFamily: 'Montserrat',
+  welcomeTitle: 'CHAUD DEVANT',
+  welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
+  welcomeImage: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
+  navigationLabels: { home: 'ACCUEIL', xsite: 'XSITE', cooking: 'SEMAINIER', recipes: 'RECETTES', calendar: 'CALENDRIER', tasks: 'TÂCHES', wallet: 'PORTE-MONNAIE' },
+  homeHtml: '', cookingHtml: ''
+};
+
+// --- LOGIQUE DES TÂCHES ---
+const ROTATION = ['G', 'P', 'V'];
+const REF_DATE = new Date('2025-12-20T12:00:00'); 
+
+const getChores = (date: Date) => {
+  const saturday = new Date(date);
+  saturday.setDate(date.getDate() - (date.getDay() + 1) % 7);
+  saturday.setHours(12, 0, 0, 0);
+
+  const weekId = `${saturday.getDate()}-${saturday.getMonth()+1}-${saturday.getFullYear()}`;
+  const diffTime = saturday.getTime() - REF_DATE.getTime();
+  const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
+  const mod = (n: number, m: number) => ((n % m) + m) % m;
+
+  return {
+    id: weekId,
+    fullDate: saturday, 
+    dateStr: `${saturday.getDate()}/${saturday.getMonth()+1}`,
+    haut: ROTATION[mod(diffWeeks, 3)],       
+    bas: ROTATION[mod(diffWeeks + 2, 3)],    
+    douche: ROTATION[mod(diffWeeks + 1, 3)]  
+  };
+};
+
+const getMonthWeekends = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  const weekends = [];
+  const date = new Date(year, month, 1);
+  while (date.getDay() !== 6) { date.setDate(date.getDate() + 1); }
+  while (date.getMonth() === month) {
+    weekends.push(getChores(new Date(date)));
+    date.setDate(date.getDate() + 7);
+  }
+  return weekends;
+};
+
+// --- VISUELS TIRELIRE & GRAPHIQUE ---
+const PiggyVisual = ({ balance, goal }: { balance: number, goal: number }) => {
+  const percentage = Math.min(Math.round((balance / (goal || 1)) * 100), 100);
+  const coinsCount = Math.floor(percentage / 10);
+  return (
+    <div className="relative w-64 h-48 mx-auto mb-6">
+      <svg viewBox="0 0 200 150" className="w-full h-full drop-shadow-2xl">
+        <path d="M170,80 c0,35 -30,60 -70,60 s-70,-25 -70,-60 s30,-60 70,-60 s70,25 70,60 Z" fill="#FFF9C4" stroke="#FBC02D" strokeWidth="3" />
+        <ellipse cx="180" cy="85" rx="12" ry="18" fill="#FBC02D" />
+        <circle cx="176" cy="82" r="2" fill="#A85C48" />
+        <circle cx="176" cy="88" r="2" fill="#A85C48" />
+        <path d="M100,25 L125,5 L135,35 Z" fill="#FBC02D" />
+        <circle cx="145" cy="65" r="3" fill="#333" />
+        <rect x="65" y="130" width="12" height="15" rx="3" fill="#FBC02D" />
+        <rect x="125" y="130" width="12" height="15" rx="3" fill="#FBC02D" />
+        {Array.from({ length: coinsCount }).map((_, i) => (
+          <circle key={i} cx={70 + (i * 12) % 60} cy={110 - Math.floor(i / 5) * 12} r="6" fill="#FDD835" className="animate-bounce" style={{ animationDelay: `${i * 0.1}s` }} />
+        ))}
+        <text x="100" y="85" textAnchor="middle" className="text-2xl font-black font-cinzel" fill="#A85C48">{balance.toFixed(0)}€</text>
+      </svg>
+    </div>
+  );
+};
+
+const EvolutionChart = ({ history, range, color }: { history: any[], range: string, color: string }) => {
+  const now = new Date();
+  const filtered = history.filter(h => {
+    const d = new Date(h.date);
+    if (range === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    if (range === 'year') return d.getFullYear() === now.getFullYear();
+    if (range === '5years') return d.getFullYear() >= now.getFullYear() - 5;
+    return true;
+  });
+
+  if (filtered.length < 2) return <div className="h-full flex items-center justify-center text-gray-300 italic text-xs">Données insuffisantes</div>;
+
+  const width = 400;
+  const height = 120;
+  const values = filtered.map(d => d.newBalance);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const diff = (max - min) || 1;
+
+  const points = filtered.map((d, i) => {
+    const x = (i / (filtered.length - 1)) * (width - 20) + 10;
+    const y = height - ((d.newBalance - min) / diff) * (height - 20) - 10;
+    return `${x},${y}`;
+  }).join(' ');
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
+      <polyline fill="none" stroke={color} strokeWidth="3" points={points} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+};
+
+// --- MODULE XSITE (Vue Utilisateur) ---
+const XSiteView = ({ config, xSites }: any) => {
+  const [selectedSite, setSelectedSite] = useState<any>(null);
+
+  if (selectedSite) {
+    return (
+      <div className="animate-in slide-in-from-right">
+        <button onClick={() => setSelectedSite(null)} className="mb-4 flex items-center gap-2 font-bold uppercase text-xs tracking-widest text-gray-400 hover:text-black transition-colors">
+          <ArrowLeft size={16}/> Retour aux sites
+        </button>
+        <div className="bg-white/90 rounded-[2.5rem] shadow-2xl overflow-hidden border border-white h-[80vh]">
+          <iframe srcDoc={selectedSite.html} className="w-full h-full border-none" sandbox="allow-scripts allow-same-origin allow-forms" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8 animate-in fade-in">
+      <div className="text-center space-y-2">
+        <h2 className="text-5xl font-cinzel font-black" style={{ color: config.primaryColor }}>X-SITE</h2>
+        <p className="text-gray-400 font-bold uppercase text-xs tracking-widest">Vos espaces connectés</p>
+      </div>
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {xSites.map((site: any) => (
+          <div key={site.id} onClick={() => setSelectedSite(site)} className="bg-white/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-lg border border-white cursor-pointer hover:scale-105 transition-all group">
+            <div className="w-12 h-12 rounded-2xl bg-black text-white flex items-center justify-center mb-4 group-hover:rotate-12 transition-transform">
+              <Globe size={24}/>
+            </div>
+            <h3 className="text-xl font-black font-cinzel">{site.name}</h3>
+            <p className="text-[10px] text-gray-400 font-bold uppercase mt-2">Ouvrir le site &rarr;</p>
+          </div>
+        ))}
+        {xSites.length === 0 && <div className="col-span-full text-center py-20 opacity-40">Aucun site configuré.</div>}
+      </div>
+    </div>
+  );
+};
+
+const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
+  const [activeTab, setActiveTab] = useState<'family' | 'personal'>('personal');
+  const [timeRange, setTimeRange] = useState<'month' | 'year' | '5years'>('month');
+  const [myWallet, setMyWallet] = useState<any>({ balance: 0, history: [], goal: 1000 });
+  const [walletAmount, setWalletAmount] = useState('');
+
+  useEffect(() => {
+    if (!user) return;
+    return onSnapshot(doc(db, 'user_wallets', user.email!), (s) => {
+      if (s.exists()) setMyWallet(s.data());
+    });
+  }, [user]);
+
+  const updateBalance = async (type: 'add' | 'sub') => {
+    const val = parseFloat(walletAmount);
+    if (!val) return;
+    const newBal = type === 'add' ? myWallet.balance + val : myWallet.balance - val;
+    const entry = { date: new Date().toISOString(), amount: type === 'add' ? val : -val, newBalance: newBal };
+    await updateDoc(doc(db, 'user_wallets', user.email!), { balance: newBal, history: [...(myWallet.history || []), entry] });
+    setWalletAmount('');
+  };
+
+  const currentMonth = new Date().getMonth();
+  const monthlyHistory = (myWallet.history || []).filter((h: any) => new Date(h.date).getMonth() === currentMonth);
+
+  return (
+    <div className="space-y-6 pb-20">
+      <div className="flex justify-center gap-4 mb-8">
+        <button onClick={() => setActiveTab('family')} className={`px-6 py-2 rounded-xl font-bold text-xs ${activeTab === 'family' ? 'bg-black text-white' : 'bg-white text-gray-400'}`}>FAMILLE</button>
+        <button onClick={() => setActiveTab('personal')} className={`px-6 py-2 rounded-xl font-bold text-xs ${activeTab === 'personal' ? 'bg-black text-white' : 'bg-white text-gray-400'}`}>MA TIRELIRE</button>
+      </div>
+
+      {activeTab === 'personal' && (
+        <div className="grid lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-1">
+            <div className="bg-white/90 backdrop-blur-md p-8 rounded-[3rem] shadow-xl flex flex-col items-center">
+              <PiggyVisual balance={myWallet.balance || 0} goal={myWallet.goal || 1} />
+              <div className="flex items-center gap-3 bg-gray-50 p-3 rounded-2xl border w-full">
+                <button onClick={() => updateBalance('sub')} className="p-3 bg-red-100 text-red-600 rounded-xl hover:bg-red-200"><Minus size={18}/></button>
+                <input type="number" value={walletAmount} onChange={e => setWalletAmount(e.target.value)} className="w-full text-center font-bold text-xl bg-transparent outline-none" placeholder="0" />
+                <button onClick={() => updateBalance('add')} className="p-3 bg-green-100 text-green-600 rounded-xl hover:bg-green-200"><Plus size={18}/></button>
+              </div>
+              <div className="mt-8 pt-6 border-t border-dashed w-full">
+                <label className="text-[10px] font-black text-gray-400 uppercase block mb-2 text-center">Objectif d'économie</label>
+                <div className="flex items-center gap-2 bg-yellow-50 p-4 rounded-2xl border border-yellow-200">
+                  <Target size={20} className="text-yellow-600" />
+                  <input type="number" value={myWallet.goal || ''} onChange={async (e) => await updateDoc(doc(db, 'user_wallets', user.email!), { goal: parseFloat(e.target.value) || 0 })} className="bg-transparent font-black outline-none w-full text-yellow-700 text-lg" placeholder="Fixer un but..." />
+                  <span className="font-bold text-yellow-600">€</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-white p-6 rounded-[2.5rem] shadow-lg">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xs font-black uppercase text-gray-400">Évolution du solde</h3>
+                <div className="flex bg-gray-100 p-1 rounded-xl">
+                  {['month', 'year', '5years'].map(r => (
+                    <button key={r} onClick={() => setTimeRange(r as any)} className={`px-3 py-1 text-[9px] font-black rounded-lg uppercase ${timeRange === r ? 'bg-white shadow-sm' : 'text-gray-400'}`}>{r === 'month' ? 'Mois' : r === 'year' ? 'An' : '5 Ans'}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="h-40 w-full"><EvolutionChart history={myWallet.history || []} range={timeRange} color={config.primaryColor} /></div>
+            </div>
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-lg">
+               <h3 className="text-xs font-black uppercase text-gray-400 mb-6 flex items-center gap-2"><History size={14}/> Historique (Ce mois-ci uniquement)</h3>
+               <div className="space-y-3 max-h-48 overflow-y-auto">
+                 {monthlyHistory.slice().reverse().map((h: any, i: number) => (
+                   <div key={i} className="flex justify-between items-center p-3 bg-gray-50 rounded-2xl border border-gray-100/50">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase">{new Date(h.date).toLocaleDateString()}</span>
+                      <span className={`font-black ${h.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>{h.amount > 0 ? '+' : ''}{h.amount}€</span>
+                   </div>
+                 ))}
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- COMPOSANTS UI DE BASE ---
+const TaskCell = ({ weekId, letter, choreStatus, toggleChore, myLetter }: any) => {
+  const isDone = choreStatus[weekId]?.[letter] || false;
+  const canCheck = myLetter === letter; 
+  return (
+    <td className="p-4 text-center align-middle">
+      <div className="flex flex-col items-center gap-2">
+        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{letter}</span>
+        <button onClick={() => canCheck && toggleChore(weekId, letter)} disabled={!canCheck} className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20 cursor-not-allowed' : ''}`}>
+          {isDone ? <CheckSquare className="text-green-500" size={24} /> : <Square className={canCheck ? "text-green-500" : "text-gray-200"} size={24} />}
+        </button>
+      </div>
+    </td>
+  );
+};
+
+const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }: any) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95">
+        <button onClick={() => onClose(false)} className="absolute top-6 right-6 text-gray-400"><X/></button>
+        <h3 className="text-2xl font-cinzel font-bold text-center">Nouvel Événement</h3>
+        <div className="space-y-4">
+          <input value={newEvent.title} onChange={e => setNewEvent({...newEvent, title: e.target.value})} className="w-full p-4 rounded-xl border bg-gray-50 font-bold" placeholder="Titre..." />
+          <input type="date" value={newEvent.date} onChange={e => setNewEvent({...newEvent, date: e.target.value})} className="w-full p-4 rounded-xl border bg-gray-50" />
+        </div>
+        <button onClick={() => { addEntry('family_events', newEvent); onClose(false); }} className="w-full py-4 rounded-xl font-black text-white uppercase shadow-lg" style={{ backgroundColor: config.primaryColor }}>Ajouter</button>
+      </div>
+    </div>
+  );
+};
+
+const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe, updateEntry, addEntry }: any) => {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const handleFile = (e: any, callback: any) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload = () => callback(r.result); r.readAsDataURL(f); } };
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 overflow-y-auto max-h-[90vh]">
+        <button onClick={() => onClose(false)} className="absolute top-6 right-6 text-gray-400"><X/></button>
+        <h3 className="text-2xl font-cinzel font-bold text-center">Recette</h3>
+        <div className="space-y-4">
+          <input value={currentRecipe.title} onChange={e => setCurrentRecipe({...currentRecipe, title: e.target.value})} className="w-full p-4 rounded-xl border font-bold" placeholder="Nom du plat" />
+          <div className="flex gap-4">
+             <input value={currentRecipe.chef} onChange={e => setCurrentRecipe({...currentRecipe, chef: e.target.value})} className="flex-1 p-4 rounded-xl border" placeholder="Chef" />
+             <select value={currentRecipe.category} onChange={e => setCurrentRecipe({...currentRecipe, category: e.target.value})} className="flex-1 p-4 rounded-xl border"><option value="plat">Plat</option><option value="dessert">Dessert</option></select>
+          </div>
+          <div onClick={() => fileRef.current?.click()} className="p-6 border-2 border-dashed rounded-xl cursor-pointer text-center text-gray-400">
+            {currentRecipe.image ? "Image chargée !" : "Ajouter une photo"}
+          </div>
+          <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
+          <div className="grid md:grid-cols-2 gap-4">
+            <textarea value={currentRecipe.ingredients} onChange={e => setCurrentRecipe({...currentRecipe, ingredients: e.target.value})} className="w-full p-4 rounded-xl border h-40" placeholder="Ingrédients..." />
+            <textarea value={currentRecipe.steps} onChange={e => setCurrentRecipe({...currentRecipe, steps: e.target.value})} className="w-full p-4 rounded-xl border h-40" placeholder="Étapes..." />
+          </div>
+        </div>
+        <button onClick={() => { if(currentRecipe.title) { if(currentRecipe.id) updateEntry('family_recipes', currentRecipe.id, currentRecipe); else addEntry('family_recipes', currentRecipe); onClose(false); } }} className="w-full py-4 rounded-xl font-black text-white uppercase" style={{ backgroundColor: config.primaryColor }}>Enregistrer</button>
+      </div>
+    </div>
+  );
+};
+
+const SideMenu = ({ config, isOpen, close, setView, logout }: any) => (
+  <div className={`fixed inset-0 z-[60] ${isOpen ? '' : 'pointer-events-none'}`}>
+    <div className={`absolute inset-0 bg-black/40 transition-opacity ${isOpen ? 'opacity-100' : 'opacity-0'}`} onClick={close} />
+    <div className={`absolute right-0 top-0 bottom-0 w-80 bg-[#f5ede7] p-10 transition-transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`} style={{ backgroundColor: config.backgroundColor }}>
+      <button onClick={() => close(false)} className="mb-10"><X /></button>
+      <div className="space-y-4">
+        {['home','xsite','recipes','cooking','calendar', 'tasks', 'wallet', 'edit'].map(v => (
+          <button key={v} onClick={() => { setView(v); close(false); }} className="block w-full text-left p-4 hover:bg-black/5 rounded-xl uppercase font-bold text-xs tracking-widest">
+            {v === 'edit' ? 'ADMINISTRATION' : config.navigationLabels[v] || v}
+          </button>
+        ))}
+        <button onClick={logout} className="block w-full text-left p-4 text-red-500 font-bold text-xs tracking-widest mt-8">DÉCONNEXION</button>
+      </div>
+    </div>
+  </div>
+);
+
+const BottomNav = ({ config, view, setView }: any) => (
+  <div className="md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 text-white/50 px-4 pb-4 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
+    {[
+      {id:'home', i:<Home size={22}/>}, 
+      {id:'wallet', i:<Wallet size={22}/>},
+      {id:'xsite', i:  primaryColor: '#a85c48',
   backgroundColor: '#f5ede7',
   fontFamily: 'Montserrat',
   welcomeTitle: 'CHAUD DEVANT',
