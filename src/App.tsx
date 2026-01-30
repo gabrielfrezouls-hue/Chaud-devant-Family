@@ -79,7 +79,7 @@ const getMonthWeekends = () => {
   while (date.getDay() !== 6) { date.setDate(date.getDate() + 1); }
   while (date.getMonth() === month) {
     weekends.push(getChores(new Date(date)));
-    date.setDate(date.getDate() + 7);
+    date.setDate(date.setDate() + 7);
   }
   return weekends;
 };
@@ -274,9 +274,9 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
         </button>
       </div>
       {activeTab === 'family' ? (
-        <div className="bg-white/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-xl border border-white space-y-8">
-           <div className="flex flex-col md:flex-row gap-4 items-end bg-gray-50 p-6 rounded-3xl">
-             <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Qui doit ?</label><input value={newDebt.from} onChange={e => setNewDebt({...newDebt, from: e.target.value})} placeholder="ex: G" className="w-full p-3 rounded-xl border-none font-bold" /></div>
+        <div className="space-y-6">
+           <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 flex gap-4">
+             <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">De qui ?</label><input value={newDebt.from} onChange={e => setNewDebt({...newDebt, from: e.target.value})} placeholder="ex: G" className="w-full p-3 rounded-xl border-none font-bold" /></div>
              <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">À qui ?</label><input value={newDebt.to} onChange={e => setNewDebt({...newDebt, to: e.target.value})} placeholder="ex: P" className="w-full p-3 rounded-xl border-none font-bold" /></div>
              <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Montant (€)</label><input type="number" value={newDebt.amount} onChange={e => setNewDebt({...newDebt, amount: e.target.value})} placeholder="0" className="w-full p-3 rounded-xl border-none font-bold" /></div>
              <div className="w-24"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Taux (%)</label><input type="number" value={newDebt.interest} onChange={e => setNewDebt({...newDebt, interest: e.target.value})} placeholder="0%" className="w-full p-3 rounded-xl border-none font-bold text-orange-500" /></div>
@@ -500,98 +500,71 @@ const BottomNav = ({ config, view, setView }: any) => (
       {id:'xsite', i:<Map size={22}/>},
       {id:'tasks', i:<ClipboardList size={22}/>},
       {id:'recipes', i:<ChefHat size={22}/>}
-    ].map(b => <button key={b.id} onClick={() => setView(b.id)} className={`p-2 ${view === b.id ? 'text-white -translate-y-2 bg-white/20 rounded-xl' : ''}`}>{b.i}</button>)}
+    ].map(btn => <button key={btn.id} onClick={() => setView(btn.id)} className={`p-4 rounded-2xl transition-all ${view === btn.id ? 'bg-white/20 text-white scale-110' : ''}`}>{btn.i}</button>)}
   </div>
 );
 
-const HomeCard = ({ icon, title, label, onClick, color }: any) => (
-  <div onClick={onClick} className="bg-white/70 backdrop-blur-md p-10 rounded-[3rem] cursor-pointer hover:scale-105 transition-transform shadow-lg border border-white/50 group">
-    <div style={{ color }} className="mb-6 group-hover:scale-110 transition-transform">{icon}</div>
-    <h3 className="text-3xl font-cinzel font-bold mb-2">{title}</h3>
-    <p className="text-[10px] font-bold tracking-widest opacity-50 uppercase flex items-center gap-2">{label} <ChevronRight size={14}/></p>
-  </div>
-);
-
-// --- ADMIN PANEL ---
-const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist }: any) => {
-  const [tab, setTab] = useState('arch');
+// --- ADMIN ---
+const AdminPanel = ({ config, save, add, del, upd, events, versions, restore, recipes, xsitePages, arch, chat, prompt, setP, load, hist }: any) => {
+  const [tab, setTab] = useState<'xsite'|'architect'|'chat'|'home'|'code'|'history'>('xsite');
+  const [localC, setLocalC] = useState(config);
   const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
   const [tempVersionName, setTempVersionName] = useState('');
-  const [localC, setLocalC] = useState(config);
-  
-  // XSITE STATE
-  const [currentXSite, setCurrentXSite] = useState({ id: '', name: '', html: '' });
+
+  const fileRef = useRef<HTMLInputElement>(null);
+  const handleFile = (e: any, callback: any) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload = () => callback(r.result); r.readAsDataURL(f); } };
+
+  const startEditVersion = (v: SiteVersion) => { setEditingVersionId(v.id); setTempVersionName(v.name); };
+  const saveVersionName = async (vId: string) => { await upd('site_versions', vId, { name: tempVersionName }); setEditingVersionId(null); };
 
   useEffect(() => { setLocalC(config); }, [config]);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const handleFile = (e: any, cb: any) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(f); }};
-  const startEditVersion = (v: any) => { setEditingVersionId(v.id); setTempVersionName(v.name); };
-  const saveVersionName = (id: string) => { upd('site_versions', id, { name: tempVersionName }); setEditingVersionId(null); };
 
   return (
-    <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[3.5rem] shadow-2xl min-h-[700px] border border-black/5">
-      <div className="flex gap-2 overflow-x-auto mb-10 pb-4 no-scrollbar">
-        {[
-          {id:'arch', l:'ARCHITECTE', i:<Sparkles size={16}/>}, 
-          {id:'xsite', l:"XSITE WEB", i:<Map size={16}/>},
-          {id:'chat', l:'MAJORDOME', i:<MessageSquare size={16}/>},
-          {id:'home', l:'ACCUEIL', i:<Home size={16}/>},
-          {id:'code', l:'CODE SEM.', i:<Code size={16}/>},
-          {id:'history', l:'HISTORIQUE', i:<History size={16}/>}
-        ].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest whitespace-nowrap transition-all ${tab===t.id ? 'text-white scale-105 shadow-lg' : 'bg-gray-100 text-gray-400'}`} style={{ backgroundColor: tab===t.id ? config.primaryColor : '' }}>{t.i} {t.l}</button>
-        ))}
+    <div className="max-w-4xl mx-auto space-y-10">
+      <div className="text-center space-y-4">
+        <h2 className="text-5xl font-cinzel font-black" style={{color:config.primaryColor}}>ADMINISTRATION</h2>
+        <div className="flex justify-center flex-wrap gap-3">
+          {['xsite','architect','chat','home','code','history'].map(t => (
+            <button key={t} onClick={() => setTab(t as any)} className={`px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all ${tab === t ? 'bg-black text-white' : 'bg-gray-100'}`}>{t}</button>
+          ))}
+        </div>
       </div>
 
-      {tab === 'arch' && (
+      {tab === 'xsite' && (
         <div className="space-y-6 animate-in fade-in">
-           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>ARCHITECTE IA</h3>
-           <textarea value={prompt} onChange={e => setP(e.target.value)} className="w-full p-6 rounded-3xl border border-gray-200 h-32 focus:ring-4 outline-none" placeholder="Ex: 'Met un thème sombre et doré'..." />
-           <button onClick={arch} disabled={load} className="w-full py-5 text-white rounded-2xl font-black uppercase shadow-xl" style={{ backgroundColor: config.primaryColor }}>{load ? <Loader2 className="animate-spin mx-auto"/> : "Transformer le design"}</button>
+           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>GESTION XSITE</h3>
+           <div className="bg-white p-6 rounded-[2rem] shadow-lg space-y-6">
+              <XSiteCreator add={add} config={config}/>
+              <div className="space-y-4 mt-8">
+                 <h4 className="text-xs font-black uppercase tracking-widest text-gray-400">Sites Existants</h4>
+                 {xsitePages.length === 0 && <p className="text-center opacity-50 italic py-6">Aucun site XSite pour le moment.</p>}
+                 {xsitePages.map((site: any) => (
+                   <div key={site.id} className="flex justify-between items-center p-5 bg-gray-50 rounded-2xl border border-gray-100 group">
+                      <div className="flex items-center gap-4">
+                         <div className="p-3 bg-white rounded-full shadow-sm"><Map size={20}/></div>
+                         <div>
+                            <div className="font-bold text-lg">{site.name}</div>
+                            <div className="text-xs text-gray-400">Créé le {new Date(site.timestamp?.toDate?.() || site.timestamp).toLocaleDateString()}</div>
+                         </div>
+                      </div>
+                      <div className="flex gap-2">
+                         <button onClick={() => del('xsite_pages', site.id)} className="p-3 bg-white border border-red-100 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-colors opacity-0 group-hover:opacity-100" title="Supprimer"><Trash2 size={18}/></button>
+                      </div>
+                   </div>
+                 ))}
+              </div>
+           </div>
         </div>
       )}
 
-      {tab === 'xsite' && (
-        <div className="space-y-8 animate-in fade-in">
-            <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>GESTION XSITE</h3>
-            
-            {/* 1. LISTE DES SITES (RECTANGLES ALLONGÉS) */}
-            <div className="space-y-3">
-               {xsitePages.length === 0 && <p className="text-gray-400 italic">Aucun site XSite créé.</p>}
-               {xsitePages.map((site: any) => (
-                  <div key={site.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-200 hover:shadow-md transition-shadow">
-                     <span className="font-bold text-lg">{site.name}</span>
-                     <div className="flex gap-2">
-                        <button onClick={() => setCurrentXSite(site)} className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" title="Modifier"><Pencil size={18}/></button>
-                        <button onClick={() => del('xsite_pages', site.id)} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Supprimer"><Trash2 size={18}/></button>
-                     </div>
-                  </div>
-               ))}
-            </div>
-
-            <hr className="border-gray-100"/>
-
-            {/* 2. FORMULAIRE D'ÉDITION/AJOUT */}
-            <div className="bg-white p-6 rounded-[2.5rem] shadow-lg border border-gray-100 space-y-4">
-                <h4 className="text-sm font-bold uppercase tracking-widest text-gray-400">{currentXSite.id ? 'Modifier le Site' : 'Nouveau Site'}</h4>
-                <div>
-                   <label className="text-xs font-bold text-gray-400 ml-2">Nom du fichier</label>
-                   <input value={currentXSite.name} onChange={e => setCurrentXSite({...currentXSite, name: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 font-bold outline-none" placeholder="Ex: Page de Noël" />
-                </div>
-                <div>
-                   <label className="text-xs font-bold text-gray-400 ml-2">Code HTML</label>
-                   <textarea value={currentXSite.html} onChange={e => setCurrentXSite({...currentXSite, html: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 font-mono text-xs h-48 outline-none" placeholder="<h1>Mon Site...</h1>" />
-                </div>
-                <div className="flex gap-4">
-                    {currentXSite.id && <button onClick={() => setCurrentXSite({id:'', name:'', html:''})} className="px-6 py-4 bg-gray-200 text-gray-600 rounded-xl font-bold uppercase">Annuler</button>}
-                    <button onClick={() => {
-                        if(!currentXSite.name) return alert("Nom requis");
-                        if(currentXSite.id) { upd('xsite_pages', currentXSite.id, currentXSite); }
-                        else { add('xsite_pages', currentXSite); }
-                        setCurrentXSite({id:'', name:'', html:''});
-                    }} className="flex-1 py-4 text-white font-bold rounded-xl uppercase shadow-lg" style={{ backgroundColor: config.primaryColor }}>{currentXSite.id ? 'Mettre à jour' : 'Créer le site'}</button>
-                </div>
-            </div>
+      {tab === 'architect' && (
+        <div className="space-y-6 animate-in fade-in">
+           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>ARCHITECTE IA</h3>
+           <textarea value={prompt} onChange={e => setP(e.target.value)} className="w-full p-6 rounded-3xl border border-gray-200 h-40" placeholder="Demandez à l'IA de modifier le design..." />
+           <button onClick={arch} disabled={load} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase flex items-center justify-center gap-3" style={{ backgroundColor: config.primaryColor }}>
+             {load ? <Loader2 className="animate-spin"/> : <Sparkles/>}
+             {load ? 'En cours...' : 'Générer le design'}
+           </button>
         </div>
       )}
 
@@ -661,6 +634,30 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
            </div>
         </div>
       )}
+    </div>
+  );
+};
+
+// --- XSITE CREATOR ---
+const XSiteCreator = ({ add, config }: any) => {
+  const [name, setName] = useState('');
+  const [html, setHtml] = useState('<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8">\n  <title>Mon Site</title>\n  <style>\n    body { font-family: Arial; padding: 20px; }\n  </style>\n</head>\n<body>\n  <h1>Bienvenue !</h1>\n  <p>Votre contenu ici...</p>\n</body>\n</html>');
+
+  const createSite = async () => {
+    if (!name.trim()) return alert("Donnez un nom à votre site !");
+    await add('xsite_pages', { name, html, timestamp: new Date() });
+    setName('');
+    setHtml('<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8">\n  <title>Mon Site</title>\n  <style>\n    body { font-family: Arial; padding: 20px; }\n  </style>\n</head>\n<body>\n  <h1>Bienvenue !</h1>\n  <p>Votre contenu ici...</p>\n</body>\n</html>');
+    alert("Site XSite créé !");
+  };
+
+  return (
+    <div className="space-y-4">
+      <input value={name} onChange={e => setName(e.target.value)} className="w-full p-4 rounded-2xl border border-gray-200 font-bold" placeholder="Nom du site (ex: Portfolio de Gabriel)" />
+      <textarea value={html} onChange={e => setHtml(e.target.value)} className="w-full p-4 rounded-2xl border border-gray-200 h-64 font-mono text-xs" placeholder="Code HTML complet..." />
+      <button onClick={createSite} className="w-full py-4 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>
+        <Plus className="inline mr-2" size={20}/> Créer le site XSite
+      </button>
     </div>
   );
 };
@@ -736,6 +733,46 @@ const App: React.FC = () => {
 
     return () => { unsubC(); unsubX(); unsubR(); unsubE(); unsubV(); unsubT(); };
   }, [user]);
+
+  // ============== NOUVEAU : GESTION DES URL PARAMS ==============
+  // 3. DÉTECTION DES PARAMÈTRES D'URL AU CHARGEMENT
+  useEffect(() => {
+    if (!isAuthorized || xsitePages.length === 0) return;
+
+    // Lire les paramètres d'URL
+    const params = new URLSearchParams(window.location.search);
+    const siteIdParam = params.get('site');
+
+    if (siteIdParam) {
+      // Si un paramètre 'site' est présent, chercher le site correspondant
+      const targetSite = xsitePages.find(site => site.id === siteIdParam);
+      
+      if (targetSite) {
+        // Naviguer automatiquement vers la vue xsite et sélectionner le site
+        setCurrentView('xsite');
+        setSelectedXSite(targetSite);
+      }
+    }
+  }, [isAuthorized, xsitePages]);
+
+  // 4. FONCTION POUR GÉNÉRER L'URL D'UN SITE (POUR QR CODE)
+  const generateSiteUrl = (siteId: string) => {
+    const baseUrl = window.location.origin + window.location.pathname;
+    return `${baseUrl}?site=${siteId}`;
+  };
+
+  // 5. FONCTION POUR COPIER L'URL DANS LE PRESSE-PAPIER
+  const copyUrlToClipboard = async (siteId: string) => {
+    const url = generateSiteUrl(siteId);
+    try {
+      await navigator.clipboard.writeText(url);
+      alert("URL copiée ! Vous pouvez maintenant créer un QR Code avec cet URL.");
+    } catch (err) {
+      console.error("Erreur lors de la copie:", err);
+      alert(`URL: ${url}\n\nCopiez cette URL manuellement pour créer votre QR Code.`);
+    }
+  };
+  // ============================================================
 
   // ACTIONS
   const handleLogin = async () => { try { await signInWithPopup(auth, googleProvider); } catch (e) { alert("Erreur Auth"); } };
@@ -817,56 +854,52 @@ const App: React.FC = () => {
             <section className="relative h-[60vh] rounded-[3rem] overflow-hidden shadow-2xl group">
               <img src={config.welcomeImage} className="w-full h-full object-cover transition-transform duration-[10s] group-hover:scale-110" />
               <div className="absolute inset-0 bg-black/40 flex flex-col justify-end p-10">
-                <h1 className="text-5xl md:text-8xl font-cinzel font-black text-white leading-none">{config.welcomeTitle}</h1>
-                <p className="text-xl text-white/90 italic mt-4">{config.welcomeText}</p>
+                <h1 className="text-7xl font-cinzel font-black text-white tracking-widest drop-shadow-2xl">{config.welcomeTitle}</h1>
+                <p className="text-white/90 text-xl mt-3 max-w-2xl">{config.welcomeText}</p>
               </div>
             </section>
-            {config.homeHtml && <section className="bg-white/50 rounded-[3rem] overflow-hidden shadow-xl"><iframe srcDoc={config.homeHtml} className="w-full h-[500px]" sandbox="allow-scripts" /></section>}
-            <div className="grid md:grid-cols-2 gap-8">
-              <HomeCard icon={<CalIcon size={40}/>} title="Semainier" label="Menus & Organisation" onClick={() => setCurrentView('cooking')} color={config.primaryColor} />
-              <HomeCard icon={<ChefHat size={40}/>} title="Recettes" label="Nos petits plats" onClick={() => setCurrentView('recipes')} color={config.primaryColor} />
-            </div>
+            {config.homeHtml && <div className="bg-white/70 rounded-[2.5rem] p-10 shadow-xl border border-black/5"><iframe srcDoc={config.homeHtml} className="w-full min-h-[400px]" /></div>}
           </div>
         )}
 
-        {/* --- PORTE-MONNAIE --- */}
-        {currentView === 'wallet' && (
-           <WalletView user={user} config={config} />
-        )}
+        {currentView === 'wallet' && <WalletView user={user!} config={config} />}
 
-        {/* --- TÂCHES --- */}
         {currentView === 'tasks' && (
-          <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8">
-            <div className="text-center space-y-4">
-              <h2 className="text-5xl font-cinzel font-black" style={{ color: config.primaryColor }}>TÂCHES MÉNAGÈRES</h2>
-              <p className="text-gray-500 font-serif italic">
-                {myLetter ? `Salut ${myLetter === 'G' ? 'Gabriel' : myLetter === 'P' ? 'Pauline' : 'Valentin'}, à l'attaque !` : "Connecte-toi avec ton compte perso pour participer."}
-              </p>
+          <div className="space-y-10">
+            <div className="flex flex-col items-center gap-6">
+              <h2 className="text-5xl font-cinzel font-black text-center" style={{ color: config.primaryColor }}>TÂCHES DU MOIS</h2>
+              <p className="text-gray-400 italic">Les missions hebdomadaires de la coloc</p>
             </div>
-            <div className="bg-white/90 backdrop-blur-xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/50">
+            <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-black/5">
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead>
-                    <tr className="text-left" style={{ backgroundColor: config.primaryColor + '15' }}>
-                      <th className="p-4 font-black uppercase text-xs tracking-widest text-gray-500 w-24">Weekend</th>
-                      <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Aspi Haut</th>
-                      <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Aspi Bas</th>
-                      <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{ color: config.primaryColor }}>Lav/Douche</th>
-                      <th className="p-4 w-10"></th>
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="p-6 text-left font-cinzel font-black uppercase text-xs tracking-widest text-gray-400">Semaine</th>
+                      <th className="p-6 text-center font-cinzel font-black uppercase text-xs tracking-widest text-gray-400">WC Haut</th>
+                      <th className="p-6 text-center font-cinzel font-black uppercase text-xs tracking-widest text-gray-400">WC Bas</th>
+                      <th className="p-6 text-center font-cinzel font-black uppercase text-xs tracking-widest text-gray-400">Douche</th>
+                      <th className="p-6 text-center font-cinzel font-black uppercase text-xs tracking-widest text-gray-400">Complet</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {getMonthWeekends().map((week, i) => {
-                      const rowStatus = choreStatus[week.id] || {};
-                      const isRowComplete = rowStatus.G && rowStatus.P && rowStatus.V;
-                      const now = new Date();
-                      const isLocked = week.fullDate.getTime() > (now.getTime() + 86400000 * 6); 
+                  <tbody>
+                    {getMonthWeekends().map((week: any, index: number) => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const isLocked = week.fullDate > today;
+                      const isDoneHaut = choreStatus[week.id]?.G || choreStatus[week.id]?.P || choreStatus[week.id]?.V;
+                      const isDoneBas = choreStatus[week.id]?.[week.bas] || false;
+                      const isDoneDouche = choreStatus[week.id]?.[week.douche] || false;
+                      const isRowComplete = isDoneHaut && isDoneBas && isDoneDouche;
                       return (
-                        <tr key={i} className={`transition-colors ${isRowComplete ? 'bg-green-50/50' : 'hover:bg-white/50'}`}>
-                          <td className="p-4 font-mono font-bold text-gray-700 whitespace-nowrap text-sm">{week.dateStr}{isLocked && <span className="ml-2 text-xs text-gray-300">🔒</span>}</td>
-                          <TaskCell weekId={week.id} letter={week.haut} label="Aspi Haut" isLocked={isLocked} choreStatus={choreStatus} toggleChore={toggleChore} myLetter={myLetter} />
-                          <TaskCell weekId={week.id} letter={week.bas} label="Aspi Bas" isLocked={isLocked} choreStatus={choreStatus} toggleChore={toggleChore} myLetter={myLetter} />
-                          <TaskCell weekId={week.id} letter={week.douche} label="Lavabo" isLocked={isLocked} choreStatus={choreStatus} toggleChore={toggleChore} myLetter={myLetter} />
+                        <tr key={week.id} className={`border-t border-gray-100 ${isLocked ? 'opacity-40' : ''} ${isRowComplete ? 'bg-green-50' : ''}`}>
+                          <td className="p-6">
+                            <div className="font-bold text-lg" style={{ color: config.primaryColor }}>{week.dateStr}</div>
+                            {isLocked && <div className="text-[10px] text-gray-400 uppercase mt-1 flex items-center gap-1"><Lock size={10}/> Verrouillé</div>}
+                          </td>
+                          <TaskCell weekId={week.id} letter={week.haut} label="WC Haut" isLocked={isLocked} choreStatus={choreStatus} toggleChore={toggleChore} myLetter={myLetter} />
+                          <TaskCell weekId={week.id} letter={week.bas} label="WC Bas" isLocked={isLocked} choreStatus={choreStatus} toggleChore={toggleChore} myLetter={myLetter} />
+                          <TaskCell weekId={week.id} letter={week.douche} label="Douche" isLocked={isLocked} choreStatus={choreStatus} toggleChore={toggleChore} myLetter={myLetter} />
                           <td className="p-4 text-center">{isRowComplete && <CheckCircle2 className="text-green-500 mx-auto animate-bounce" />}</td>
                         </tr>
                       );
@@ -914,7 +947,7 @@ const App: React.FC = () => {
            </div>
         )}
 
-        {/* --- XSITE WEB (REMPLACE JOURNAL) --- */}
+        {/* --- XSITE WEB (REMPLACE JOURNAL) AVEC BOUTONS QR CODE --- */}
         {currentView === 'xsite' && (
           <div className="space-y-10">
              {!selectedXSite ? (
@@ -925,13 +958,27 @@ const App: React.FC = () => {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
                     {xsitePages.map(site => (
-                      <div key={site.id} onClick={() => setSelectedXSite(site)} className="bg-white p-8 rounded-[2rem] shadow-lg border border-gray-100 cursor-pointer hover:scale-105 transition-transform group">
-                         <div className="flex items-center justify-between mb-4">
-                            <div className="p-3 bg-gray-50 rounded-full group-hover:bg-black group-hover:text-white transition-colors"><Map size={24}/></div>
-                            <ArrowLeft size={20} className="rotate-180 opacity-0 group-hover:opacity-50"/>
+                      <div key={site.id} className="bg-white p-8 rounded-[2rem] shadow-lg border border-gray-100 group relative">
+                         {/* Bouton QR Code en haut à droite */}
+                         <button 
+                           onClick={(e) => {
+                             e.stopPropagation();
+                             copyUrlToClipboard(site.id);
+                           }}
+                           className="absolute top-4 right-4 p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                           title="Copier l'URL pour QR Code"
+                         >
+                           <Eye size={16} className="text-gray-600"/>
+                         </button>
+                         
+                         <div onClick={() => setSelectedXSite(site)} className="cursor-pointer">
+                           <div className="flex items-center justify-between mb-4">
+                              <div className="p-3 bg-gray-50 rounded-full group-hover:bg-black group-hover:text-white transition-colors"><Map size={24}/></div>
+                              <ArrowLeft size={20} className="rotate-180 opacity-0 group-hover:opacity-50"/>
+                           </div>
+                           <h3 className="text-xl font-bold uppercase tracking-wide">{site.name}</h3>
+                           <div className="mt-2 text-xs text-gray-400">Cliquez pour ouvrir</div>
                          </div>
-                         <h3 className="text-xl font-bold uppercase tracking-wide">{site.name}</h3>
-                         <div className="mt-2 text-xs text-gray-400">Cliquez pour ouvrir</div>
                       </div>
                     ))}
                   </div>
