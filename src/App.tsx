@@ -10,7 +10,7 @@ import {
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
-  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink
+  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link
 } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -427,16 +427,32 @@ const HomeCard = ({ icon, title, label, onClick, color }: any) => (
 // --- ADMIN PANEL ---
 const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist }: any) => {
   const [tab, setTab] = useState('arch');
+  const [newJ, setNewJ] = useState({ id: '', title: '', author: '', content: '', image: '' });
   const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
   const [tempVersionName, setTempVersionName] = useState('');
   const [localC, setLocalC] = useState(config);
   
   // XSITE STATE
   const [currentXSite, setCurrentXSite] = useState({ id: '', name: '', html: '' });
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
 
+  // **** FIX: Defined fileRef inside AdminPanel to prevent crash on Home tab ****
+  const fileRef = useRef<HTMLInputElement>(null);
+  
   useEffect(() => { setLocalC(config); }, [config]);
+  
+  const handleFile = (e: any, cb: any) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(f); }};
   const startEditVersion = (v: any) => { setEditingVersionId(v.id); setTempVersionName(v.name); };
   const saveVersionName = (id: string) => { upd('site_versions', id, { name: tempVersionName }); setEditingVersionId(null); };
+
+  // --- QR CODE GENERATOR (DYNAMIC) ---
+  const generateQrCode = (siteId: string) => {
+      // Get the full base URL including path (e.g., https://user.github.io/repo/) without query params
+      const baseUrl = window.location.href.split('?')[0]; 
+      const fullUrl = `${baseUrl}?id=${siteId}`;
+      const apiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fullUrl)}`;
+      setQrCodeUrl(apiUrl);
+  };
 
   return (
     <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[3.5rem] shadow-2xl min-h-[700px] border border-black/5">
@@ -464,19 +480,37 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {tab === 'xsite' && (
         <div className="space-y-8 animate-in fade-in">
             <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>GESTION XSITE</h3>
+            
+            {/* Modal QR Code */}
+            {qrCodeUrl && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4" onClick={() => setQrCodeUrl(null)}>
+                    <div className="bg-white p-8 rounded-3xl text-center space-y-4 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                        <h4 className="font-cinzel font-bold text-xl">Scannez ce code</h4>
+                        <img src={qrCodeUrl} alt="QR Code" className="mx-auto border-4 border-black rounded-xl"/>
+                        <p className="text-xs text-gray-400">Clic droit pour enregistrer l'image</p>
+                        <button onClick={() => setQrCodeUrl(null)} className="mt-4 px-6 py-2 bg-gray-100 rounded-xl font-bold">Fermer</button>
+                    </div>
+                </div>
+            )}
+
+            {/* 1. LISTE DES SITES */}
             <div className="space-y-3">
                {xsitePages.length === 0 && <p className="text-gray-400 italic">Aucun site XSite créé.</p>}
                {xsitePages.map((site: any) => (
                   <div key={site.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-200 hover:shadow-md transition-shadow">
                      <span className="font-bold text-lg">{site.name}</span>
                      <div className="flex gap-2">
+                        <button onClick={() => generateQrCode(site.id)} className="p-2 bg-black text-white rounded-lg hover:scale-105 transition-transform" title="Voir QR Code"><QrCode size={18}/></button>
                         <button onClick={() => setCurrentXSite(site)} className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" title="Modifier"><Pencil size={18}/></button>
                         <button onClick={() => del('xsite_pages', site.id)} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Supprimer"><Trash2 size={18}/></button>
                      </div>
                   </div>
                ))}
             </div>
+
             <hr className="border-gray-100"/>
+
+            {/* 2. FORMULAIRE D'ÉDITION/AJOUT */}
             <div className="bg-white p-6 rounded-[2.5rem] shadow-lg border border-gray-100 space-y-4">
                 <h4 className="text-sm font-bold uppercase tracking-widest text-gray-400">{currentXSite.id ? 'Modifier le Site' : 'Nouveau Site'}</h4>
                 <div>
@@ -660,7 +694,7 @@ const App: React.FC = () => {
             if (foundSite) {
                 setSelectedXSite(foundSite);
                 setCurrentView('xsite');
-                // Clean URL
+                // Clean URL but keep history cleaner
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
         }
