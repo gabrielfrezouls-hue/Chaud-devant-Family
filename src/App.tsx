@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, googleProvider, db } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { 
+  collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, 
+  where, getDoc, arrayUnion, arrayRemove 
+} from 'firebase/firestore';
 import { 
   Lock, Menu, X, Home, BookHeart, ChefHat, Wallet, PiggyBank,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
-  Map, MonitorPlay, Eye
+  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink
 } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -26,6 +29,8 @@ const FAMILY_EMAILS = [
   "axisman705@gmail.com" 
 ];
 
+const ADMIN_EMAIL = "gabriel.frezouls@gmail.com";
+
 const USER_MAPPING: Record<string, string> = {
   "gabriel.frezouls@gmail.com": "G",
   "frezouls.pauline@gmail.com": "P",
@@ -41,7 +46,6 @@ const ORIGINAL_CONFIG: SiteConfig = {
   welcomeTitle: 'CHAUD DEVANT',
   welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
   welcomeImage: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
-  // REMPLACEMENT DE JOURNAL PAR XSITE DANS LA NAV
   navigationLabels: { home: 'ACCUEIL', xsite: 'XSITE', cooking: 'SEMAINIER', recipes: 'RECETTES', calendar: 'CALENDRIER', tasks: 'TÂCHES', wallet: 'PORTE-MONNAIE' },
   homeHtml: '', cookingHtml: ''
 };
@@ -84,19 +88,13 @@ const getMonthWeekends = () => {
   return weekends;
 };
 
-// --- COMPOSANT GRAPHIQUE SVG NATIF (SIMPLE LINE) ---
+// --- GRAPHIQUES ET ELEMENTS UI ---
 const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
   if (!data || data.length < 2) return <div className="h-full flex items-center justify-center text-gray-300 italic text-xs">Pas assez de données sur cette période</div>;
-
-  const width = 300;
-  const height = 100;
-  const padding = 5;
-
+  const width = 300; const height = 100; const padding = 5;
   const values = data.map(d => d.solde);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const min = Math.min(...values); const max = Math.max(...values);
   const range = max - min || 1;
-
   const points = data.map((d, i) => {
     const x = (i / (data.length - 1)) * (width - padding * 2) + padding;
     const y = height - ((d.solde - min) / range) * (height - padding * 2) - padding;
@@ -112,9 +110,7 @@ const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
         return (
           <g key={i} className="group">
              <circle cx={x} cy={y} r="4" fill="white" stroke={color} strokeWidth="2" />
-             <text x={x} y={y - 10} textAnchor="middle" fontSize="10" fill="black" className="opacity-0 group-hover:opacity-100 font-bold bg-white transition-opacity">
-               {d.solde}€
-             </text>
+             <text x={x} y={y - 10} textAnchor="middle" fontSize="10" fill="black" className="opacity-0 group-hover:opacity-100 font-bold bg-white transition-opacity">{d.solde}€</text>
           </g>
         );
       })}
@@ -122,12 +118,9 @@ const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
   );
 };
 
-// --- COMPOSANT CERCLE (LIQUID FILL) ---
 const CircleLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
   const safePercent = Math.min(Math.max(fillPercentage, 0), 100);
-  const size = 200;
-  const radius = 90;
-  const center = size / 2;
+  const size = 200; const radius = 90; const center = size / 2;
   const liquidHeight = (safePercent / 100) * size;
   const liquidY = size - liquidHeight;
 
@@ -135,9 +128,7 @@ const CircleLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
     <div className="relative w-full h-full flex justify-center items-center">
         <svg viewBox={`0 0 ${size} ${size}`} className="w-full h-full drop-shadow-xl overflow-visible">
             <defs>
-               <clipPath id="circleClip">
-                  <circle cx={center} cy={center} r={radius} />
-               </clipPath>
+               <clipPath id="circleClip"><circle cx={center} cy={center} r={radius} /></clipPath>
                <linearGradient id="liquidGrad" x1="0" x2="0" y1="0" y2="1">
                   <stop offset="0%" stopColor="#facc15" /> 
                   <stop offset="100%" stopColor="#ca8a04" />
@@ -152,15 +143,12 @@ const CircleLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
   );
 };
 
-
 // --- COMPOSANT PORTE-MONNAIE ---
 const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   const [activeTab, setActiveTab] = useState<'family' | 'personal'>('family');
   const [chartRange, setChartRange] = useState<'1M' | '1Y' | '5Y'>('1M');
-  
   const [debts, setDebts] = useState<any[]>([]);
   const [newDebt, setNewDebt] = useState({ from: '', to: '', amount: '', interest: '', reason: '' });
-  
   const [myWallet, setMyWallet] = useState<any>({ balance: 0, history: [], tasks: [], savingsGoal: 0, startBalance: 0 });
   const [walletAmount, setWalletAmount] = useState('');
   const [newTask, setNewTask] = useState('');
@@ -184,19 +172,13 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
 
   const addDebt = async () => {
     if (!newDebt.from || !newDebt.to || !newDebt.amount) return alert("Remplissez les champs !");
-    await addDoc(collection(db, 'family_debts'), {
-      ...newDebt,
-      amount: parseFloat(newDebt.amount),
-      interest: parseFloat(newDebt.interest || '0'),
-      createdAt: new Date().toISOString()
-    });
+    await addDoc(collection(db, 'family_debts'), { ...newDebt, amount: parseFloat(newDebt.amount), interest: parseFloat(newDebt.interest || '0'), createdAt: new Date().toISOString() });
     setNewDebt({ from: '', to: '', amount: '', interest: '', reason: '' });
   };
 
   const calculateDebt = (debt: any) => {
     if (!debt.interest || debt.interest === 0) return debt.amount;
-    const start = new Date(debt.createdAt);
-    const now = new Date();
+    const start = new Date(debt.createdAt); const now = new Date();
     const days = Math.floor((now.getTime() - start.getTime()) / (1000 * 3600 * 24));
     const interestAmount = debt.amount * (debt.interest / 100) * (days / 365);
     return (debt.amount + interestAmount).toFixed(2);
@@ -206,44 +188,24 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
     const val = parseFloat(walletAmount);
     if (!val || val <= 0) return;
     const newBal = type === 'add' ? myWallet.balance + val : myWallet.balance - val;
-    const entry = {
-      date: new Date().toISOString(),
-      amount: type === 'add' ? val : -val,
-      newBalance: newBal,
-      month: new Date().getMonth()
-    };
+    const entry = { date: new Date().toISOString(), amount: type === 'add' ? val : -val, newBalance: newBal, month: new Date().getMonth() };
     await updateDoc(doc(db, 'user_wallets', user.email!), { balance: newBal, history: [...(myWallet.history || []), entry] });
     setWalletAmount('');
   };
 
   const saveGoal = async () => {
       const newVal = parseFloat(goalInput);
-      if(!isNaN(newVal)) {
-          if (newVal !== myWallet.savingsGoal) {
-             await updateDoc(doc(db, 'user_wallets', user.email!), { savingsGoal: newVal, startBalance: myWallet.balance });
-          }
+      if(!isNaN(newVal) && newVal !== myWallet.savingsGoal) {
+         await updateDoc(doc(db, 'user_wallets', user.email!), { savingsGoal: newVal, startBalance: myWallet.balance });
       }
   };
 
-  const addWalletTask = async () => {
-    if (!newTask) return;
-    await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: [...(myWallet.tasks || []), { id: Date.now(), text: newTask, done: false }] });
-    setNewTask('');
-  };
-
-  const toggleWalletTask = async (taskId: number) => {
-    const newTasks = myWallet.tasks.map((t: any) => t.id === taskId ? { ...t, done: !t.done } : t);
-    await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: newTasks });
-  };
-
-  const deleteWalletTask = async (taskId: number) => {
-    const newTasks = myWallet.tasks.filter((t: any) => t.id !== taskId);
-    await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: newTasks });
-  };
-
+  const addWalletTask = async () => { if (newTask) { await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: [...(myWallet.tasks || []), { id: Date.now(), text: newTask, done: false }] }); setNewTask(''); }};
+  const toggleWalletTask = async (taskId: number) => { const newTasks = myWallet.tasks.map((t: any) => t.id === taskId ? { ...t, done: !t.done } : t); await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: newTasks }); };
+  const deleteWalletTask = async (taskId: number) => { const newTasks = myWallet.tasks.filter((t: any) => t.id !== taskId); await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: newTasks }); };
+  
   const getGraphData = () => {
-      const now = new Date();
-      let cutoff = new Date();
+      const now = new Date(); let cutoff = new Date();
       if(chartRange === '1M') cutoff.setMonth(now.getMonth() - 1);
       if(chartRange === '1Y') cutoff.setFullYear(now.getFullYear() - 1);
       if(chartRange === '5Y') cutoff.setFullYear(now.getFullYear() - 5);
@@ -251,27 +213,18 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
       filtered.sort((a:any, b:any) => new Date(a.date).getTime() - new Date(b.date).getTime());
       return filtered.map((h: any) => ({ name: new Date(h.date).toLocaleDateString(), solde: h.newBalance }));
   };
+
   const graphData = getGraphData();
-  const currentMonth = new Date().getMonth();
-  const currentMonthHistory = (myWallet.history || []).filter((h: any) => new Date(h.date).getMonth() === currentMonth);
-  const startBal = myWallet.startBalance || 0;
-  const goalBal = myWallet.savingsGoal || 0;
-  const currentBal = myWallet.balance || 0;
-  const totalGap = goalBal - startBal;
-  const progressMade = currentBal - startBal;
+  const currentMonthHistory = (myWallet.history || []).filter((h: any) => new Date(h.date).getMonth() === new Date().getMonth());
   let fillPercent = 0;
-  if (totalGap > 0) { fillPercent = (progressMade / totalGap) * 100; }
-  if (currentBal >= goalBal && goalBal > 0) fillPercent = 100;
+  if ((myWallet.savingsGoal - myWallet.startBalance) > 0) fillPercent = ((myWallet.balance - myWallet.startBalance) / (myWallet.savingsGoal - myWallet.startBalance)) * 100;
+  if (myWallet.balance >= myWallet.savingsGoal && myWallet.savingsGoal > 0) fillPercent = 100;
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in">
       <div className="flex justify-center gap-4 mb-8">
-        <button onClick={() => setActiveTab('family')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'family' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}>
-          <ShieldAlert className="inline mr-2 mb-1" size={16}/> Dettes Famille
-        </button>
-        <button onClick={() => setActiveTab('personal')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'personal' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}>
-          <PiggyBank className="inline mr-2 mb-1" size={16}/> Ma Tirelire
-        </button>
+        <button onClick={() => setActiveTab('family')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'family' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}><ShieldAlert className="inline mr-2 mb-1" size={16}/> Dettes Famille</button>
+        <button onClick={() => setActiveTab('personal')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'personal' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}><PiggyBank className="inline mr-2 mb-1" size={16}/> Ma Tirelire</button>
       </div>
       {activeTab === 'family' ? (
         <div className="bg-white/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-xl border border-white space-y-8">
@@ -291,9 +244,7 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
                     <span className="text-2xl font-black" style={{color: config.primaryColor}}>{calculateDebt(d)}€</span>
                  </div>
                  <div className="flex gap-4 text-[10px] font-bold uppercase text-gray-400">
-                   <span>Initial: {d.amount}€</span>
-                   {d.interest > 0 && <span className="text-orange-400 flex items-center"><Percent size={10} className="mr-1"/> Intérêt: {d.interest}%</span>}
-                   <span>{new Date(d.createdAt).toLocaleDateString()}</span>
+                   <span>Initial: {d.amount}€</span>{d.interest > 0 && <span className="text-orange-400 flex items-center"><Percent size={10} className="mr-1"/> Intérêt: {d.interest}%</span>}<span>{new Date(d.createdAt).toLocaleDateString()}</span>
                  </div>
                </div>
              ))}
@@ -302,80 +253,13 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
       ) : (
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 space-y-6">
-             <div className="relative h-64 w-full">
-                 <CircleLiquid fillPercentage={fillPercent} />
-                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                     <p className="text-[10px] font-black uppercase text-yellow-800/60 tracking-widest mb-1">Solde Actuel</p>
-                     <h2 className="text-5xl font-cinzel font-black text-yellow-900 drop-shadow-sm mb-4">{myWallet.balance?.toFixed(0)}€</h2>
-                     <div className="flex items-center gap-2 bg-white/40 p-1.5 rounded-2xl backdrop-blur-sm shadow-sm border border-white/50 w-48">
-                        <button onClick={() => updateBalance('sub')} className="p-2 bg-white/50 hover:bg-red-400 hover:text-white rounded-xl transition-colors"><Minus size={16}/></button>
-                        <input type="number" value={walletAmount} onChange={e => setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-lg outline-none text-yellow-900 placeholder-yellow-800/40" placeholder="..." />
-                        <button onClick={() => updateBalance('add')} className="p-2 bg-white/50 hover:bg-green-400 hover:text-white rounded-xl transition-colors"><Plus size={16}/></button>
-                     </div>
-                 </div>
-             </div>
-             <div className="bg-white p-4 rounded-3xl shadow-sm border border-yellow-100 flex items-center gap-3">
-                 <div className="p-3 bg-yellow-100 text-yellow-600 rounded-full"><Target size={20}/></div>
-                 <div className="flex-1">
-                     <label className="text-[10px] font-bold uppercase text-gray-400">Objectif</label>
-                     <input type="number" value={goalInput} onChange={e => setGoalInput(e.target.value)} onBlur={saveGoal} className="w-full font-black text-gray-700 outline-none" placeholder="Définir..." />
-                     {myWallet.startBalance > 0 && <span className="text-[10px] text-gray-300">Départ: {myWallet.startBalance}€</span>}
-                 </div>
-                 {fillPercent > 0 && <span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-1 rounded-lg">{fillPercent.toFixed(0)}%</span>}
-             </div>
-             <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100">
-               <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><ClipboardList size={14}/> Tâches Rémunérées</h3>
-               <div className="flex gap-2 mb-4">
-                 <input value={newTask} onChange={e => setNewTask(e.target.value)} placeholder="Ajouter une tâche..." className="flex-1 bg-gray-50 rounded-xl px-3 text-sm font-bold outline-none" />
-                 <button onClick={addWalletTask} className="p-2 bg-gray-200 rounded-xl"><Plus size={16}/></button>
-               </div>
-               <div className="space-y-2 max-h-40 overflow-y-auto">
-                 {(myWallet.tasks || []).map((t: any) => (
-                   <div key={t.id} className="flex items-center gap-3 group">
-                     <button onClick={() => toggleWalletTask(t.id)}>{t.done ? <CheckCircle2 size={16} className="text-green-500"/> : <Square size={16} className="text-gray-300"/>}</button>
-                     <span className={`text-sm font-bold flex-1 ${t.done ? 'line-through text-gray-300' : 'text-gray-600'}`}>{t.text}</span>
-                     <button onClick={() => deleteWalletTask(t.id)} className="opacity-0 group-hover:opacity-100 text-red-300"><X size={14}/></button>
-                   </div>
-                 ))}
-               </div>
-             </div>
+             <div className="relative h-64 w-full"><CircleLiquid fillPercentage={fillPercent} /><div className="absolute inset-0 flex flex-col items-center justify-center"><p className="text-[10px] font-black uppercase text-yellow-800/60 tracking-widest mb-1">Solde Actuel</p><h2 className="text-5xl font-cinzel font-black text-yellow-900 drop-shadow-sm mb-4">{myWallet.balance?.toFixed(0)}€</h2><div className="flex items-center gap-2 bg-white/40 p-1.5 rounded-2xl backdrop-blur-sm shadow-sm border border-white/50 w-48"><button onClick={() => updateBalance('sub')} className="p-2 bg-white/50 hover:bg-red-400 hover:text-white rounded-xl transition-colors"><Minus size={16}/></button><input type="number" value={walletAmount} onChange={e => setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-lg outline-none text-yellow-900 placeholder-yellow-800/40" placeholder="..." /><button onClick={() => updateBalance('add')} className="p-2 bg-white/50 hover:bg-green-400 hover:text-white rounded-xl transition-colors"><Plus size={16}/></button></div></div></div>
+             <div className="bg-white p-4 rounded-3xl shadow-sm border border-yellow-100 flex items-center gap-3"><div className="p-3 bg-yellow-100 text-yellow-600 rounded-full"><Target size={20}/></div><div className="flex-1"><label className="text-[10px] font-bold uppercase text-gray-400">Objectif</label><input type="number" value={goalInput} onChange={e => setGoalInput(e.target.value)} onBlur={saveGoal} className="w-full font-black text-gray-700 outline-none" placeholder="Définir..." />{myWallet.startBalance > 0 && <span className="text-[10px] text-gray-300">Départ: {myWallet.startBalance}€</span>}</div>{fillPercent > 0 && <span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-1 rounded-lg">{fillPercent.toFixed(0)}%</span>}</div>
+             <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><ClipboardList size={14}/> Tâches Rémunérées</h3><div className="flex gap-2 mb-4"><input value={newTask} onChange={e => setNewTask(e.target.value)} placeholder="Ajouter une tâche..." className="flex-1 bg-gray-50 rounded-xl px-3 text-sm font-bold outline-none" /><button onClick={addWalletTask} className="p-2 bg-gray-200 rounded-xl"><Plus size={16}/></button></div><div className="space-y-2 max-h-40 overflow-y-auto">{(myWallet.tasks || []).map((t: any) => (<div key={t.id} className="flex items-center gap-3 group"><button onClick={() => toggleWalletTask(t.id)}>{t.done ? <CheckCircle2 size={16} className="text-green-500"/> : <Square size={16} className="text-gray-300"/>}</button><span className={`text-sm font-bold flex-1 ${t.done ? 'line-through text-gray-300' : 'text-gray-600'}`}>{t.text}</span><button onClick={() => deleteWalletTask(t.id)} className="opacity-0 group-hover:opacity-100 text-red-300"><X size={14}/></button></div>))}</div></div>
           </div>
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 h-80 relative">
-               <div className="flex justify-between items-center mb-4">
-                   <h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Évolution du Solde</h3>
-                   <div className="flex bg-gray-100 p-1 rounded-lg">
-                       {(['1M', '1Y', '5Y'] as const).map(range => (
-                           <button key={range} onClick={() => setChartRange(range)} className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${chartRange === range ? 'bg-white shadow text-black' : 'text-gray-400'}`}>
-                               {range}
-                           </button>
-                       ))}
-                   </div>
-               </div>
-               <div className="h-60 w-full p-2">
-                  <SimpleLineChart data={graphData} color={config.primaryColor} />
-               </div>
-            </div>
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-gray-100">
-               <div className="flex justify-between items-center mb-6">
-                 <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14}/> Historique (Ce Mois)</h3>
-                 <span className="text-[10px] font-bold bg-gray-100 px-3 py-1 rounded-full text-gray-500">{new Date().toLocaleString('default', { month: 'long' })}</span>
-               </div>
-               <div className="space-y-4 max-h-60 overflow-y-auto pr-2">
-                 {currentMonthHistory.length === 0 && <div className="text-center text-gray-300 italic py-4">Aucun mouvement ce mois-ci</div>}
-                 {currentMonthHistory.slice().reverse().map((h: any, i: number) => (
-                   <div key={i} className="flex justify-between items-center p-3 bg-gray-50 rounded-2xl">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-full ${h.amount > 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                          {h.amount > 0 ? <TrendingUp size={16}/> : <TrendingDown size={16}/>}
-                        </div>
-                        <div className="text-xs font-bold text-gray-400 uppercase">{new Date(h.date).toLocaleDateString()}</div>
-                      </div>
-                      <span className={`font-black ${h.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>{h.amount > 0 ? '+' : ''}{h.amount}€</span>
-                   </div>
-                 ))}
-               </div>
-            </div>
+            <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 h-80 relative"><div className="flex justify-between items-center mb-4"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Évolution du Solde</h3><div className="flex bg-gray-100 p-1 rounded-lg">{(['1M', '1Y', '5Y'] as const).map(range => (<button key={range} onClick={() => setChartRange(range)} className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${chartRange === range ? 'bg-white shadow text-black' : 'text-gray-400'}`}>{range}</button>))}</div></div><div className="h-60 w-full p-2"><SimpleLineChart data={graphData} color={config.primaryColor} /></div></div>
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-gray-100"><div className="flex justify-between items-center mb-6"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14}/> Historique (Ce Mois)</h3><span className="text-[10px] font-bold bg-gray-100 px-3 py-1 rounded-full text-gray-500">{new Date().toLocaleString('default', { month: 'long' })}</span></div><div className="space-y-4 max-h-60 overflow-y-auto pr-2">{currentMonthHistory.length === 0 && <div className="text-center text-gray-300 italic py-4">Aucun mouvement ce mois-ci</div>}{currentMonthHistory.slice().reverse().map((h: any, i: number) => (<div key={i} className="flex justify-between items-center p-3 bg-gray-50 rounded-2xl"><div className="flex items-center gap-3"><div className={`p-2 rounded-full ${h.amount > 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>{h.amount > 0 ? <TrendingUp size={16}/> : <TrendingDown size={16}/>}</div><div className="text-xs font-bold text-gray-400 uppercase">{new Date(h.date).toLocaleDateString()}</div></div><span className={`font-black ${h.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>{h.amount > 0 ? '+' : ''}{h.amount}€</span></div>))}</div></div>
           </div>
         </div>
       )}
@@ -384,7 +268,6 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
 };
 
 // --- AUTRES COMPOSANTS (Event, Recipe, Tasks) ---
-
 const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, myLetter }: any) => {
   const isDone = choreStatus[weekId]?.[letter] || false;
   const canCheck = !isLocked && myLetter === letter; 
@@ -403,6 +286,7 @@ const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, m
 };
 
 const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }: any) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
@@ -423,17 +307,40 @@ const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }
             <div className="animate-in slide-in-from-top-2"><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label><input type="text" value={newEvent.time} onChange={e => setNewEvent({...newEvent, time: e.target.value})} placeholder="Ex: 20h00, Midi..." className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-bold text-lg" /></div>
           )}
         </div>
-        <button onClick={() => { if (newEvent.title && newEvent.date) { addEntry('family_events', { title: newEvent.title, date: newEvent.date, time: newEvent.isAllDay ? null : (newEvent.time || '') }); setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true }); onClose(false); } else { alert("Titre et date requis !"); } }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>Ajouter au calendrier</button>
+        <button disabled={isSubmitting} onClick={async () => { if (newEvent.title && newEvent.date) { setIsSubmitting(true); await addEntry('family_events', { title: newEvent.title, date: newEvent.date, time: newEvent.isAllDay ? null : (newEvent.time || '') }); setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true }); setIsSubmitting(false); onClose(false); } else { alert("Titre et date requis !"); } }} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting ? 'opacity-50' : ''}`} style={{ backgroundColor: config.primaryColor }}>{isSubmitting ? "Ajout..." : "Ajouter au calendrier"}</button>
       </div>
     </div>
   );
 };
 
 const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe, updateEntry, addEntry }: any) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  
   const handleFile = (e: any, callback: any) => {
     const f = e.target.files[0];
-    if(f) { const r = new FileReader(); r.onload = () => callback(r.result); r.readAsDataURL(f); }
+    if (!f) return;
+    setIsCompressing(true);
+    const reader = new FileReader();
+    reader.onload = (event: any) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 800;
+        const scale = MAX_WIDTH / img.width;
+        if (scale < 1) { canvas.width = MAX_WIDTH; canvas.height = img.height * scale; } else { canvas.width = img.width; canvas.height = img.height; }
+        const ctx = canvas.getContext('2d');
+        if(ctx) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            callback(compressedDataUrl);
+            setIsCompressing(false);
+        }
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(f);
   };
   if (!isOpen) return null;
   return (
@@ -452,18 +359,23 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
                <option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option>
              </select>
           </div>
-          <div onClick={() => fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">
-            {currentRecipe.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}
+          <div onClick={() => !isCompressing && fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">
+            {isCompressing ? <div className="flex items-center gap-2 text-blue-500 font-bold"><Loader2 className="animate-spin"/> Compression...</div> : currentRecipe.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}
           </div>
-          <input type="file" ref={fileRef} className="hidden" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
-          <button onClick={() => { 
+          <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
+          <button disabled={isSubmitting || isCompressing} onClick={async () => { 
               if(currentRecipe.title) {
+                  setIsSubmitting(true);
                   const recipeToSave = { ...currentRecipe };
-                  if (recipeToSave.id) { updateEntry('family_recipes', recipeToSave.id, recipeToSave); } 
-                  else { addEntry('family_recipes', recipeToSave); }
-                  onClose(false);
+                  try {
+                    if (recipeToSave.id) { await updateEntry('family_recipes', recipeToSave.id, recipeToSave); } 
+                    else { await addEntry('family_recipes', recipeToSave); }
+                    onClose(false);
+                  } catch (e) { alert("Image trop lourde ou erreur technique."); setIsSubmitting(false); }
               } else { alert("Il faut au moins un titre !"); }
-          }} className="w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all" style={{ backgroundColor: config.primaryColor }}>Enregistrer la recette</button>
+            }} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting || isCompressing ? 'opacity-50 cursor-not-allowed' : ''}`} style={{ backgroundColor: config.primaryColor }}>
+              {isSubmitting ? "Enregistrement..." : (isCompressing ? "Traitement image..." : "Enregistrer la recette")}
+          </button>
           <div className="grid md:grid-cols-2 gap-4">
             <textarea value={currentRecipe.ingredients} onChange={e => setCurrentRecipe({...currentRecipe, ingredients: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Ingrédients (un par ligne)..." />
             <textarea value={currentRecipe.steps} onChange={e => setCurrentRecipe({...currentRecipe, steps: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Étapes de préparation..." />
@@ -523,8 +435,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   const [currentXSite, setCurrentXSite] = useState({ id: '', name: '', html: '' });
 
   useEffect(() => { setLocalC(config); }, [config]);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const handleFile = (e: any, cb: any) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(f); }};
   const startEditVersion = (v: any) => { setEditingVersionId(v.id); setTempVersionName(v.name); };
   const saveVersionName = (id: string) => { upd('site_versions', id, { name: tempVersionName }); setEditingVersionId(null); };
 
@@ -554,8 +464,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {tab === 'xsite' && (
         <div className="space-y-8 animate-in fade-in">
             <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>GESTION XSITE</h3>
-            
-            {/* 1. LISTE DES SITES (RECTANGLES ALLONGÉS) */}
             <div className="space-y-3">
                {xsitePages.length === 0 && <p className="text-gray-400 italic">Aucun site XSite créé.</p>}
                {xsitePages.map((site: any) => (
@@ -568,10 +476,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
                   </div>
                ))}
             </div>
-
             <hr className="border-gray-100"/>
-
-            {/* 2. FORMULAIRE D'ÉDITION/AJOUT */}
             <div className="bg-white p-6 rounded-[2.5rem] shadow-lg border border-gray-100 space-y-4">
                 <h4 className="text-sm font-bold uppercase tracking-widest text-gray-400">{currentXSite.id ? 'Modifier le Site' : 'Nouveau Site'}</h4>
                 <div>
@@ -678,7 +583,8 @@ const App: React.FC = () => {
   const [events, setEvents] = useState<FamilyEvent[]>([]);
   const [versions, setVersions] = useState<SiteVersion[]>([]);
   const [choreStatus, setChoreStatus] = useState<Record<string, any>>({});
-
+  const [favorites, setFavorites] = useState<string[]>([]);
+  
   // États Modales
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false); 
@@ -701,11 +607,18 @@ const App: React.FC = () => {
   const [chatHistory, setChatHistory] = useState<{ role: string, text: string }[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // 1. AUTHENTIFICATION
+  // 1. AUTHENTIFICATION & FAVORIS
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => { 
+    const unsubscribe = onAuthStateChanged(auth, async (u) => { 
       setUser(u); 
       setIsInitializing(false); 
+      if (u && u.email) {
+         // Charger les favoris
+         const prefsDoc = await getDoc(doc(db, 'user_prefs', u.email));
+         if (prefsDoc.exists()) {
+             setFavorites(prefsDoc.data().favorites || []);
+         }
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -736,6 +649,23 @@ const App: React.FC = () => {
 
     return () => { unsubC(); unsubX(); unsubR(); unsubE(); unsubV(); unsubT(); };
   }, [user]);
+
+  // 3. DEEP LINKING (URL PARAM)
+  useEffect(() => {
+     if (xsitePages.length > 0) {
+        const params = new URLSearchParams(window.location.search);
+        const siteId = params.get('id');
+        if (siteId) {
+            const foundSite = xsitePages.find(p => p.id === siteId);
+            if (foundSite) {
+                setSelectedXSite(foundSite);
+                setCurrentView('xsite');
+                // Clean URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+     }
+  }, [xsitePages]);
 
   // ACTIONS
   const handleLogin = async () => { try { await signInWithPopup(auth, googleProvider); } catch (e) { alert("Erreur Auth"); } };
@@ -774,6 +704,22 @@ const App: React.FC = () => {
       await setDoc(doc(db, 'chores_status', weekId), { [letter]: !currentStatus }, { merge: true });
     } catch (e) { console.error("Erreur coche", e); }
   };
+  
+  const toggleFavorite = async (siteId: string) => {
+      if (!user || !user.email) return;
+      const ref = doc(db, 'user_prefs', user.email);
+      try {
+          if (favorites.includes(siteId)) {
+              await setDoc(ref, { favorites: arrayRemove(siteId) }, { merge: true });
+              setFavorites(prev => prev.filter(id => id !== siteId));
+          } else {
+              await setDoc(ref, { favorites: arrayUnion(siteId) }, { merge: true });
+              setFavorites(prev => [...prev, siteId]);
+          }
+      } catch (e) {
+          console.error("Error toggle fav", e);
+      }
+  };
 
   const openEditRecipe = (recipe: any) => {
     const ingredientsStr = Array.isArray(recipe.ingredients) ? recipe.ingredients.join('\n') : recipe.ingredients;
@@ -793,6 +739,22 @@ const App: React.FC = () => {
     <div className="min-h-screen pb-24 md:pb-0 transition-colors duration-700" style={{ backgroundColor: config.backgroundColor, fontFamily: config.fontFamily }}>
       <Background color={config.primaryColor} />
       
+      {/* IMMERSIVE XSITE VIEWER */}
+      {currentView === 'xsite' && selectedXSite && (
+          <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-in fade-in slide-in-from-bottom-10">
+             <div className="h-16 border-b flex items-center justify-between px-4 bg-white shadow-sm z-10">
+                 <button onClick={() => { setSelectedXSite(null); }} className="flex items-center gap-2 text-sm font-bold text-gray-600 hover:text-black transition-colors">
+                     <ArrowLeft size={20}/> Retour
+                 </button>
+                 <span className="font-cinzel font-bold text-lg truncate">{selectedXSite.name}</span>
+                 <button onClick={() => toggleFavorite(selectedXSite.id)} className="p-2 transition-transform active:scale-95">
+                     <Star size={24} className={favorites.includes(selectedXSite.id) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"} />
+                 </button>
+             </div>
+             <iframe srcDoc={selectedXSite.html} className="flex-1 w-full border-none" title={selectedXSite.name} sandbox="allow-scripts allow-same-origin"/>
+          </div>
+      )}
+
       <nav className="fixed top-0 w-full bg-white/80 backdrop-blur-xl border-b border-black/5 z-50 h-20 px-6 flex items-center justify-between">
         <div onClick={() => setCurrentView('home')} className="flex items-center gap-3 cursor-pointer">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg" style={{ backgroundColor: config.primaryColor }}><Home className="text-white" size={20} /></div>
@@ -918,34 +880,39 @@ const App: React.FC = () => {
         {currentView === 'xsite' && (
           <div className="space-y-10">
              {!selectedXSite ? (
-                <>
-                  <div className="flex flex-col items-center gap-6">
-                    <h2 className="text-5xl font-cinzel font-black text-center" style={{ color: config.primaryColor }}>NOS SITES</h2>
-                    <p className="text-gray-400 italic">Explorez les pages de la famille</p>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-                    {xsitePages.map(site => (
-                      <div key={site.id} onClick={() => setSelectedXSite(site)} className="bg-white p-8 rounded-[2rem] shadow-lg border border-gray-100 cursor-pointer hover:scale-105 transition-transform group">
-                         <div className="flex items-center justify-between mb-4">
-                            <div className="p-3 bg-gray-50 rounded-full group-hover:bg-black group-hover:text-white transition-colors"><Map size={24}/></div>
-                            <ArrowLeft size={20} className="rotate-180 opacity-0 group-hover:opacity-50"/>
-                         </div>
-                         <h3 className="text-xl font-bold uppercase tracking-wide">{site.name}</h3>
-                         <div className="mt-2 text-xs text-gray-400">Cliquez pour ouvrir</div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-             ) : (
-                <div className="animate-in fade-in slide-in-from-right-10">
-                   <button onClick={() => setSelectedXSite(null)} className="mb-6 flex items-center gap-2 px-6 py-3 bg-white rounded-full shadow-md font-bold text-sm hover:bg-black hover:text-white transition-colors">
-                      <ArrowLeft size={16}/> Retour aux sites
-                   </button>
-                   <div className="bg-white rounded-[2rem] shadow-2xl overflow-hidden min-h-[80vh] border border-gray-200">
-                      <iframe srcDoc={selectedXSite.html} className="w-full h-[80vh] border-none" title={selectedXSite.name} sandbox="allow-scripts allow-same-origin"/>
-                   </div>
-                </div>
-             )}
+                // ACCÈS CONDITIONNEL
+                (user.email === ADMIN_EMAIL || favorites.length > 0) ? (
+                    <>
+                        <div className="flex flex-col items-center gap-6">
+                            <h2 className="text-5xl font-cinzel font-black text-center" style={{ color: config.primaryColor }}>MES FAVORIS</h2>
+                            <p className="text-gray-400 italic">Vos accès rapides XSite</p>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                            {xsitePages.filter(p => user.email === ADMIN_EMAIL ? true : favorites.includes(p.id)).map(site => (
+                            <div key={site.id} onClick={() => setSelectedXSite(site)} className="bg-white p-8 rounded-[2rem] shadow-lg border border-gray-100 cursor-pointer hover:scale-105 transition-transform group">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="p-3 bg-gray-50 rounded-full group-hover:bg-black group-hover:text-white transition-colors"><Map size={24}/></div>
+                                    <ArrowLeft size={20} className="rotate-180 opacity-0 group-hover:opacity-50"/>
+                                </div>
+                                <h3 className="text-xl font-bold uppercase tracking-wide">{site.name}</h3>
+                                <div className="mt-2 text-xs text-gray-400">Cliquez pour ouvrir</div>
+                            </div>
+                            ))}
+                            {xsitePages.filter(p => favorites.includes(p.id)).length === 0 && user.email !== ADMIN_EMAIL && (
+                                <p className="col-span-full text-center text-gray-400 italic">Aucun favori enregistré. Scannez un QR code pour commencer.</p>
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    <div className="flex flex-col items-center justify-center py-20 space-y-6 text-center">
+                        <div className="p-8 bg-gray-100 rounded-[3rem] animate-pulse">
+                            <QrCode size={64} className="text-gray-400"/>
+                        </div>
+                        <h2 className="text-3xl font-cinzel font-bold text-gray-400">ACCÈS VERROUILLÉ</h2>
+                        <p className="text-gray-400 max-w-md">Veuillez scanner un QR code pour accéder à un mini-site et l'ajouter à vos favoris.</p>
+                    </div>
+                )
+             ) : null /* Le viewer est géré par l'overlay fixed */}
           </div>
         )}
 
