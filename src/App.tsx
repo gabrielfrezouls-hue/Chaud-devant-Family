@@ -1,18 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, googleProvider, db } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { 
-  collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, 
-  where, getDoc, arrayUnion, arrayRemove 
-} from 'firebase/firestore';
+import { collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where, getDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { 
   Lock, Menu, X, Home, BookHeart, ChefHat, Wallet, PiggyBank,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
-  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link
+  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy
 } from 'lucide-react';
-import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
+import { JournalEntry, Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
 import Background from './components/Background';
 import RecipeCard from './components/RecipeCard';
@@ -453,6 +450,14 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       const apiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fullUrl)}`;
       setQrCodeUrl(apiUrl);
   };
+  
+  // --- COOKING LINK GENERATOR ---
+  const copyCookingLink = () => {
+      const baseUrl = window.location.href.split('?')[0]; 
+      const fullUrl = `${baseUrl}?view=cooking`;
+      navigator.clipboard.writeText(fullUrl);
+      alert("Lien du semainier copié !");
+  };
 
   return (
     <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[3.5rem] shadow-2xl min-h-[700px] border border-black/5">
@@ -563,7 +568,11 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
         <div className="space-y-6 animate-in fade-in">
            <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>CODE SEMAINIER</h3>
            <textarea value={localC.cookingHtml} onChange={e => setLocalC({...localC, cookingHtml: e.target.value})} className="w-full p-6 rounded-3xl border border-gray-200 h-64 font-mono text-xs text-gray-600" placeholder="Code HTML iframe..." />
-           <button onClick={() => save(localC, true)} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Sauvegarder le code</button>
+           
+           <div className="flex gap-4">
+              <button onClick={() => save(localC, true)} className="flex-1 py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Sauvegarder le code</button>
+              <button onClick={copyCookingLink} className="px-6 py-5 bg-black text-white rounded-2xl font-bold shadow-xl hover:scale-105 transition-transform" title="Copier le lien direct"><Copy size={20}/></button>
+           </div>
         </div>
       )}
 
@@ -684,17 +693,25 @@ const App: React.FC = () => {
     return () => { unsubC(); unsubX(); unsubR(); unsubE(); unsubV(); unsubT(); };
   }, [user]);
 
-  // 3. DEEP LINKING (URL PARAM)
+  // 3. DEEP LINKING (URL PARAM) - CORRIGÉ ET ETENDU
   useEffect(() => {
+     const params = new URLSearchParams(window.location.search);
+     
+     // CAS 1 : SEMAINIER
+     if (params.get('view') === 'cooking') {
+         setCurrentView('cooking');
+         window.history.replaceState({}, document.title, window.location.pathname);
+         return;
+     }
+
+     // CAS 2 : XSITE
      if (xsitePages.length > 0) {
-        const params = new URLSearchParams(window.location.search);
         const siteId = params.get('id');
         if (siteId) {
             const foundSite = xsitePages.find(p => p.id === siteId);
             if (foundSite) {
                 setSelectedXSite(foundSite);
                 setCurrentView('xsite');
-                // Clean URL but keep history cleaner
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
         }
