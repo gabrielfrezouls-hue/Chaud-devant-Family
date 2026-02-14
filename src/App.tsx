@@ -10,7 +10,7 @@ import {
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
-  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users
+  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag
 } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -32,15 +32,21 @@ const ORIGINAL_CONFIG: SiteConfig = {
   homeHtml: '', cookingHtml: ''
 };
 
-// --- LOGIQUE INTELLIGENTE HUB (CATEGORISATION) ---
+// --- LOGIQUE INTELLIGENTE HUB (10 CATÉGORIES) ---
 const categorizeShoppingItem = (text: string) => {
     const lower = text.toLowerCase();
-    if (/(lait|beurre|yaourt|creme|oeuf|fromage)/.test(lower)) return 'Frais';
-    if (/(pomme|banane|legume|fruit|salade|tomate|carotte)/.test(lower)) return 'Primeur';
-    if (/(pates|riz|farine|sucre|huile|conserve|epice)/.test(lower)) return 'Épicerie';
-    if (/(viande|poulet|poisson|jambon|steak)/.test(lower)) return 'Boucherie';
-    if (/(shampoing|savon|papier|lessive|produit)/.test(lower)) return 'Maison';
-    if (/(coca|jus|vin|biere|eau)/.test(lower)) return 'Boissons';
+    
+    if (/(lait|beurre|yaourt|creme|crème|oeuf|fromage|gruyere|mozarella)/.test(lower)) return 'Frais';
+    if (/(pomme|banane|legume|fruit|salade|tomate|carotte|oignon|ail|patate|courgette|avocat|citron)/.test(lower)) return 'Primeur';
+    if (/(viande|poulet|poisson|jambon|steak|lardon|saucisse|dinde|boeuf|thon)/.test(lower)) return 'Boucherie/Poiss.';
+    if (/(pates|pâte|riz|conserve|huile|vinaigre|moutarde|sel|poivre|epice|sauce|mayo)/.test(lower)) return 'Épicerie Salée';
+    if (/(sucre|farine|chocolat|gateau|biscuit|cereale|pain|brioche|miel|confiture)/.test(lower)) return 'Épicerie Sucrée';
+    if (/(coca|jus|vin|biere|bière|eau|sirop|soda|alcool|cafe|the)/.test(lower)) return 'Boissons';
+    if (/(shampoing|savon|dentifrice|papier|toilette|douche|cosmetique|coton)/.test(lower)) return 'Hygiène';
+    if (/(lessive|produit|eponge|sac|poubelle|nettoyant|vaisselle)/.test(lower)) return 'Maison';
+    if (/(croquette|patee|litiere|chat|chien)/.test(lower)) return 'Animaux';
+    if (/(glace|surgeles|pizza|frite)/.test(lower)) return 'Surgelés';
+    
     return 'Divers';
 };
 
@@ -176,14 +182,14 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
             </div>
 
             {/* BOARD DISPLAY */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {/* COLONNE COURSES */}
                 <div className="space-y-4">
                     <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><ShoppingCart size={20}/> LISTE DE COURSES</h3>
                     {hubItems.filter(i => i.type === 'shop').map(item => (
                         <div key={item.id} className="group flex justify-between items-center p-4 bg-white rounded-2xl shadow-sm border-l-4 border-orange-400 hover:shadow-md transition-all">
                             <div>
-                                <span className="text-xs font-bold uppercase text-orange-400 bg-orange-50 px-2 py-1 rounded-md mr-2">{item.category}</span>
+                                <span className="text-[10px] font-black uppercase text-orange-600 bg-orange-100 px-2 py-1 rounded-md mr-2">{item.category}</span>
                                 <span className="font-bold text-gray-700">{item.content}</span>
                             </div>
                             <button onClick={() => deleteItem(item.id)} className="text-gray-300 hover:text-red-500"><X size={18}/></button>
@@ -508,6 +514,8 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   const [tab, setTab] = useState('users');
   const [newUser, setNewUser] = useState({ email: '', letter: '', name: '' });
   const [localC, setLocalC] = useState(config);
+  const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
+  const [tempVersionName, setTempVersionName] = useState('');
   
   // XSITE STATE
   const [currentXSite, setCurrentXSite] = useState({ id: '', name: '', html: '' });
@@ -518,8 +526,8 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   useEffect(() => { setLocalC(config); }, [config]);
   
   const handleFile = (e: any, cb: any) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(f); }};
-  const startEditVersion = (v: any) => { /* ... */ }; 
-  const saveVersionName = (id: string) => { /* ... */ };
+  const startEditVersion = (v: any) => { setEditingVersionId(v.id); setTempVersionName(v.name); };
+  const saveVersionName = (id: string) => { upd('site_versions', id, { name: tempVersionName }); setEditingVersionId(null); };
 
   const generateQrCode = (siteId: string) => {
       const baseUrl = window.location.href.split('?')[0]; 
@@ -550,6 +558,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       <div className="flex gap-2 overflow-x-auto mb-10 pb-4 no-scrollbar">
         {[
           {id:'users', l:'CONNEXIONS', i:<Users size={16}/>},
+          {id:'history', l:'HISTORIQUE', i:<History size={16}/>},
           {id:'arch', l:'ARCHITECTE', i:<Sparkles size={16}/>}, 
           {id:'xsite', l:"XSITE WEB", i:<Map size={16}/>},
           {id:'chat', l:'MAJORDOME', i:<MessageSquare size={16}/>},
@@ -595,7 +604,39 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
           </div>
       )}
 
-      {/* AUTRES ONGLETS (ARCH, XSITE...) SIMPLIFIÉS POUR LA VUE MAIS FONCTIONNELS */}
+      {tab === 'history' && (
+        <div className="space-y-6 animate-in fade-in">
+           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>HISTORIQUE</h3>
+           <div className="space-y-3 h-96 overflow-y-auto">
+             {versions.map((v: SiteVersion) => (
+               <div key={v.id} className="flex justify-between items-center p-5 bg-gray-50 rounded-2xl border border-gray-100 group">
+                 <div className="flex-1">
+                   {editingVersionId === v.id ? (
+                     <div className="flex gap-2 mr-4">
+                       <input value={tempVersionName} onChange={e => setTempVersionName(e.target.value)} className="flex-1 p-2 rounded-lg border border-gray-300 text-sm" autoFocus />
+                       <button onClick={() => saveVersionName(v.id)} className="p-2 bg-green-100 text-green-600 rounded-lg"><Save size={16}/></button>
+                       <button onClick={() => setEditingVersionId(null)} className="p-2 bg-red-100 text-red-600 rounded-lg"><X size={16}/></button>
+                     </div>
+                   ) : (
+                     <div>
+                       <div className="font-bold flex items-center gap-2">
+                         {v.name}
+                         <button onClick={() => startEditVersion(v)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 transition-opacity"><Pencil size={12}/></button>
+                       </div>
+                       <div className="text-xs opacity-50">{new Date(v.date).toLocaleString()}</div>
+                     </div>
+                   )}
+                 </div>
+                 <div className="flex gap-2">
+                   <button onClick={() => del('site_versions', v.id)} className="p-3 bg-white border border-red-100 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-colors" title="Supprimer"><Trash2 size={18}/></button>
+                   <button onClick={() => restore(v)} className="p-3 bg-white border border-gray-200 rounded-xl hover:bg-black hover:text-white transition-colors" title="Restaurer"><RotateCcw size={18}/></button>
+                 </div>
+               </div>
+             ))}
+           </div>
+        </div>
+      )}
+
       {tab === 'arch' && (
         <div className="space-y-6 animate-in fade-in">
            <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>ARCHITECTE IA</h3>
@@ -792,6 +833,31 @@ const App: React.FC = () => {
   const openEditRecipe = (recipe: any) => { const ingredientsStr = Array.isArray(recipe.ingredients) ? recipe.ingredients.join('\n') : recipe.ingredients; const stepsStr = recipe.steps || recipe.instructions || ''; setCurrentRecipe({ ...recipe, ingredients: ingredientsStr, steps: stepsStr }); setIsRecipeModalOpen(true); };
   const handleArchitect = async () => { if (!aiPrompt.trim()) return; setIsAiLoading(true); const n = await askAIArchitect(aiPrompt, config); if (n) await saveConfig({...config, ...n}, true); setIsAiLoading(false); };
   const handleChat = async () => { if (!aiPrompt.trim()) return; const h = [...chatHistory, {role:'user',text:aiPrompt}]; setChatHistory(h); setAiPrompt(''); setIsAiLoading(true); const r = await askAIChat(h); setChatHistory([...h, {role:'model',text:r}]); setIsAiLoading(false); };
+
+  // --- NEW FEATURE: ADD RECIPE TO HUB ---
+  const addRecipeToHub = async (recipe: any) => {
+      if(!confirm(`Ajouter les ingrédients de "${recipe.title}" à la liste de courses ?`)) return;
+      const ingredients = Array.isArray(recipe.ingredients) 
+        ? recipe.ingredients 
+        : (typeof recipe.ingredients === 'string' ? recipe.ingredients.split('\n') : []);
+      
+      let count = 0;
+      for(let ing of ingredients) {
+          const cleanIng = ing.trim();
+          if(cleanIng) {
+              await addDoc(collection(db, 'hub_items'), {
+                  type: 'shop',
+                  content: cleanIng,
+                  category: categorizeShoppingItem(cleanIng),
+                  author: 'Chef',
+                  createdAt: new Date().toISOString(),
+                  done: false
+              });
+              count++;
+          }
+      }
+      alert(`${count} ingrédients ajoutés au Tableau !`);
+  };
 
   if (isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#f5ede7]"><Loader2 className="w-12 h-12 animate-spin text-[#a85c48]"/></div>;
   if (!user) return <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-[#f5ede7]"><Background color={ORIGINAL_CONFIG.primaryColor} /><div className="z-10 text-center space-y-8 animate-in fade-in zoom-in duration-700"><div className="mx-auto w-24 h-24 rounded-[2.5rem] flex items-center justify-center shadow-xl bg-[#a85c48]"><Sparkles className="text-white" size={48} /></div><h1 className="text-4xl font-cinzel font-black tracking-widest text-[#a85c48]">CHAUD DEVANT</h1><button onClick={handleLogin} className="bg-white text-black font-black py-4 px-8 rounded-2xl shadow-xl flex items-center gap-3 hover:scale-105 transition-transform"><LogIn size={24} /> CONNEXION GOOGLE</button></div></div>;
@@ -1002,6 +1068,8 @@ const App: React.FC = () => {
                {recipes.map((r: any) => (
                  <div key={r.id} className="relative group">
                    <div className="absolute top-4 right-4 z-20 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {/* BOUTON D'AJOUT AU PANIER */}
+                      <button onClick={() => addRecipeToHub(r)} className="p-2 bg-white/90 rounded-full shadow-md text-orange-500 hover:scale-110 transition-transform" title="Ajouter les ingrédients au Tableau"><ShoppingBag size={16}/></button>
                       <button onClick={() => openEditRecipe(r)} className="p-2 bg-white/90 rounded-full shadow-md text-blue-500 hover:scale-110 transition-transform"><Pencil size={16}/></button>
                       <button onClick={() => deleteItem('family_recipes', r.id)} className="p-2 bg-white/90 rounded-full shadow-md text-red-500 hover:scale-110 transition-transform"><Trash2 size={16}/></button>
                    </div>
