@@ -10,7 +10,7 @@ import {
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
-  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail
+  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail, CornerDownRight
 } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -26,9 +26,11 @@ interface AppNotification {
     message: string;
     type: 'info' | 'alert' | 'fun';
     repeat: 'once' | 'daily' | 'monthly';
-    targetDate?: string; // Pour l'option "Date précise"
+    targetDate?: string; 
+    linkView?: string; // Nouvelle fonctionnalité : Vue cible
+    linkId?: string;   // Nouvelle fonctionnalité : ID HTML cible (scroll)
     createdAt: string;
-    readBy: Record<string, string>; // Map email -> date de lecture ISO
+    readBy: Record<string, string>; 
 }
 
 // --- CONFIGURATION PAR DÉFAUT ---
@@ -43,10 +45,9 @@ const ORIGINAL_CONFIG: SiteConfig = {
   homeHtml: '', cookingHtml: ''
 };
 
-// --- LOGIQUE INTELLIGENTE HUB (10 CATÉGORIES) ---
+// --- LOGIQUE INTELLIGENTE HUB ---
 const categorizeShoppingItem = (text: string) => {
     const lower = text.toLowerCase();
-    
     if (/(lait|beurre|yaourt|creme|crème|oeuf|fromage|gruyere|mozarella)/.test(lower)) return 'Frais';
     if (/(pomme|banane|legume|fruit|salade|tomate|carotte|oignon|ail|patate|courgette|avocat|citron)/.test(lower)) return 'Primeur';
     if (/(viande|poulet|poisson|jambon|steak|lardon|saucisse|dinde|boeuf|thon)/.test(lower)) return 'Boucherie/Poiss.';
@@ -57,7 +58,6 @@ const categorizeShoppingItem = (text: string) => {
     if (/(lessive|produit|eponge|sac|poubelle|nettoyant|vaisselle)/.test(lower)) return 'Maison';
     if (/(croquette|patee|litiere|chat|chien)/.test(lower)) return 'Animaux';
     if (/(glace|surgeles|pizza|frite)/.test(lower)) return 'Surgelés';
-    
     return 'Divers';
 };
 
@@ -69,33 +69,21 @@ const getChores = (date: Date) => {
   const saturday = new Date(date);
   saturday.setDate(date.getDate() - (date.getDay() + 1) % 7);
   saturday.setHours(12, 0, 0, 0);
-
   const weekId = `${saturday.getDate()}-${saturday.getMonth()+1}-${saturday.getFullYear()}`;
   const diffTime = saturday.getTime() - REF_DATE.getTime();
   const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
   const mod = (n: number, m: number) => ((n % m) + m) % m;
-
   return {
-    id: weekId,
-    fullDate: saturday, 
-    dateStr: `${saturday.getDate()}/${saturday.getMonth()+1}`,
-    haut: ROTATION[mod(diffWeeks, 3)],       
-    bas: ROTATION[mod(diffWeeks + 2, 3)],    
-    douche: ROTATION[mod(diffWeeks + 1, 3)]  
+    id: weekId, fullDate: saturday, dateStr: `${saturday.getDate()}/${saturday.getMonth()+1}`,
+    haut: ROTATION[mod(diffWeeks, 3)], bas: ROTATION[mod(diffWeeks + 2, 3)], douche: ROTATION[mod(diffWeeks + 1, 3)]  
   };
 };
 
 const getMonthWeekends = () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  const weekends = [];
-  const date = new Date(year, month, 1);
+  const today = new Date(); const year = today.getFullYear(); const month = today.getMonth();
+  const weekends = []; const date = new Date(year, month, 1);
   while (date.getDay() !== 6) { date.setDate(date.getDate() + 1); }
-  while (date.getMonth() === month) {
-    weekends.push(getChores(new Date(date)));
-    date.setDate(date.getDate() + 7);
-  }
+  while (date.getMonth() === month) { weekends.push(getChores(new Date(date))); date.setDate(date.getDate() + 7); }
   return weekends;
 };
 
@@ -111,7 +99,6 @@ const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
     const y = height - ((d.solde - min) / range) * (height - padding * 2) - padding;
     return `${x},${y}`;
   }).join(' ');
-
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
       <polyline fill="none" stroke={color} strokeWidth="3" points={points} strokeLinecap="round" strokeLinejoin="round"/>
@@ -157,14 +144,10 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
         if (!newItem.trim()) return;
         let category = 'Général';
         if (inputType === 'shop') category = categorizeShoppingItem(newItem);
-        
         await addDoc(collection(db, 'hub_items'), {
-            type: inputType,
-            content: newItem,
-            category,
+            type: inputType, content: newItem, category,
             author: usersMapping[user.email!] || user.email?.charAt(0).toUpperCase(),
-            createdAt: new Date().toISOString(),
-            done: false
+            createdAt: new Date().toISOString(), done: false
         });
         setNewItem('');
     };
@@ -173,43 +156,28 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
 
     return (
         <div className="space-y-8 pb-24 animate-in fade-in">
-            {/* INPUT ZONE */}
-            <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 sticky top-24 z-30">
+            <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 sticky top-24 z-30" id="hub-input">
                 <div className="flex gap-2 mb-4 justify-center">
                     <button onClick={() => setInputType('shop')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType === 'shop' ? 'bg-orange-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-400'}`}><ShoppingCart size={16} className="inline mr-2"/> Course</button>
                     <button onClick={() => setInputType('note')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType === 'note' ? 'bg-yellow-400 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-400'}`}><StickyNote size={16} className="inline mr-2"/> Note</button>
                     <button onClick={() => setInputType('msg')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType === 'msg' ? 'bg-blue-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-400'}`}><MessageSquare size={16} className="inline mr-2"/> Msg</button>
                 </div>
                 <div className="flex gap-2">
-                    <input 
-                        value={newItem} 
-                        onChange={e => setNewItem(e.target.value)} 
-                        onKeyDown={e => e.key === 'Enter' && addItem()}
-                        placeholder={inputType === 'shop' ? "Ex: Lait, Beurre..." : inputType === 'note' ? "Ex: Rdv plombier 18h..." : "Ex: Je rentre tard..."}
-                        className="flex-1 p-4 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black transition-colors"
-                    />
+                    <input value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => e.key === 'Enter' && addItem()} placeholder={inputType === 'shop' ? "Ex: Lait, Beurre..." : inputType === 'note' ? "Ex: Rdv plombier 18h..." : "Ex: Je rentre tard..."} className="flex-1 p-4 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black transition-colors"/>
                     <button onClick={addItem} className="p-4 bg-black text-white rounded-2xl hover:scale-105 transition-transform"><Plus/></button>
                 </div>
             </div>
-
-            {/* BOARD DISPLAY */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {/* COLONNE COURSES */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div className="space-y-4">
                     <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><ShoppingCart size={20}/> LISTE DE COURSES</h3>
                     {hubItems.filter(i => i.type === 'shop').map(item => (
                         <div key={item.id} className="group flex justify-between items-center p-4 bg-white rounded-2xl shadow-sm border-l-4 border-orange-400 hover:shadow-md transition-all">
-                            <div>
-                                <span className="text-[10px] font-black uppercase text-orange-600 bg-orange-100 px-2 py-1 rounded-md mr-2">{item.category}</span>
-                                <span className="font-bold text-gray-700">{item.content}</span>
-                            </div>
+                            <div><span className="text-[10px] font-black uppercase text-orange-600 bg-orange-100 px-2 py-1 rounded-md mr-2">{item.category}</span><span className="font-bold text-gray-700">{item.content}</span></div>
                             <button onClick={() => deleteItem(item.id)} className="text-gray-300 hover:text-red-500"><X size={18}/></button>
                         </div>
                     ))}
                     {hubItems.filter(i => i.type === 'shop').length === 0 && <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-300">Frigo plein !</div>}
                 </div>
-
-                {/* COLONNE PENSE-BÊTE */}
                 <div className="space-y-4">
                     <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><StickyNote size={20}/> PENSE-BÊTES</h3>
                     <div className="grid grid-cols-2 gap-2">
@@ -222,8 +190,6 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
                         ))}
                     </div>
                 </div>
-
-                {/* COLONNE MESSAGES */}
                 <div className="space-y-4">
                     <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><MessageSquare size={20}/> LE MUR</h3>
                     {hubItems.filter(i => i.type === 'msg').map(item => (
@@ -252,16 +218,10 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
 
   useEffect(() => {
     if (!user) return;
-    const qDebts = query(collection(db, 'family_debts'), orderBy('createdAt', 'desc'));
-    const unsubDebts = onSnapshot(qDebts, (s) => setDebts(s.docs.map(d => ({id: d.id, ...d.data()}))));
+    const unsubDebts = onSnapshot(query(collection(db, 'family_debts'), orderBy('createdAt', 'desc')), (s) => setDebts(s.docs.map(d => ({id: d.id, ...d.data()}))));
     const unsubWallet = onSnapshot(doc(db, 'user_wallets', user.email!), (s) => {
-      if (s.exists()) {
-          const data = s.data();
-          setMyWallet(data);
-          if(data.savingsGoal) setGoalInput(data.savingsGoal.toString());
-      } else {
-          setDoc(doc(db, 'user_wallets', user.email!), { balance: 0, history: [], tasks: [], savingsGoal: 0, startBalance: 0 });
-      }
+      if (s.exists()) { setMyWallet(s.data()); if(s.data().savingsGoal) setGoalInput(s.data().savingsGoal.toString()); } 
+      else { setDoc(doc(db, 'user_wallets', user.email!), { balance: 0, history: [], tasks: [], savingsGoal: 0, startBalance: 0 }); }
     });
     return () => { unsubDebts(); unsubWallet(); };
   }, [user]);
@@ -276,26 +236,18 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
     if (!debt.interest || debt.interest === 0) return debt.amount;
     const start = new Date(debt.createdAt); const now = new Date();
     const days = Math.floor((now.getTime() - start.getTime()) / (1000 * 3600 * 24));
-    const interestAmount = debt.amount * (debt.interest / 100) * (days / 365);
-    return (debt.amount + interestAmount).toFixed(2);
+    return (debt.amount + debt.amount * (debt.interest / 100) * (days / 365)).toFixed(2);
   };
 
   const updateBalance = async (type: 'add' | 'sub') => {
-    const val = parseFloat(walletAmount);
-    if (!val || val <= 0) return;
+    const val = parseFloat(walletAmount); if (!val || val <= 0) return;
     const newBal = type === 'add' ? myWallet.balance + val : myWallet.balance - val;
     const entry = { date: new Date().toISOString(), amount: type === 'add' ? val : -val, newBalance: newBal, month: new Date().getMonth() };
     await updateDoc(doc(db, 'user_wallets', user.email!), { balance: newBal, history: [...(myWallet.history || []), entry] });
     setWalletAmount('');
   };
 
-  const saveGoal = async () => {
-      const newVal = parseFloat(goalInput);
-      if(!isNaN(newVal) && newVal !== myWallet.savingsGoal) {
-         await updateDoc(doc(db, 'user_wallets', user.email!), { savingsGoal: newVal, startBalance: myWallet.balance });
-      }
-  };
-
+  const saveGoal = async () => { const newVal = parseFloat(goalInput); if(!isNaN(newVal) && newVal !== myWallet.savingsGoal) { await updateDoc(doc(db, 'user_wallets', user.email!), { savingsGoal: newVal, startBalance: myWallet.balance }); } };
   const addWalletTask = async () => { if (newTask) { await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: [...(myWallet.tasks || []), { id: Date.now(), text: newTask, done: false }] }); setNewTask(''); }};
   const toggleWalletTask = async (taskId: number) => { const newTasks = myWallet.tasks.map((t: any) => t.id === taskId ? { ...t, done: !t.done } : t); await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: newTasks }); };
   const deleteWalletTask = async (taskId: number) => { const newTasks = myWallet.tasks.filter((t: any) => t.id !== taskId); await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: newTasks }); };
@@ -311,9 +263,7 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   };
 
   const graphData = getGraphData();
-  const currentMonthHistory = (myWallet.history || []).filter((h: any) => new Date(h.date).getMonth() === new Date().getMonth());
-  let fillPercent = 0;
-  if ((myWallet.savingsGoal - myWallet.startBalance) > 0) fillPercent = ((myWallet.balance - myWallet.startBalance) / (myWallet.savingsGoal - myWallet.startBalance)) * 100;
+  let fillPercent = 0; if ((myWallet.savingsGoal - myWallet.startBalance) > 0) fillPercent = ((myWallet.balance - myWallet.startBalance) / (myWallet.savingsGoal - myWallet.startBalance)) * 100;
   if (myWallet.balance >= myWallet.savingsGoal && myWallet.savingsGoal > 0) fillPercent = 100;
 
   return (
@@ -335,13 +285,8 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
              {debts.map(d => (
                <div key={d.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 relative group">
                  <button onClick={() => deleteDoc(doc(db, 'family_debts', d.id))} className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-red-400"><Trash2 size={16}/></button>
-                 <div className="flex justify-between items-center mb-2">
-                    <span className="font-cinzel font-bold text-xl">{d.from} <span className="text-gray-300 text-xs mx-1">DOIT À</span> {d.to}</span>
-                    <span className="text-2xl font-black" style={{color: config.primaryColor}}>{calculateDebt(d)}€</span>
-                 </div>
-                 <div className="flex gap-4 text-[10px] font-bold uppercase text-gray-400">
-                   <span>Initial: {d.amount}€</span>{d.interest > 0 && <span className="text-orange-400 flex items-center"><Percent size={10} className="mr-1"/> Intérêt: {d.interest}%</span>}<span>{new Date(d.createdAt).toLocaleDateString()}</span>
-                 </div>
+                 <div className="flex justify-between items-center mb-2"><span className="font-cinzel font-bold text-xl">{d.from} <span className="text-gray-300 text-xs mx-1">DOIT À</span> {d.to}</span><span className="text-2xl font-black" style={{color: config.primaryColor}}>{calculateDebt(d)}€</span></div>
+                 <div className="flex gap-4 text-[10px] font-bold uppercase text-gray-400"><span>Initial: {d.amount}€</span>{d.interest > 0 && <span className="text-orange-400 flex items-center"><Percent size={10} className="mr-1"/> Intérêt: {d.interest}%</span>}<span>{new Date(d.createdAt).toLocaleDateString()}</span></div>
                </div>
              ))}
            </div>
@@ -354,8 +299,7 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
              <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><ClipboardList size={14}/> Tâches Rémunérées</h3><div className="flex gap-2 mb-4"><input value={newTask} onChange={e => setNewTask(e.target.value)} placeholder="Ajouter une tâche..." className="flex-1 bg-gray-50 rounded-xl px-3 text-sm font-bold outline-none" /><button onClick={addWalletTask} className="p-2 bg-gray-200 rounded-xl"><Plus size={16}/></button></div><div className="space-y-2 max-h-40 overflow-y-auto">{(myWallet.tasks || []).map((t: any) => (<div key={t.id} className="flex items-center gap-3 group"><button onClick={() => toggleWalletTask(t.id)}>{t.done ? <CheckCircle2 size={16} className="text-green-500"/> : <Square size={16} className="text-gray-300"/>}</button><span className={`text-sm font-bold flex-1 ${t.done ? 'line-through text-gray-300' : 'text-gray-600'}`}>{t.text}</span><button onClick={() => deleteWalletTask(t.id)} className="opacity-0 group-hover:opacity-100 text-red-300"><X size={14}/></button></div>))}</div></div>
           </div>
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 h-80 relative"><div className="flex justify-between items-center mb-4"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Évolution du Solde</h3><div className="flex bg-gray-100 p-1 rounded-lg">{(['1M', '1Y', '5Y'] as const).map(range => (<button key={range} onClick={() => setChartRange(range)} className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${chartRange === range ? 'bg-white shadow text-black' : 'text-gray-400'}`}>{range}</button>))}</div></div><div className="h-60 w-full p-2"><SimpleLineChart data={graphData} color={config.primaryColor} /></div></div>
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-gray-100"><div className="flex justify-between items-center mb-6"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14}/> Historique (Ce Mois)</h3><span className="text-[10px] font-bold bg-gray-100 px-3 py-1 rounded-full text-gray-500">{new Date().toLocaleString('default', { month: 'long' })}</span></div><div className="space-y-4 max-h-60 overflow-y-auto pr-2">{currentMonthHistory.length === 0 && <div className="text-center text-gray-300 italic py-4">Aucun mouvement ce mois-ci</div>}{currentMonthHistory.slice().reverse().map((h: any, i: number) => (<div key={i} className="flex justify-between items-center p-3 bg-gray-50 rounded-2xl"><div className="flex items-center gap-3"><div className={`p-2 rounded-full ${h.amount > 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>{h.amount > 0 ? <TrendingUp size={16}/> : <TrendingDown size={16}/>}</div><div className="text-xs font-bold text-gray-400 uppercase">{new Date(h.date).toLocaleDateString()}</div></div><span className={`font-black ${h.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>{h.amount > 0 ? '+' : ''}{h.amount}€</span></div>))}</div></div>
+            <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 h-80 relative" id="wallet-graph"><div className="flex justify-between items-center mb-4"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Évolution du Solde</h3><div className="flex bg-gray-100 p-1 rounded-lg">{(['1M', '1Y', '5Y'] as const).map(range => (<button key={range} onClick={() => setChartRange(range)} className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${chartRange === range ? 'bg-white shadow text-black' : 'text-gray-400'}`}>{range}</button>))}</div></div><div className="h-60 w-full p-2"><SimpleLineChart data={graphData} color={config.primaryColor} /></div></div>
           </div>
         </div>
       )}
@@ -370,12 +314,8 @@ const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, m
   return (
     <td className="p-4 text-center align-middle">
       <div className="flex flex-col items-center gap-2">
-        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${
-          isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-        }`}> {letter} </span>
-        <button onClick={() => canCheck && toggleChore(weekId, letter)} disabled={!canCheck} className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20 cursor-not-allowed' : ''}`} title={isLocked ? "Trop tôt pour cocher !" : ""}>
-          {isDone ? <CheckSquare className="text-green-500" size={24} /> : (canCheck ? <Square className="text-green-500 hover:fill-green-50" size={24} /> : <Square className="text-gray-200" size={24} />)}
-        </button>
+        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}> {letter} </span>
+        <button onClick={() => canCheck && toggleChore(weekId, letter)} disabled={!canCheck} className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20 cursor-not-allowed' : ''}`} title={isLocked ? "Trop tôt pour cocher !" : ""}>{isDone ? <CheckSquare className="text-green-500" size={24} /> : (canCheck ? <Square className="text-green-500 hover:fill-green-50" size={24} /> : <Square className="text-gray-200" size={24} />)}</button>
       </div>
     </td>
   );
@@ -388,20 +328,12 @@ const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300">
         <button onClick={() => onClose(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
-        <div className="text-center space-y-2">
-          <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><CalIcon size={32} style={{ color: config.primaryColor }} /></div>
-          <h3 className="text-2xl font-cinzel font-bold">Nouvel Événement</h3>
-        </div>
+        <div className="text-center space-y-2"><div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><CalIcon size={32} style={{ color: config.primaryColor }} /></div><h3 className="text-2xl font-cinzel font-bold">Nouvel Événement</h3></div>
         <div className="space-y-4">
           <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quoi ?</label><input value={newEvent.title} onChange={e => setNewEvent({...newEvent, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none focus:ring-2" placeholder="Anniversaire..." autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} /></div>
           <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quand ?</label><input type="date" value={newEvent.date} onChange={e => setNewEvent({...newEvent, date: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none cursor-pointer" /></div>
-          <div onClick={() => setNewEvent({...newEvent, isAllDay: !newEvent.isAllDay})} className="flex items-center justify-between p-4 rounded-xl border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors">
-            <div className="flex items-center gap-3"><Clock size={20} className={newEvent.isAllDay ? "text-gray-300" : "text-black"} /><span className="font-bold text-sm">Toute la journée</span></div>
-            {newEvent.isAllDay ? <ToggleRight size={32} className="text-green-500"/> : <ToggleLeft size={32} className="text-gray-300"/>}
-          </div>
-          {!newEvent.isAllDay && (
-            <div className="animate-in slide-in-from-top-2"><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label><input type="text" value={newEvent.time} onChange={e => setNewEvent({...newEvent, time: e.target.value})} placeholder="Ex: 20h00, Midi..." className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-bold text-lg" /></div>
-          )}
+          <div onClick={() => setNewEvent({...newEvent, isAllDay: !newEvent.isAllDay})} className="flex items-center justify-between p-4 rounded-xl border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"><div className="flex items-center gap-3"><Clock size={20} className={newEvent.isAllDay ? "text-gray-300" : "text-black"} /><span className="font-bold text-sm">Toute la journée</span></div>{newEvent.isAllDay ? <ToggleRight size={32} className="text-green-500"/> : <ToggleLeft size={32} className="text-gray-300"/>}</div>
+          {!newEvent.isAllDay && (<div className="animate-in slide-in-from-top-2"><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label><input type="text" value={newEvent.time} onChange={e => setNewEvent({...newEvent, time: e.target.value})} placeholder="Ex: 20h00, Midi..." className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-bold text-lg" /></div>)}
         </div>
         <button disabled={isSubmitting} onClick={async () => { if (newEvent.title && newEvent.date) { setIsSubmitting(true); await addEntry('family_events', { title: newEvent.title, date: newEvent.date, time: newEvent.isAllDay ? null : (newEvent.time || '') }); setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true }); setIsSubmitting(false); onClose(false); } else { alert("Titre et date requis !"); } }} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting ? 'opacity-50' : ''}`} style={{ backgroundColor: config.primaryColor }}>{isSubmitting ? "Ajout..." : "Ajouter au calendrier"}</button>
       </div>
@@ -415,67 +347,22 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
   const fileRef = useRef<HTMLInputElement>(null);
   
   const handleFile = (e: any, callback: any) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    setIsCompressing(true);
-    const reader = new FileReader();
-    reader.onload = (event: any) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 800;
-        const scale = MAX_WIDTH / img.width;
-        if (scale < 1) { canvas.width = MAX_WIDTH; canvas.height = img.height * scale; } else { canvas.width = img.width; canvas.height = img.height; }
-        const ctx = canvas.getContext('2d');
-        if(ctx) {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
-            callback(compressedDataUrl);
-            setIsCompressing(false);
-        }
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(f);
+    const f = e.target.files[0]; if (!f) return; setIsCompressing(true); const reader = new FileReader();
+    reader.onload = (event: any) => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); const MAX_WIDTH = 800; const scale = MAX_WIDTH / img.width; if (scale < 1) { canvas.width = MAX_WIDTH; canvas.height = img.height * scale; } else { canvas.width = img.width; canvas.height = img.height; } const ctx = canvas.getContext('2d'); if(ctx) { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7); callback(compressedDataUrl); setIsCompressing(false); } }; img.src = event.target.result; }; reader.readAsDataURL(f);
   };
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
         <button onClick={() => onClose(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
-        <div className="text-center space-y-2">
-          <div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><ChefHat size={32} style={{ color: config.primaryColor }} /></div>
-          <h3 className="text-2xl font-cinzel font-bold">{currentRecipe.id ? 'Modifier la Recette' : 'Nouvelle Recette'}</h3>
-        </div>
+        <div className="text-center space-y-2"><div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><ChefHat size={32} style={{ color: config.primaryColor }} /></div><h3 className="text-2xl font-cinzel font-bold">{currentRecipe.id ? 'Modifier la Recette' : 'Nouvelle Recette'}</h3></div>
         <div className="space-y-4">
           <input value={currentRecipe.title} onChange={e => setCurrentRecipe({...currentRecipe, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Nom du plat (ex: Gratin Dauphinois)" autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} />
-          <div className="flex gap-4">
-             <input value={currentRecipe.chef} onChange={e => setCurrentRecipe({...currentRecipe, chef: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Chef (ex: Papa)" />
-             <select value={currentRecipe.category} onChange={e => setCurrentRecipe({...currentRecipe, category: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
-               <option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option>
-             </select>
-          </div>
-          <div onClick={() => !isCompressing && fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">
-            {isCompressing ? <div className="flex items-center gap-2 text-blue-500 font-bold"><Loader2 className="animate-spin"/> Compression...</div> : currentRecipe.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}
-          </div>
+          <div className="flex gap-4"><input value={currentRecipe.chef} onChange={e => setCurrentRecipe({...currentRecipe, chef: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Chef (ex: Papa)" /><select value={currentRecipe.category} onChange={e => setCurrentRecipe({...currentRecipe, category: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"><option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option></select></div>
+          <div onClick={() => !isCompressing && fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">{isCompressing ? <div className="flex items-center gap-2 text-blue-500 font-bold"><Loader2 className="animate-spin"/> Compression...</div> : currentRecipe.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}</div>
           <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
-          <button disabled={isSubmitting || isCompressing} onClick={async () => { 
-              if(currentRecipe.title) {
-                  setIsSubmitting(true);
-                  const recipeToSave = { ...currentRecipe };
-                  try {
-                    if (recipeToSave.id) { await updateEntry('family_recipes', recipeToSave.id, recipeToSave); } 
-                    else { await addEntry('family_recipes', recipeToSave); }
-                    onClose(false);
-                  } catch (e) { alert("Image trop lourde ou erreur technique."); setIsSubmitting(false); }
-              } else { alert("Il faut au moins un titre !"); }
-            }} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting || isCompressing ? 'opacity-50 cursor-not-allowed' : ''}`} style={{ backgroundColor: config.primaryColor }}>
-              {isSubmitting ? "Enregistrement..." : (isCompressing ? "Traitement image..." : "Enregistrer la recette")}
-          </button>
-          <div className="grid md:grid-cols-2 gap-4">
-            <textarea value={currentRecipe.ingredients} onChange={e => setCurrentRecipe({...currentRecipe, ingredients: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Ingrédients (un par ligne)..." />
-            <textarea value={currentRecipe.steps} onChange={e => setCurrentRecipe({...currentRecipe, steps: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Étapes de préparation..." />
-          </div>
+          <button disabled={isSubmitting || isCompressing} onClick={async () => { if(currentRecipe.title) { setIsSubmitting(true); const recipeToSave = { ...currentRecipe }; try { if (recipeToSave.id) { await updateEntry('family_recipes', recipeToSave.id, recipeToSave); } else { await addEntry('family_recipes', recipeToSave); } onClose(false); } catch (e) { alert("Image trop lourde ou erreur technique."); setIsSubmitting(false); } } else { alert("Il faut au moins un titre !"); } }} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting || isCompressing ? 'opacity-50 cursor-not-allowed' : ''}`} style={{ backgroundColor: config.primaryColor }}>{isSubmitting ? "Enregistrement..." : (isCompressing ? "Traitement image..." : "Enregistrer la recette")}</button>
+          <div className="grid md:grid-cols-2 gap-4"><textarea value={currentRecipe.ingredients} onChange={e => setCurrentRecipe({...currentRecipe, ingredients: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Ingrédients (un par ligne)..." /><textarea value={currentRecipe.steps} onChange={e => setCurrentRecipe({...currentRecipe, steps: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Étapes de préparation..." /></div>
         </div>
         <div className="h-10"></div>
       </div>
@@ -533,7 +420,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   
   // NOTIFICATION STATE
-  const [notif, setNotif] = useState<Partial<AppNotification>>({ message: '', type: 'info', repeat: 'once' });
+  const [notif, setNotif] = useState<Partial<AppNotification>>({ message: '', type: 'info', repeat: 'once', linkView: '', linkId: '' });
   const [activeNotifs, setActiveNotifs] = useState<AppNotification[]>([]);
 
   useEffect(() => {
@@ -581,7 +468,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
           createdAt: new Date().toISOString(),
           readBy: {}
       });
-      setNotif({ message: '', type: 'info', repeat: 'once' });
+      setNotif({ message: '', type: 'info', repeat: 'once', linkView: '', linkId: '' });
       alert("Notification envoyée !");
   };
 
@@ -649,6 +536,20 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
               <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
                   <h4 className="font-bold text-xs uppercase tracking-widest text-gray-400">Nouvelle Notification</h4>
                   <textarea value={notif.message} onChange={e => setNotif({...notif, message: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200" placeholder="Message..." />
+                  
+                  {/* ZONE REDIRECTION */}
+                  <div className="flex gap-4 items-center bg-white p-3 rounded-xl border border-gray-200">
+                      <CornerDownRight size={16} className="text-gray-400"/>
+                      <select value={notif.linkView} onChange={e => setNotif({...notif, linkView: e.target.value})} className="bg-transparent text-sm font-bold outline-none">
+                          <option value="">Aucune redirection</option>
+                          <option value="home">Accueil</option>
+                          <option value="hub">Tableau</option>
+                          <option value="recipes">Recettes</option>
+                          <option value="wallet">Porte-Monnaie</option>
+                      </select>
+                      <input value={notif.linkId} onChange={e => setNotif({...notif, linkId: e.target.value})} placeholder="ID ancre (ex: home-widget)" className="flex-1 text-sm outline-none border-l pl-3"/>
+                  </div>
+
                   <div className="flex gap-4">
                       <select value={notif.type} onChange={e => setNotif({...notif, type: e.target.value as any})} className="p-3 rounded-xl border border-gray-200">
                           <option value="info">Info</option>
@@ -672,6 +573,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
                           <div>
                               <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase mr-2 ${n.type === 'alert' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{n.type}</span>
                               <span className="font-bold">{n.message}</span>
+                              {n.linkView && <span className="ml-2 text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-500">Link: {n.linkView}</span>}
                               <div className="text-xs text-gray-400 mt-1">Répétition: {n.repeat} • Créé le {new Date(n.createdAt).toLocaleDateString()}</div>
                           </div>
                           <button onClick={() => deleteDoc(doc(db, 'notifications', n.id))} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button>
@@ -896,7 +798,7 @@ const App: React.FC = () => {
     return () => { unsubC(); unsubX(); unsubR(); unsubE(); unsubV(); unsubT(); unsubU(); unsubN(); };
   }, [user]);
 
-  // 3. DEEP LINKING
+  // 3. DEEP LINKING & REDIRECTION NOTIF
   useEffect(() => {
      const params = new URLSearchParams(window.location.search);
      if (params.get('view') === 'cooking') { setCurrentView('cooking'); window.history.replaceState({}, document.title, window.location.pathname); return; }
@@ -934,6 +836,25 @@ const App: React.FC = () => {
       alert(`${count} ingrédients ajoutés au Tableau !`);
   };
 
+  const handleNotificationClick = (n: AppNotification) => {
+      // 1. Marquer comme lu
+      markNotifRead(n.id);
+      
+      // 2. Redirection Vue
+      if (n.linkView) {
+          setCurrentView(n.linkView as any);
+          
+          // 3. Scroll ID (si nécessaire)
+          if (n.linkId) {
+              setTimeout(() => {
+                  const element = document.getElementById(n.linkId);
+                  if (element) element.scrollIntoView({ behavior: 'smooth' });
+              }, 500); // Petit délai pour laisser le temps à la vue de charger
+          }
+      }
+      setIsNotifOpen(false);
+  };
+
   const markNotifRead = async (notifId: string) => {
       if(!user?.email) return;
       const notifRef = doc(db, 'notifications', notifId);
@@ -957,8 +878,13 @@ const App: React.FC = () => {
                       {notifications.length === 0 && <p className="text-gray-400 italic text-center">Aucune nouvelle notification.</p>}
                       {notifications.map(n => (
                           <div key={n.id} className={`p-4 rounded-xl border-l-4 ${n.type === 'alert' ? 'bg-red-50 border-red-500' : 'bg-blue-50 border-blue-500'}`}>
-                              <p className="font-bold text-gray-800">{n.message}</p>
-                              <div className="flex justify-between items-center mt-3">
+                              <p className="font-bold text-gray-800 mb-2">{n.message}</p>
+                              
+                              {n.linkView && (
+                                  <button onClick={() => handleNotificationClick(n)} className="w-full py-2 bg-black text-white rounded-lg text-xs font-bold uppercase mb-2">Aller voir</button>
+                              )}
+
+                              <div className="flex justify-between items-center mt-1">
                                   <span className="text-[10px] uppercase text-gray-400">{new Date(n.createdAt).toLocaleDateString()}</span>
                                   <button onClick={() => markNotifRead(n.id)} className="text-xs font-bold px-3 py-1 bg-white rounded-lg shadow-sm border hover:bg-gray-50">Marquer lu</button>
                               </div>
@@ -1018,9 +944,9 @@ const App: React.FC = () => {
               </div>
             </section>
             
-            {/* WIDGET HTML ACCUEIL */}
+            {/* WIDGET HTML ACCUEIL (AVEC ID POUR SCROLL) */}
             {config.homeHtml && (
-                <section className="bg-white/50 rounded-[3rem] overflow-hidden shadow-xl mb-8">
+                <section id="home-widget" className="bg-white/50 rounded-[3rem] overflow-hidden shadow-xl mb-8">
                     <iframe srcDoc={config.homeHtml} className="w-full h-[500px]" sandbox="allow-scripts" title="Home Widget" />
                 </section>
             )}
