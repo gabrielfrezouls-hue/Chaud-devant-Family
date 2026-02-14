@@ -27,11 +27,46 @@ interface AppNotification {
     type: 'info' | 'alert' | 'fun';
     repeat: 'once' | 'daily' | 'monthly';
     targetDate?: string; 
-    linkView?: string; // Nouvelle fonctionnalité : Vue cible
-    linkId?: string;   // Nouvelle fonctionnalité : ID HTML cible (scroll)
+    linkView?: string; 
+    linkId?: string;   
     createdAt: string;
     readBy: Record<string, string>; 
 }
+
+// --- MAPPING DES ANCRES POUR REDIRECTION ---
+const VIEW_ANCHORS: Record<string, {label: string, id: string}[]> = {
+    home: [
+        { label: 'Haut de page', id: 'top' },
+        { label: 'Widget HTML', id: 'home-widget' },
+        { label: 'Accès Rapides', id: 'home-shortcuts' }
+    ],
+    hub: [
+        { label: 'Haut de page', id: 'top' },
+        { label: 'Saisie Rapide', id: 'hub-input' },
+        { label: 'Liste de Courses', id: 'hub-shop' },
+        { label: 'Pense-bêtes', id: 'hub-notes' },
+        { label: 'Le Mur', id: 'hub-msg' }
+    ],
+    recipes: [
+        { label: 'Haut de page', id: 'top' },
+        { label: 'Liste des recettes', id: 'recipes-list' }
+    ],
+    wallet: [
+        { label: 'Haut de page', id: 'top' },
+        { label: 'Graphique Solde', id: 'wallet-graph' },
+        { label: 'Dettes Famille', id: 'wallet-debts' }
+    ],
+    tasks: [
+        { label: 'Tableau', id: 'tasks-table' }
+    ],
+    calendar: [
+        { label: 'Calendrier', id: 'calendar-view' }
+    ],
+    cooking: [
+        { label: 'Semainier', id: 'cooking-frame' }
+    ]
+    // XSite est géré dynamiquement
+};
 
 // --- CONFIGURATION PAR DÉFAUT ---
 const ORIGINAL_CONFIG: SiteConfig = {
@@ -73,10 +108,7 @@ const getChores = (date: Date) => {
   const diffTime = saturday.getTime() - REF_DATE.getTime();
   const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
   const mod = (n: number, m: number) => ((n % m) + m) % m;
-  return {
-    id: weekId, fullDate: saturday, dateStr: `${saturday.getDate()}/${saturday.getMonth()+1}`,
-    haut: ROTATION[mod(diffWeeks, 3)], bas: ROTATION[mod(diffWeeks + 2, 3)], douche: ROTATION[mod(diffWeeks + 1, 3)]  
-  };
+  return { id: weekId, fullDate: saturday, dateStr: `${saturday.getDate()}/${saturday.getMonth()+1}`, haut: ROTATION[mod(diffWeeks, 3)], bas: ROTATION[mod(diffWeeks + 2, 3)], douche: ROTATION[mod(diffWeeks + 1, 3)] };
 };
 
 const getMonthWeekends = () => {
@@ -128,7 +160,7 @@ const CircleLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
   );
 };
 
-// --- COMPOSANT HUB (TABLEAU) ---
+// --- COMPOSANT HUB ---
 const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfig, usersMapping: any }) => {
     const [hubItems, setHubItems] = useState<any[]>([]);
     const [newItem, setNewItem] = useState('');
@@ -155,7 +187,7 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
     const deleteItem = async (id: string) => { await deleteDoc(doc(db, 'hub_items', id)); };
 
     return (
-        <div className="space-y-8 pb-24 animate-in fade-in">
+        <div className="space-y-8 pb-24 animate-in fade-in" id="top">
             <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 sticky top-24 z-30" id="hub-input">
                 <div className="flex gap-2 mb-4 justify-center">
                     <button onClick={() => setInputType('shop')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType === 'shop' ? 'bg-orange-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-400'}`}><ShoppingCart size={16} className="inline mr-2"/> Course</button>
@@ -168,7 +200,7 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
                 </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div className="space-y-4">
+                <div className="space-y-4" id="hub-shop">
                     <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><ShoppingCart size={20}/> LISTE DE COURSES</h3>
                     {hubItems.filter(i => i.type === 'shop').map(item => (
                         <div key={item.id} className="group flex justify-between items-center p-4 bg-white rounded-2xl shadow-sm border-l-4 border-orange-400 hover:shadow-md transition-all">
@@ -178,7 +210,7 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
                     ))}
                     {hubItems.filter(i => i.type === 'shop').length === 0 && <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-300">Frigo plein !</div>}
                 </div>
-                <div className="space-y-4">
+                <div className="space-y-4" id="hub-notes">
                     <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><StickyNote size={20}/> PENSE-BÊTES</h3>
                     <div className="grid grid-cols-2 gap-2">
                         {hubItems.filter(i => i.type === 'note').map(item => (
@@ -190,7 +222,7 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
                         ))}
                     </div>
                 </div>
-                <div className="space-y-4">
+                <div className="space-y-4" id="hub-msg">
                     <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><MessageSquare size={20}/> LE MUR</h3>
                     {hubItems.filter(i => i.type === 'msg').map(item => (
                         <div key={item.id} className="p-6 bg-blue-500 text-white rounded-tr-3xl rounded-bl-3xl rounded-tl-xl rounded-br-xl shadow-lg relative group">
@@ -263,17 +295,18 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   };
 
   const graphData = getGraphData();
+  const currentMonthHistory = (myWallet.history || []).filter((h: any) => new Date(h.date).getMonth() === new Date().getMonth());
   let fillPercent = 0; if ((myWallet.savingsGoal - myWallet.startBalance) > 0) fillPercent = ((myWallet.balance - myWallet.startBalance) / (myWallet.savingsGoal - myWallet.startBalance)) * 100;
   if (myWallet.balance >= myWallet.savingsGoal && myWallet.savingsGoal > 0) fillPercent = 100;
 
   return (
-    <div className="space-y-6 pb-20 animate-in fade-in">
+    <div className="space-y-6 pb-20 animate-in fade-in" id="top">
       <div className="flex justify-center gap-4 mb-8">
         <button onClick={() => setActiveTab('family')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'family' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}><ShieldAlert className="inline mr-2 mb-1" size={16}/> Dettes Famille</button>
         <button onClick={() => setActiveTab('personal')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'personal' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}><PiggyBank className="inline mr-2 mb-1" size={16}/> Ma Tirelire</button>
       </div>
       {activeTab === 'family' ? (
-        <div className="bg-white/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-xl border border-white space-y-8">
+        <div className="bg-white/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-xl border border-white space-y-8" id="wallet-debts">
            <div className="flex flex-col md:flex-row gap-4 items-end bg-gray-50 p-6 rounded-3xl">
              <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Qui doit ?</label><input value={newDebt.from} onChange={e => setNewDebt({...newDebt, from: e.target.value})} placeholder="ex: G" className="w-full p-3 rounded-xl border-none font-bold" /></div>
              <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">À qui ?</label><input value={newDebt.to} onChange={e => setNewDebt({...newDebt, to: e.target.value})} placeholder="ex: P" className="w-full p-3 rounded-xl border-none font-bold" /></div>
@@ -300,6 +333,7 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
           </div>
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 h-80 relative" id="wallet-graph"><div className="flex justify-between items-center mb-4"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Évolution du Solde</h3><div className="flex bg-gray-100 p-1 rounded-lg">{(['1M', '1Y', '5Y'] as const).map(range => (<button key={range} onClick={() => setChartRange(range)} className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${chartRange === range ? 'bg-white shadow text-black' : 'text-gray-400'}`}>{range}</button>))}</div></div><div className="h-60 w-full p-2"><SimpleLineChart data={graphData} color={config.primaryColor} /></div></div>
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-gray-100"><div className="flex justify-between items-center mb-6"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14}/> Historique (Ce Mois)</h3><span className="text-[10px] font-bold bg-gray-100 px-3 py-1 rounded-full text-gray-500">{new Date().toLocaleString('default', { month: 'long' })}</span></div><div className="space-y-4 max-h-60 overflow-y-auto pr-2">{currentMonthHistory.length === 0 && <div className="text-center text-gray-300 italic py-4">Aucun mouvement ce mois-ci</div>}{currentMonthHistory.slice().reverse().map((h: any, i: number) => (<div key={i} className="flex justify-between items-center p-3 bg-gray-50 rounded-2xl"><div className="flex items-center gap-3"><div className={`p-2 rounded-full ${h.amount > 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>{h.amount > 0 ? <TrendingUp size={16}/> : <TrendingDown size={16}/>}</div><div className="text-xs font-bold text-gray-400 uppercase">{new Date(h.date).toLocaleDateString()}</div></div><span className={`font-black ${h.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>{h.amount > 0 ? '+' : ''}{h.amount}€</span></div>))}</div></div>
           </div>
         </div>
       )}
@@ -472,9 +506,24 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       alert("Notification envoyée !");
   };
 
+  // --- NOUVELLE FONCTION EMAIL AVEC LIEN DIRECT ---
   const sendEmailToAll = () => {
       const emails = users.map((u:any) => u.id).join(',');
-      window.location.href = `mailto:?bcc=${emails}&subject=Message%20Chaud%20Devant&body=Bonjour%20la%20famille,%0A%0A`;
+      
+      let linkText = "";
+      if (notif.linkView) {
+          const baseUrl = window.location.href.split('?')[0];
+          let url = `${baseUrl}?view=${notif.linkView}`;
+          if (notif.linkView === 'xsite' && notif.linkId) {
+              url += `&id=${notif.linkId}`;
+          } else if (notif.linkId) {
+              url += `&anchor=${notif.linkId}`;
+          }
+          linkText = `%0A%0ALien direct : ${url}`;
+      }
+
+      const body = `Bonjour la famille,%0A%0A${notif.message || "Nouvelle notification !"}${linkText}`;
+      window.location.href = `mailto:?bcc=${emails}&subject=Message%20Chaud%20Devant&body=${body}`;
   };
 
   return (
@@ -497,7 +546,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {tab === 'users' && (
           <div className="space-y-8 animate-in fade-in">
               <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>UTILISATEURS</h3>
-              
               <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
                   <h4 className="font-bold mb-4 text-xs uppercase tracking-widest text-gray-400">Ajouter un membre</h4>
                   <div className="flex flex-col md:flex-row gap-4">
@@ -507,22 +555,14 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
                       <button onClick={registerUser} className="bg-black text-white p-3 rounded-xl"><Plus/></button>
                   </div>
               </div>
-
               <div className="space-y-3">
                   {users.map((u:any) => (
                       <div key={u.id} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
                           <div className="flex items-center gap-4">
                               <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-black text-gray-500">{u.letter}</div>
-                              <div>
-                                  <div className="font-bold">{u.name || 'Sans nom'}</div>
-                                  <div className="text-xs text-gray-400">{u.id}</div>
-                              </div>
+                              <div><div className="font-bold">{u.name || 'Sans nom'}</div><div className="text-xs text-gray-400">{u.id}</div></div>
                           </div>
-                          <div className="text-right">
-                              <div className="text-[10px] font-bold uppercase text-green-600 bg-green-50 px-2 py-1 rounded-md">
-                                  {u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() + ' ' + new Date(u.lastLogin).toLocaleTimeString() : 'Jamais'}
-                              </div>
-                          </div>
+                          <div className="text-right"><div className="text-[10px] font-bold uppercase text-green-600 bg-green-50 px-2 py-1 rounded-md">{u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() + ' ' + new Date(u.lastLogin).toLocaleTimeString() : 'Jamais'}</div></div>
                       </div>
                   ))}
               </div>
@@ -532,39 +572,43 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {tab === 'notif' && (
           <div className="space-y-8 animate-in fade-in">
               <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>NOTIFICATIONS</h3>
-              
               <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
                   <h4 className="font-bold text-xs uppercase tracking-widest text-gray-400">Nouvelle Notification</h4>
                   <textarea value={notif.message} onChange={e => setNotif({...notif, message: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200" placeholder="Message..." />
                   
-                  {/* ZONE REDIRECTION */}
-                  <div className="flex gap-4 items-center bg-white p-3 rounded-xl border border-gray-200">
-                      <CornerDownRight size={16} className="text-gray-400"/>
-                      <select value={notif.linkView} onChange={e => setNotif({...notif, linkView: e.target.value})} className="bg-transparent text-sm font-bold outline-none">
-                          <option value="">Aucune redirection</option>
-                          <option value="home">Accueil</option>
-                          <option value="hub">Tableau</option>
-                          <option value="recipes">Recettes</option>
-                          <option value="wallet">Porte-Monnaie</option>
-                      </select>
-                      <input value={notif.linkId} onChange={e => setNotif({...notif, linkId: e.target.value})} placeholder="ID ancre (ex: home-widget)" className="flex-1 text-sm outline-none border-l pl-3"/>
+                  {/* ZONE REDIRECTION INTELLIGENTE */}
+                  <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-4 rounded-xl border border-gray-200">
+                      <div className="flex items-center gap-2 min-w-[200px]">
+                          <CornerDownRight size={16} className="text-gray-400"/>
+                          <select value={notif.linkView} onChange={e => setNotif({...notif, linkView: e.target.value, linkId: ''})} className="bg-transparent text-sm font-bold outline-none w-full">
+                              <option value="">-- Page (Aucune) --</option>
+                              {Object.keys(ORIGINAL_CONFIG.navigationLabels).map(key => (
+                                  <option key={key} value={key}>{ORIGINAL_CONFIG.navigationLabels[key as keyof typeof ORIGINAL_CONFIG.navigationLabels]}</option>
+                              ))}
+                          </select>
+                      </div>
+                      
+                      {notif.linkView === 'xsite' ? (
+                          <select value={notif.linkId} onChange={e => setNotif({...notif, linkId: e.target.value})} className="flex-1 bg-transparent text-sm outline-none border-l pl-3 w-full">
+                              <option value="">-- Choisir un site --</option>
+                              {xsitePages.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                      ) : notif.linkView && VIEW_ANCHORS[notif.linkView] ? (
+                          <select value={notif.linkId} onChange={e => setNotif({...notif, linkId: e.target.value})} className="flex-1 bg-transparent text-sm outline-none border-l pl-3 w-full">
+                              <option value="">-- Section --</option>
+                              {VIEW_ANCHORS[notif.linkView].map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+                          </select>
+                      ) : (
+                          <div className="flex-1 text-xs text-gray-400 italic pl-3 border-l">Pas de sous-section disponible</div>
+                      )}
                   </div>
 
                   <div className="flex gap-4">
-                      <select value={notif.type} onChange={e => setNotif({...notif, type: e.target.value as any})} className="p-3 rounded-xl border border-gray-200">
-                          <option value="info">Info</option>
-                          <option value="alert">Alerte</option>
-                          <option value="fun">Fun</option>
-                      </select>
-                      <select value={notif.repeat} onChange={e => setNotif({...notif, repeat: e.target.value as any})} className="p-3 rounded-xl border border-gray-200">
-                          <option value="once">Une fois</option>
-                          <option value="daily">Tous les jours</option>
-                          <option value="monthly">Tous les mois</option>
-                      </select>
-                      <input type="date" onChange={e => setNotif({...notif, targetDate: e.target.value})} className="p-3 rounded-xl border border-gray-200" />
-                      <button onClick={sendNotification} className="flex-1 bg-black text-white font-bold rounded-xl">Envoyer</button>
+                      <select value={notif.type} onChange={e => setNotif({...notif, type: e.target.value as any})} className="p-3 rounded-xl border border-gray-200"><option value="info">Info</option><option value="alert">Alerte</option><option value="fun">Fun</option></select>
+                      <select value={notif.repeat} onChange={e => setNotif({...notif, repeat: e.target.value as any})} className="p-3 rounded-xl border border-gray-200"><option value="once">Une fois</option><option value="daily">Tous les jours</option><option value="monthly">Tous les mois</option></select>
+                      <button onClick={sendNotification} className="flex-1 bg-black text-white font-bold rounded-xl">Envoyer Interne</button>
                   </div>
-                  <button onClick={sendEmailToAll} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 font-bold rounded-xl hover:bg-gray-100 flex items-center justify-center gap-2"><Mail size={16}/> Envoyer un mail à toute la famille</button>
+                  <button onClick={sendEmailToAll} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 font-bold rounded-xl hover:bg-gray-100 flex items-center justify-center gap-2"><Mail size={16}/> Envoyer par Mail (avec lien)</button>
               </div>
 
               <div className="space-y-2">
@@ -677,7 +721,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
            <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b: string) => setLocalC({...localC, welcomeImage: b}))} />
            <div onClick={() => fileRef.current?.click()} className="p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer text-xs uppercase font-bold text-gray-400">Changer la photo</div>
            
-           {/* RESTAURATION DU CHAMP HTML ACCUEIL */}
            <textarea 
               value={localC.homeHtml} 
               onChange={e => setLocalC({...localC, homeHtml: e.target.value})} 
@@ -798,16 +841,40 @@ const App: React.FC = () => {
     return () => { unsubC(); unsubX(); unsubR(); unsubE(); unsubV(); unsubT(); unsubU(); unsubN(); };
   }, [user]);
 
-  // 3. DEEP LINKING & REDIRECTION NOTIF
+  // 3. DEEP LINKING & REDIRECTION
   useEffect(() => {
      const params = new URLSearchParams(window.location.search);
-     if (params.get('view') === 'cooking') { setCurrentView('cooking'); window.history.replaceState({}, document.title, window.location.pathname); return; }
-     if (xsitePages.length > 0) {
-        const siteId = params.get('id');
-        if (siteId) {
-            const foundSite = xsitePages.find(p => p.id === siteId);
-            if (foundSite) { setSelectedXSite(foundSite); setCurrentView('xsite'); window.history.replaceState({}, document.title, window.location.pathname); }
-        }
+     
+     // 1. Vue principale
+     const targetView = params.get('view');
+     if (targetView) {
+         setCurrentView(targetView as any);
+         
+         // 2. Gestion ID (XSite)
+         if (targetView === 'xsite') {
+             const siteId = params.get('id');
+             if (siteId && xsitePages.length > 0) {
+                 const foundSite = xsitePages.find(p => p.id === siteId);
+                 if (foundSite) setSelectedXSite(foundSite);
+             }
+         }
+
+         // 3. Gestion Ancre (Scroll)
+         const anchorId = params.get('anchor');
+         if (anchorId) {
+             setTimeout(() => {
+                 const element = document.getElementById(anchorId);
+                 if (element) {
+                     element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                     // Petit effet visuel pour montrer l'élément
+                     element.classList.add('ring-4', 'ring-offset-2', 'ring-orange-400', 'transition-all', 'duration-1000');
+                     setTimeout(() => element.classList.remove('ring-4', 'ring-offset-2', 'ring-orange-400'), 2000);
+                 }
+             }, 800); // Délai pour laisser le temps au DOM de charger
+         }
+         
+         // Nettoyage URL
+         window.history.replaceState({}, document.title, window.location.pathname);
      }
   }, [xsitePages]);
 
@@ -837,19 +904,17 @@ const App: React.FC = () => {
   };
 
   const handleNotificationClick = (n: AppNotification) => {
-      // 1. Marquer comme lu
       markNotifRead(n.id);
-      
-      // 2. Redirection Vue
       if (n.linkView) {
           setCurrentView(n.linkView as any);
-          
-          // 3. Scroll ID (si nécessaire)
-          if (n.linkId) {
+          if (n.linkView === 'xsite' && n.linkId) {
+              const site = xsitePages.find(p => p.id === n.linkId);
+              if (site) setSelectedXSite(site);
+          } else if (n.linkId) {
               setTimeout(() => {
-                  const element = document.getElementById(n.linkId);
+                  const element = document.getElementById(n.linkId!);
                   if (element) element.scrollIntoView({ behavior: 'smooth' });
-              }, 500); // Petit délai pour laisser le temps à la vue de charger
+              }, 500);
           }
       }
       setIsNotifOpen(false);
@@ -952,7 +1017,7 @@ const App: React.FC = () => {
             )}
             
             {/* GRID DES ACCÈS RAPIDES */}
-            <div className="grid md:grid-cols-2 gap-8">
+            <div className="grid md:grid-cols-2 gap-8" id="home-shortcuts">
               <HomeCard icon={<LayoutDashboard size={40}/>} title="Tableau de Bord" label="Courses & Notes" onClick={() => setCurrentView('hub')} color={config.primaryColor} />
               <HomeCard icon={<ChefHat size={40}/>} title="Recettes" label="Nos petits plats" onClick={() => setCurrentView('recipes')} color={config.primaryColor} />
               <HomeCard icon={<CalIcon size={40}/>} title="Semainier" label="Menus & Organisation" onClick={() => setCurrentView('cooking')} color={config.primaryColor} />
@@ -972,7 +1037,7 @@ const App: React.FC = () => {
 
         {/* --- TÂCHES --- */}
         {currentView === 'tasks' && (
-          <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8">
+          <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8" id="tasks-table">
             <div className="text-center space-y-4">
               <h2 className="text-5xl font-cinzel font-black" style={{ color: config.primaryColor }}>TÂCHES MÉNAGÈRES</h2>
               <p className="text-gray-500 font-serif italic">
@@ -1019,7 +1084,7 @@ const App: React.FC = () => {
 
         {/* --- CALENDRIER --- */}
         {currentView === 'calendar' && (
-           <div className="max-w-3xl mx-auto space-y-10">
+           <div className="max-w-3xl mx-auto space-y-10" id="calendar-view">
              <div className="flex flex-col items-center gap-6">
                 <h2 className="text-5xl font-cinzel font-black" style={{ color: config.primaryColor }}>CALENDRIER</h2>
                 <button onClick={() => setIsEventModalOpen(true)} className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
@@ -1092,7 +1157,7 @@ const App: React.FC = () => {
 
         {/* --- RECETTES --- */}
         {currentView === 'recipes' && (
-          <div className="space-y-10">
+          <div className="space-y-10" id="recipes-list">
              <div className="flex flex-col items-center gap-6">
                <h2 className="text-5xl font-cinzel font-black text-center" style={{ color: config.primaryColor }}>RECETTES</h2>
                <button onClick={() => { setCurrentRecipe(defaultRecipeState); setIsRecipeModalOpen(true); }} className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
@@ -1127,7 +1192,7 @@ const App: React.FC = () => {
         )}
 
         {currentView === 'cooking' && (
-           <div className="bg-white/90 rounded-[3rem] min-h-[800px] shadow-xl overflow-hidden border border-black/5">
+           <div className="bg-white/90 rounded-[3rem] min-h-[800px] shadow-xl overflow-hidden border border-black/5" id="cooking-frame">
              {config.cookingHtml ? <iframe srcDoc={config.cookingHtml} className="w-full min-h-[800px]" /> : <div className="p-20 text-center opacity-40">Semainier non configuré</div>}
            </div>
         )}
