@@ -10,7 +10,7 @@ import {
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
-  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag
+  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail
 } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -19,6 +19,17 @@ import RecipeCard from './components/RecipeCard';
 
 // --- SÉCURITÉ ---
 const ADMIN_EMAIL = "gabriel.frezouls@gmail.com";
+
+// --- TYPES NOTIFICATIONS ---
+interface AppNotification {
+    id: string;
+    message: string;
+    type: 'info' | 'alert' | 'fun';
+    repeat: 'once' | 'daily' | 'monthly';
+    targetDate?: string; // Pour l'option "Date précise"
+    createdAt: string;
+    readBy: Record<string, string>; // Map email -> date de lecture ISO
+}
 
 // --- CONFIGURATION PAR DÉFAUT ---
 const ORIGINAL_CONFIG: SiteConfig = {
@@ -228,7 +239,7 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
     );
 };
 
-// --- COMPOSANT PORTE-MONNAIE (WalletView) ---
+// --- COMPOSANT PORTE-MONNAIE ---
 const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   const [activeTab, setActiveTab] = useState<'family' | 'personal'>('family');
   const [chartRange, setChartRange] = useState<'1M' | '1Y' | '5Y'>('1M');
@@ -520,6 +531,16 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   // XSITE STATE
   const [currentXSite, setCurrentXSite] = useState({ id: '', name: '', html: '' });
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  
+  // NOTIFICATION STATE
+  const [notif, setNotif] = useState<Partial<AppNotification>>({ message: '', type: 'info', repeat: 'once' });
+  const [activeNotifs, setActiveNotifs] = useState<AppNotification[]>([]);
+
+  useEffect(() => {
+      const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'));
+      const unsub = onSnapshot(q, (s) => setActiveNotifs(s.docs.map(d => ({id:d.id, ...d.data()} as AppNotification))));
+      return () => unsub();
+  }, []);
 
   const fileRef = useRef<HTMLInputElement>(null);
   
@@ -553,11 +574,28 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       alert("Utilisateur ajouté !");
   };
 
+  const sendNotification = async () => {
+      if(!notif.message) return alert("Message vide");
+      await addDoc(collection(db, 'notifications'), {
+          ...notif,
+          createdAt: new Date().toISOString(),
+          readBy: {}
+      });
+      setNotif({ message: '', type: 'info', repeat: 'once' });
+      alert("Notification envoyée !");
+  };
+
+  const sendEmailToAll = () => {
+      const emails = users.map((u:any) => u.id).join(',');
+      window.location.href = `mailto:?bcc=${emails}&subject=Message%20Chaud%20Devant&body=Bonjour%20la%20famille,%0A%0A`;
+  };
+
   return (
     <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[3.5rem] shadow-2xl min-h-[700px] border border-black/5">
       <div className="flex gap-2 overflow-x-auto mb-10 pb-4 no-scrollbar">
         {[
           {id:'users', l:'CONNEXIONS', i:<Users size={16}/>},
+          {id:'notif', l:'NOTIFICATIONS', i:<Bell size={16}/>},
           {id:'history', l:'HISTORIQUE', i:<History size={16}/>},
           {id:'arch', l:'ARCHITECTE', i:<Sparkles size={16}/>}, 
           {id:'xsite', l:"XSITE WEB", i:<Map size={16}/>},
@@ -598,6 +636,45 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
                                   {u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() + ' ' + new Date(u.lastLogin).toLocaleTimeString() : 'Jamais'}
                               </div>
                           </div>
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
+
+      {tab === 'notif' && (
+          <div className="space-y-8 animate-in fade-in">
+              <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>NOTIFICATIONS</h3>
+              
+              <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
+                  <h4 className="font-bold text-xs uppercase tracking-widest text-gray-400">Nouvelle Notification</h4>
+                  <textarea value={notif.message} onChange={e => setNotif({...notif, message: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200" placeholder="Message..." />
+                  <div className="flex gap-4">
+                      <select value={notif.type} onChange={e => setNotif({...notif, type: e.target.value as any})} className="p-3 rounded-xl border border-gray-200">
+                          <option value="info">Info</option>
+                          <option value="alert">Alerte</option>
+                          <option value="fun">Fun</option>
+                      </select>
+                      <select value={notif.repeat} onChange={e => setNotif({...notif, repeat: e.target.value as any})} className="p-3 rounded-xl border border-gray-200">
+                          <option value="once">Une fois</option>
+                          <option value="daily">Tous les jours</option>
+                          <option value="monthly">Tous les mois</option>
+                      </select>
+                      <input type="date" onChange={e => setNotif({...notif, targetDate: e.target.value})} className="p-3 rounded-xl border border-gray-200" />
+                      <button onClick={sendNotification} className="flex-1 bg-black text-white font-bold rounded-xl">Envoyer</button>
+                  </div>
+                  <button onClick={sendEmailToAll} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 font-bold rounded-xl hover:bg-gray-100 flex items-center justify-center gap-2"><Mail size={16}/> Envoyer un mail à toute la famille</button>
+              </div>
+
+              <div className="space-y-2">
+                  {activeNotifs.map(n => (
+                      <div key={n.id} className="flex justify-between items-center p-4 bg-white rounded-xl border border-gray-100">
+                          <div>
+                              <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase mr-2 ${n.type === 'alert' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{n.type}</span>
+                              <span className="font-bold">{n.message}</span>
+                              <div className="text-xs text-gray-400 mt-1">Répétition: {n.repeat} • Créé le {new Date(n.createdAt).toLocaleDateString()}</div>
+                          </div>
+                          <button onClick={() => deleteDoc(doc(db, 'notifications', n.id))} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button>
                       </div>
                   ))}
               </div>
@@ -698,6 +775,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
            <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b: string) => setLocalC({...localC, welcomeImage: b}))} />
            <div onClick={() => fileRef.current?.click()} className="p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer text-xs uppercase font-bold text-gray-400">Changer la photo</div>
            
+           {/* RESTAURATION DU CHAMP HTML ACCUEIL */}
            <textarea 
               value={localC.homeHtml} 
               onChange={e => setLocalC({...localC, homeHtml: e.target.value})} 
@@ -727,9 +805,11 @@ const App: React.FC = () => {
   const [choreStatus, setChoreStatus] = useState<Record<string, any>>({});
   const [favorites, setFavorites] = useState<string[]>([]);
   
-  // GESTION UTILISATEURS
+  // GESTION UTILISATEURS & NOTIFS
   const [siteUsers, setSiteUsers] = useState<any[]>([]);
   const [usersMapping, setUsersMapping] = useState<Record<string, string>>({});
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
 
   // États Modales
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
@@ -755,14 +835,8 @@ const App: React.FC = () => {
       setUser(u); 
       setIsInitializing(false); 
       if (u && u.email) {
-         // Mise à jour de la dernière connexion
          try {
-             await setDoc(doc(db, 'site_users', u.email), { 
-                 lastLogin: new Date().toISOString(),
-                 email: u.email // Ensure email is saved
-             }, { merge: true });
-             
-             // Charger favoris
+             await setDoc(doc(db, 'site_users', u.email), { lastLogin: new Date().toISOString(), email: u.email }, { merge: true });
              const prefsDoc = await getDoc(doc(db, 'user_prefs', u.email));
              if (prefsDoc.exists()) setFavorites(prefsDoc.data().favorites || []);
          } catch(e) { console.error("Err sync user", e); }
@@ -788,47 +862,54 @@ const App: React.FC = () => {
       setEvents(rawEvents);
     }, ignoreError);
     const unsubV = onSnapshot(query(collection(db, 'site_versions'), orderBy('date', 'desc')), (s) => setVersions(s.docs.map(d => ({ ...d.data(), id: d.id } as SiteVersion))), ignoreError);
-    const unsubT = onSnapshot(collection(db, 'chores_status'), (s) => {
-      const status: Record<string, any> = {};
-      s.docs.forEach(doc => { status[doc.id] = doc.data(); });
-      setChoreStatus(status);
-    }, ignoreError);
+    const unsubT = onSnapshot(collection(db, 'chores_status'), (s) => { const status: Record<string, any> = {}; s.docs.forEach(doc => { status[doc.id] = doc.data(); }); setChoreStatus(status); }, ignoreError);
     
-    // NOUVEAU: CHARGEMENT UTILISATEURS
+    // USERS & NOTIFS
     const unsubU = onSnapshot(collection(db, 'site_users'), (s) => {
         const users = s.docs.map(d => ({id: d.id, ...d.data()}));
         setSiteUsers(users);
-        // Mettre à jour le mapping
         const newMap: Record<string, string> = {};
         users.forEach((u: any) => { if(u.letter) newMap[u.id] = u.letter; });
         setUsersMapping(newMap);
     }, ignoreError);
 
-    return () => { unsubC(); unsubX(); unsubR(); unsubE(); unsubV(); unsubT(); unsubU(); };
+    const unsubN = onSnapshot(query(collection(db, 'notifications'), orderBy('createdAt', 'desc')), (s) => {
+        const rawNotifs = s.docs.map(d => ({id: d.id, ...d.data()} as AppNotification));
+        // LOGIQUE DE FILTRAGE INTELLIGENTE
+        const visibleNotifs = rawNotifs.filter(n => {
+            if(!user.email) return false;
+            const readDate = n.readBy[user.email];
+            if(!readDate) return true; // Jamais lu
+            
+            const lastRead = new Date(readDate);
+            const now = new Date();
+            
+            if(n.repeat === 'once') return false; // Déjà lu et repeat=once -> masqué
+            if(n.repeat === 'daily') return lastRead.getDate() !== now.getDate(); // Réapparait si lu hier
+            if(n.repeat === 'monthly') return lastRead.getMonth() !== now.getMonth();
+            
+            return true;
+        });
+        setNotifications(visibleNotifs);
+    }, ignoreError);
+
+    return () => { unsubC(); unsubX(); unsubR(); unsubE(); unsubV(); unsubT(); unsubU(); unsubN(); };
   }, [user]);
 
   // 3. DEEP LINKING
   useEffect(() => {
      const params = new URLSearchParams(window.location.search);
-     if (params.get('view') === 'cooking') {
-         setCurrentView('cooking');
-         window.history.replaceState({}, document.title, window.location.pathname);
-         return;
-     }
+     if (params.get('view') === 'cooking') { setCurrentView('cooking'); window.history.replaceState({}, document.title, window.location.pathname); return; }
      if (xsitePages.length > 0) {
         const siteId = params.get('id');
         if (siteId) {
             const foundSite = xsitePages.find(p => p.id === siteId);
-            if (foundSite) {
-                setSelectedXSite(foundSite);
-                setCurrentView('xsite');
-                window.history.replaceState({}, document.title, window.location.pathname);
-            }
+            if (foundSite) { setSelectedXSite(foundSite); setCurrentView('xsite'); window.history.replaceState({}, document.title, window.location.pathname); }
         }
      }
   }, [xsitePages]);
 
-  // ACTIONS (Generic)
+  // ACTIONS
   const handleLogin = async () => { try { await signInWithPopup(auth, googleProvider); } catch (e) { alert("Erreur Auth"); } };
   const handleLogout = () => { signOut(auth); setCurrentView('home'); };
   const saveConfig = async (c: SiteConfig, saveHistory = false) => { try { await setDoc(doc(db, 'site_config', 'main'), c); setConfig(c); if(saveHistory) await addDoc(collection(db, 'site_versions'), { name: `Sauvegarde`, date: new Date().toISOString(), config: c }); } catch(e) { console.error(e); } };
@@ -842,41 +923,52 @@ const App: React.FC = () => {
   const handleArchitect = async () => { if (!aiPrompt.trim()) return; setIsAiLoading(true); const n = await askAIArchitect(aiPrompt, config); if (n) await saveConfig({...config, ...n}, true); setIsAiLoading(false); };
   const handleChat = async () => { if (!aiPrompt.trim()) return; const h = [...chatHistory, {role:'user',text:aiPrompt}]; setChatHistory(h); setAiPrompt(''); setIsAiLoading(true); const r = await askAIChat(h); setChatHistory([...h, {role:'model',text:r}]); setIsAiLoading(false); };
 
-  // --- NEW FEATURE: ADD RECIPE TO HUB ---
   const addRecipeToHub = async (recipe: any) => {
       if(!confirm(`Ajouter les ingrédients de "${recipe.title}" à la liste de courses ?`)) return;
-      const ingredients = Array.isArray(recipe.ingredients) 
-        ? recipe.ingredients 
-        : (typeof recipe.ingredients === 'string' ? recipe.ingredients.split('\n') : []);
-      
+      const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : (typeof recipe.ingredients === 'string' ? recipe.ingredients.split('\n') : []);
       let count = 0;
       for(let ing of ingredients) {
           const cleanIng = ing.trim();
-          if(cleanIng) {
-              await addDoc(collection(db, 'hub_items'), {
-                  type: 'shop',
-                  content: cleanIng,
-                  category: categorizeShoppingItem(cleanIng),
-                  author: 'Chef',
-                  createdAt: new Date().toISOString(),
-                  done: false
-              });
-              count++;
-          }
+          if(cleanIng) { await addDoc(collection(db, 'hub_items'), { type: 'shop', content: cleanIng, category: categorizeShoppingItem(cleanIng), author: 'Chef', createdAt: new Date().toISOString(), done: false }); count++; }
       }
       alert(`${count} ingrédients ajoutés au Tableau !`);
   };
 
+  const markNotifRead = async (notifId: string) => {
+      if(!user?.email) return;
+      const notifRef = doc(db, 'notifications', notifId);
+      await setDoc(notifRef, { readBy: { [user.email]: new Date().toISOString() } }, { merge: true });
+  };
+
   if (isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#f5ede7]"><Loader2 className="w-12 h-12 animate-spin text-[#a85c48]"/></div>;
   if (!user) return <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-[#f5ede7]"><Background color={ORIGINAL_CONFIG.primaryColor} /><div className="z-10 text-center space-y-8 animate-in fade-in zoom-in duration-700"><div className="mx-auto w-24 h-24 rounded-[2.5rem] flex items-center justify-center shadow-xl bg-[#a85c48]"><Sparkles className="text-white" size={48} /></div><h1 className="text-4xl font-cinzel font-black tracking-widest text-[#a85c48]">CHAUD DEVANT</h1><button onClick={handleLogin} className="bg-white text-black font-black py-4 px-8 rounded-2xl shadow-xl flex items-center gap-3 hover:scale-105 transition-transform"><LogIn size={24} /> CONNEXION GOOGLE</button></div></div>;
-  
-  // --- VERIFICATION ACCÈS (MODIFIÉE POUR UTILISER SITE_USERS) ---
   if (!isAuthorized) return <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-red-50 text-center space-y-8"><ShieldAlert className="text-red-500 w-20 h-20" /><h2 className="text-3xl font-bold text-red-800 font-cinzel">ACCÈS RESTREINT</h2><p>Contactez Gabriel pour valider votre compte.</p><button onClick={handleLogout} className="px-6 py-4 bg-red-500 text-white font-bold rounded-2xl">Déconnexion</button></div>;
 
   return (
     <div className="min-h-screen pb-24 md:pb-0 transition-colors duration-700" style={{ backgroundColor: config.backgroundColor, fontFamily: config.fontFamily }}>
       <Background color={config.primaryColor} />
       
+      {/* NOTIFICATIONS MODAL */}
+      {isNotifOpen && (
+          <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex justify-end" onClick={() => setIsNotifOpen(false)}>
+              <div className="w-full max-w-sm bg-white h-full p-6 animate-in slide-in-from-right shadow-2xl" onClick={e => e.stopPropagation()}>
+                  <h3 className="text-2xl font-cinzel font-bold mb-6 flex items-center gap-2"><Bell className="text-orange-500"/> Notifications</h3>
+                  <div className="space-y-4">
+                      {notifications.length === 0 && <p className="text-gray-400 italic text-center">Aucune nouvelle notification.</p>}
+                      {notifications.map(n => (
+                          <div key={n.id} className={`p-4 rounded-xl border-l-4 ${n.type === 'alert' ? 'bg-red-50 border-red-500' : 'bg-blue-50 border-blue-500'}`}>
+                              <p className="font-bold text-gray-800">{n.message}</p>
+                              <div className="flex justify-between items-center mt-3">
+                                  <span className="text-[10px] uppercase text-gray-400">{new Date(n.createdAt).toLocaleDateString()}</span>
+                                  <button onClick={() => markNotifRead(n.id)} className="text-xs font-bold px-3 py-1 bg-white rounded-lg shadow-sm border hover:bg-gray-50">Marquer lu</button>
+                              </div>
+                          </div>
+                      ))}
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* IMMERSIVE XSITE VIEWER */}
       {currentView === 'xsite' && selectedXSite && (
           <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-in fade-in slide-in-from-bottom-10">
@@ -894,13 +986,19 @@ const App: React.FC = () => {
           <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg" style={{ backgroundColor: config.primaryColor }}><Home className="text-white" size={20} /></div>
           <span className="font-cinzel font-black text-xl hidden md:block" style={{ color: config.primaryColor }}>CHAUD.DEVANT</span>
         </div>
-        <div className="hidden md:flex gap-6">
-           {['home','hub','xsite','recipes','cooking','calendar', 'tasks', 'wallet'].map(v => (
-             <button key={v} onClick={() => setCurrentView(v as any)} className="text-xs font-black tracking-widest opacity-40 hover:opacity-100 uppercase" style={{ color: currentView === v ? config.primaryColor : 'inherit' }}>{config.navigationLabels[v as keyof typeof config.navigationLabels] || v}</button>
-           ))}
-           <button onClick={() => setIsMenuOpen(true)} style={{ color: config.primaryColor }}><Menu size={20}/></button>
+        <div className="flex gap-4 items-center">
+           <div className="hidden md:flex gap-6">
+             {['home','hub','xsite','recipes','cooking','calendar', 'tasks', 'wallet'].map(v => (
+               <button key={v} onClick={() => setCurrentView(v as any)} className="text-xs font-black tracking-widest opacity-40 hover:opacity-100 uppercase" style={{ color: currentView === v ? config.primaryColor : 'inherit' }}>{config.navigationLabels[v as keyof typeof config.navigationLabels] || v}</button>
+             ))}
+           </div>
+           <button onClick={() => setIsNotifOpen(true)} className="relative p-2 text-gray-400 hover:text-black transition-colors">
+               <Bell size={24}/>
+               {notifications.length > 0 && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}
+           </button>
+           <button className="md:hidden" onClick={() => setIsMenuOpen(true)} style={{ color: config.primaryColor }}><Menu size={28} /></button>
+           <button className="hidden md:block" onClick={() => setIsMenuOpen(true)} style={{ color: config.primaryColor }}><Menu size={20}/></button>
         </div>
-        <button className="md:hidden" onClick={() => setIsMenuOpen(true)} style={{ color: config.primaryColor }}><Menu size={28} /></button>
       </nav>
 
       <SideMenu config={config} isOpen={isMenuOpen} close={() => setIsMenuOpen(false)} setView={setCurrentView} logout={handleLogout} />
