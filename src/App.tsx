@@ -182,7 +182,7 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
             </div>
 
             {/* BOARD DISPLAY */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* COLONNE COURSES */}
                 <div className="space-y-4">
                     <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><ShoppingCart size={20}/> LISTE DE COURSES</h3>
@@ -697,6 +697,14 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
            <textarea value={localC.welcomeText} onChange={e => setLocalC({...localC, welcomeText: e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Texte de bienvenue" />
            <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b: string) => setLocalC({...localC, welcomeImage: b}))} />
            <div onClick={() => fileRef.current?.click()} className="p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer text-xs uppercase font-bold text-gray-400">Changer la photo</div>
+           
+           <textarea 
+              value={localC.homeHtml} 
+              onChange={e => setLocalC({...localC, homeHtml: e.target.value})} 
+              className="w-full p-5 rounded-2xl border border-gray-200 h-32 font-mono text-xs" 
+              placeholder="Code HTML/Widget pour l'accueil (Optionnel)" 
+           />
+           
            <button onClick={() => save(localC, true)} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{ backgroundColor: config.primaryColor }}>Sauvegarder</button>
         </div>
       )}
@@ -911,6 +919,13 @@ const App: React.FC = () => {
                 <button onClick={() => setCurrentView('hub')} className="mt-8 bg-white text-black px-8 py-4 rounded-xl font-bold uppercase tracking-widest shadow-xl flex items-center gap-3 w-fit hover:scale-105 transition-transform"><LayoutDashboard/> Ouvrir le Tableau</button>
               </div>
             </section>
+            
+            {/* WIDGET HTML ACCUEIL */}
+            {config.homeHtml && (
+                <section className="bg-white/50 rounded-[3rem] overflow-hidden shadow-xl mb-8">
+                    <iframe srcDoc={config.homeHtml} className="w-full h-[500px]" sandbox="allow-scripts" title="Home Widget" />
+                </section>
+            )}
             
             {/* GRID DES ACCÈS RAPIDES */}
             <div className="grid md:grid-cols-2 gap-8">
