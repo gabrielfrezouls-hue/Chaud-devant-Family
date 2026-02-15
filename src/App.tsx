@@ -10,7 +10,7 @@ import {
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
-  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail, CornerDownRight
+  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail, CornerDownRight, Store, MapPin
 } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -20,12 +20,20 @@ import RecipeCard from './components/RecipeCard';
 // --- SÉCURITÉ ---
 const ADMIN_EMAIL = "gabriel.frezouls@gmail.com";
 
-// --- TYPES NOTIFICATIONS ---
+// --- LISTE MAGASINS PRÉDÉFINIS ---
+const COMMON_STORES = [
+    "Auchan", "Lidl", "Carrefour", "Leclerc", "Grand Frais", "Intermarché", 
+    "Marché", "Drive", "Biocoop", "Picard", "Action", "Pharmacie", 
+    "Boulangerie", "Boucherie", "Amazon", "Leroy Merlin", "IKEA", "Jardinerie"
+];
+
+// --- TYPES ---
 interface AppNotification {
     id: string;
     message: string;
     type: 'info' | 'alert' | 'fun';
     repeat: 'once' | 'daily' | 'monthly';
+    targets: string[]; // ['all'] ou ['email1', 'email2']
     targetDate?: string; 
     linkView?: string; 
     linkId?: string;   
@@ -33,42 +41,7 @@ interface AppNotification {
     readBy: Record<string, string>; 
 }
 
-// --- MAPPING DES ANCRES POUR REDIRECTION ---
-const VIEW_ANCHORS: Record<string, {label: string, id: string}[]> = {
-    home: [
-        { label: 'Haut de page', id: 'top' },
-        { label: 'Widget HTML', id: 'home-widget' },
-        { label: 'Accès Rapides', id: 'home-shortcuts' }
-    ],
-    hub: [
-        { label: 'Haut de page', id: 'top' },
-        { label: 'Saisie Rapide', id: 'hub-input' },
-        { label: 'Liste de Courses', id: 'hub-shop' },
-        { label: 'Pense-bêtes', id: 'hub-notes' },
-        { label: 'Le Mur', id: 'hub-msg' }
-    ],
-    recipes: [
-        { label: 'Haut de page', id: 'top' },
-        { label: 'Liste des recettes', id: 'recipes-list' }
-    ],
-    wallet: [
-        { label: 'Haut de page', id: 'top' },
-        { label: 'Graphique Solde', id: 'wallet-graph' },
-        { label: 'Dettes Famille', id: 'wallet-debts' }
-    ],
-    tasks: [
-        { label: 'Tableau', id: 'tasks-table' }
-    ],
-    calendar: [
-        { label: 'Calendrier', id: 'calendar-view' }
-    ],
-    cooking: [
-        { label: 'Semainier', id: 'cooking-frame' }
-    ]
-    // XSite est géré dynamiquement
-};
-
-// --- CONFIGURATION PAR DÉFAUT ---
+// --- CONFIG PAR DÉFAUT ---
 const ORIGINAL_CONFIG: SiteConfig = {
   primaryColor: '#a85c48',
   backgroundColor: '#f5ede7',
@@ -80,19 +53,35 @@ const ORIGINAL_CONFIG: SiteConfig = {
   homeHtml: '', cookingHtml: ''
 };
 
-// --- LOGIQUE INTELLIGENTE HUB ---
+// --- LOGIQUE INTELLIGENTE HUB (20 CATÉGORIES) ---
 const categorizeShoppingItem = (text: string) => {
     const lower = text.toLowerCase();
-    if (/(lait|beurre|yaourt|creme|crème|oeuf|fromage|gruyere|mozarella)/.test(lower)) return 'Frais';
-    if (/(pomme|banane|legume|fruit|salade|tomate|carotte|oignon|ail|patate|courgette|avocat|citron)/.test(lower)) return 'Primeur';
-    if (/(viande|poulet|poisson|jambon|steak|lardon|saucisse|dinde|boeuf|thon)/.test(lower)) return 'Boucherie/Poiss.';
-    if (/(pates|pâte|riz|conserve|huile|vinaigre|moutarde|sel|poivre|epice|sauce|mayo)/.test(lower)) return 'Épicerie Salée';
-    if (/(sucre|farine|chocolat|gateau|biscuit|cereale|pain|brioche|miel|confiture)/.test(lower)) return 'Épicerie Sucrée';
-    if (/(coca|jus|vin|biere|bière|eau|sirop|soda|alcool|cafe|the)/.test(lower)) return 'Boissons';
-    if (/(shampoing|savon|dentifrice|papier|toilette|douche|cosmetique|coton)/.test(lower)) return 'Hygiène';
-    if (/(lessive|produit|eponge|sac|poubelle|nettoyant|vaisselle)/.test(lower)) return 'Maison';
+    
+    // Alimentaire Base
+    if (/(lait|beurre|yaourt|creme|crème|oeuf|fromage|gruyere|mozarella|skyr)/.test(lower)) return 'Frais & Crèmerie';
+    if (/(pomme|banane|legume|fruit|salade|tomate|carotte|oignon|ail|patate|courgette|avocat|citron|poireau)/.test(lower)) return 'Primeur';
+    if (/(viande|poulet|poisson|jambon|steak|lardon|saucisse|dinde|boeuf|thon|saumon|crevette)/.test(lower)) return 'Boucherie/Poisson';
+    if (/(pain|baguette|brioche|croissant|pain de mie|burger)/.test(lower)) return 'Boulangerie';
+    
+    // Épicerie
+    if (/(pates|pâte|riz|conserve|huile|vinaigre|moutarde|sel|poivre|epice|sauce|mayo|ketchup|bocal)/.test(lower)) return 'Épicerie Salée';
+    if (/(sucre|farine|chocolat|gateau|biscuit|cereale|miel|confiture|nutella|bonbon|chips|apero)/.test(lower)) return 'Épicerie Sucrée';
+    
+    // Boissons
+    if (/(coca|jus|vin|biere|bière|eau|sirop|soda|alcool|cafe|the|tisane|lait)/.test(lower)) return 'Boissons';
+    
+    // Maison & Soin
+    if (/(shampoing|savon|dentifrice|papier|toilette|douche|cosmetique|coton|rasoir|deo)/.test(lower)) return 'Hygiène & Beauté';
+    if (/(lessive|produit|eponge|sac|poubelle|nettoyant|vaisselle|javel|sopalin)/.test(lower)) return 'Entretien Maison';
+    if (/(ampoule|pile|vis|colle|outil|scotch)/.test(lower)) return 'Bricolage';
+    if (/(fleur|plante|terreau|graine)/.test(lower)) return 'Jardin';
+    
+    // Spécifique
     if (/(croquette|patee|litiere|chat|chien)/.test(lower)) return 'Animaux';
-    if (/(glace|surgeles|pizza|frite)/.test(lower)) return 'Surgelés';
+    if (/(glace|surgeles|pizza|frite|poelee)/.test(lower)) return 'Surgelés';
+    if (/(couche|bebe|lingette|pot)/.test(lower)) return 'Bébé';
+    if (/(medicament|doliprane|pansement|sirop)/.test(lower)) return 'Pharmacie';
+    
     return 'Divers';
 };
 
@@ -160,11 +149,14 @@ const CircleLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
   );
 };
 
-// --- COMPOSANT HUB ---
+// --- COMPOSANT HUB (TABLEAU) ---
 const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfig, usersMapping: any }) => {
     const [hubItems, setHubItems] = useState<any[]>([]);
     const [newItem, setNewItem] = useState('');
+    const [storeSearch, setStoreSearch] = useState('');
+    const [selectedStore, setSelectedStore] = useState('');
     const [inputType, setInputType] = useState<'shop' | 'note' | 'msg'>('shop');
+    const [showStoreList, setShowStoreList] = useState(false);
 
     useEffect(() => {
         const q = query(collection(db, 'hub_items'), orderBy('createdAt', 'desc'));
@@ -176,40 +168,95 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
         if (!newItem.trim()) return;
         let category = 'Général';
         if (inputType === 'shop') category = categorizeShoppingItem(newItem);
+        
         await addDoc(collection(db, 'hub_items'), {
-            type: inputType, content: newItem, category,
+            type: inputType,
+            content: newItem,
+            category,
+            store: selectedStore || 'Divers', // Store Logic
             author: usersMapping[user.email!] || user.email?.charAt(0).toUpperCase(),
-            createdAt: new Date().toISOString(), done: false
+            createdAt: new Date().toISOString(),
+            done: false
         });
         setNewItem('');
+        setStoreSearch('');
+        setSelectedStore('');
     };
 
     const deleteItem = async (id: string) => { await deleteDoc(doc(db, 'hub_items', id)); };
 
+    // LOGIQUE DE TRI : Magasin (Alpha) -> Catégorie (Alpha)
+    const sortedShopItems = hubItems.filter(i => i.type === 'shop').sort((a, b) => {
+        const storeA = a.store || 'Z';
+        const storeB = b.store || 'Z';
+        if (storeA !== storeB) return storeA.localeCompare(storeB);
+        return a.category.localeCompare(b.category);
+    });
+
+    const filteredStores = COMMON_STORES.filter(s => s.toLowerCase().includes(storeSearch.toLowerCase()));
+
     return (
         <div className="space-y-8 pb-24 animate-in fade-in" id="top">
+            {/* INPUT ZONE */}
             <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 sticky top-24 z-30" id="hub-input">
                 <div className="flex gap-2 mb-4 justify-center">
                     <button onClick={() => setInputType('shop')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType === 'shop' ? 'bg-orange-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-400'}`}><ShoppingCart size={16} className="inline mr-2"/> Course</button>
                     <button onClick={() => setInputType('note')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType === 'note' ? 'bg-yellow-400 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-400'}`}><StickyNote size={16} className="inline mr-2"/> Note</button>
                     <button onClick={() => setInputType('msg')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType === 'msg' ? 'bg-blue-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-400'}`}><MessageSquare size={16} className="inline mr-2"/> Msg</button>
                 </div>
-                <div className="flex gap-2">
-                    <input value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => e.key === 'Enter' && addItem()} placeholder={inputType === 'shop' ? "Ex: Lait, Beurre..." : inputType === 'note' ? "Ex: Rdv plombier 18h..." : "Ex: Je rentre tard..."} className="flex-1 p-4 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black transition-colors"/>
-                    <button onClick={addItem} className="p-4 bg-black text-white rounded-2xl hover:scale-105 transition-transform"><Plus/></button>
+                
+                <div className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                        <input value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => e.key === 'Enter' && addItem()} placeholder={inputType === 'shop' ? "Ex: Lait, Beurre..." : "Message..."} className="flex-1 p-4 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black transition-colors"/>
+                        <button onClick={addItem} className="p-4 bg-black text-white rounded-2xl hover:scale-105 transition-transform"><Plus/></button>
+                    </div>
+
+                    {/* SELECTEUR MAGASIN (Seulement pour Courses) */}
+                    {inputType === 'shop' && (
+                        <div className="relative">
+                            <div className="flex items-center bg-gray-50 rounded-xl px-4 border border-gray-200">
+                                <Store size={16} className="text-gray-400 mr-2"/>
+                                <input 
+                                    value={storeSearch} 
+                                    onFocus={() => setShowStoreList(true)}
+                                    onChange={e => { setStoreSearch(e.target.value); setSelectedStore(e.target.value); }} 
+                                    placeholder="Rechercher un magasin ou un commerce..." 
+                                    className="w-full py-3 bg-transparent text-xs font-bold outline-none text-gray-600"
+                                />
+                            </div>
+                            {showStoreList && storeSearch && (
+                                <div className="absolute top-full left-0 right-0 bg-white border border-gray-100 rounded-xl shadow-lg mt-1 max-h-40 overflow-y-auto z-50">
+                                    {filteredStores.map(store => (
+                                        <div key={store} onClick={() => { setSelectedStore(store); setStoreSearch(store); setShowStoreList(false); }} className="p-3 text-xs font-bold hover:bg-gray-50 cursor-pointer">
+                                            {store}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {/* COLONNE COURSES TRIÉE */}
                 <div className="space-y-4" id="hub-shop">
                     <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><ShoppingCart size={20}/> LISTE DE COURSES</h3>
-                    {hubItems.filter(i => i.type === 'shop').map(item => (
+                    {sortedShopItems.map(item => (
                         <div key={item.id} className="group flex justify-between items-center p-4 bg-white rounded-2xl shadow-sm border-l-4 border-orange-400 hover:shadow-md transition-all">
-                            <div><span className="text-[10px] font-black uppercase text-orange-600 bg-orange-100 px-2 py-1 rounded-md mr-2">{item.category}</span><span className="font-bold text-gray-700">{item.content}</span></div>
+                            <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-[9px] font-black uppercase text-orange-600 bg-orange-100 px-2 py-0.5 rounded-md">{item.category}</span>
+                                    {item.store && <span className="text-[9px] font-bold uppercase text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md"><Store size={8} className="inline mr-1"/>{item.store}</span>}
+                                </div>
+                                <span className="font-bold text-gray-700 block">{item.content} <span className="text-xs text-gray-400 font-normal">({item.store || 'Divers'})</span></span>
+                            </div>
                             <button onClick={() => deleteItem(item.id)} className="text-gray-300 hover:text-red-500"><X size={18}/></button>
                         </div>
                     ))}
-                    {hubItems.filter(i => i.type === 'shop').length === 0 && <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-300">Frigo plein !</div>}
+                    {sortedShopItems.length === 0 && <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-300">Frigo plein !</div>}
                 </div>
+
                 <div className="space-y-4" id="hub-notes">
                     <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><StickyNote size={20}/> PENSE-BÊTES</h3>
                     <div className="grid grid-cols-2 gap-2">
@@ -295,7 +342,6 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   };
 
   const graphData = getGraphData();
-  const currentMonthHistory = (myWallet.history || []).filter((h: any) => new Date(h.date).getMonth() === new Date().getMonth());
   let fillPercent = 0; if ((myWallet.savingsGoal - myWallet.startBalance) > 0) fillPercent = ((myWallet.balance - myWallet.startBalance) / (myWallet.savingsGoal - myWallet.startBalance)) * 100;
   if (myWallet.balance >= myWallet.savingsGoal && myWallet.savingsGoal > 0) fillPercent = 100;
 
@@ -454,7 +500,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   
   // NOTIFICATION STATE
-  const [notif, setNotif] = useState<Partial<AppNotification>>({ message: '', type: 'info', repeat: 'once', linkView: '', linkId: '' });
+  const [notif, setNotif] = useState<Partial<AppNotification>>({ message: '', type: 'info', repeat: 'once', linkView: '', linkId: '', targets: ['all'] });
   const [activeNotifs, setActiveNotifs] = useState<AppNotification[]>([]);
 
   useEffect(() => {
@@ -499,17 +545,22 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       if(!notif.message) return alert("Message vide");
       await addDoc(collection(db, 'notifications'), {
           ...notif,
+          targets: notif.targets?.length ? notif.targets : ['all'],
           createdAt: new Date().toISOString(),
           readBy: {}
       });
-      setNotif({ message: '', type: 'info', repeat: 'once', linkView: '', linkId: '' });
+      setNotif({ message: '', type: 'info', repeat: 'once', linkView: '', linkId: '', targets: ['all'] });
       alert("Notification envoyée !");
   };
 
-  // --- NOUVELLE FONCTION EMAIL AVEC LIEN DIRECT ---
   const sendEmailToAll = () => {
-      const emails = users.map((u:any) => u.id).join(',');
-      
+      let recipients = "";
+      if (notif.targets?.includes('all')) {
+          recipients = users.map((u:any) => u.id).join(',');
+      } else {
+          recipients = notif.targets?.join(',') || "";
+      }
+
       let linkText = "";
       if (notif.linkView) {
           const baseUrl = window.location.href.split('?')[0];
@@ -522,8 +573,8 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
           linkText = `%0A%0ALien direct : ${url}`;
       }
 
-      const body = `Bonjour la famille,%0A%0A${notif.message || "Nouvelle notification !"}${linkText}`;
-      window.location.href = `mailto:?bcc=${emails}&subject=Message%20Chaud%20Devant&body=${body}`;
+      const body = `Bonjour,%0A%0A${notif.message || "Nouvelle notification !"}${linkText}`;
+      window.location.href = `mailto:?bcc=${recipients}&subject=Message%20Chaud%20Devant&body=${body}`;
   };
 
   return (
@@ -576,6 +627,18 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
                   <h4 className="font-bold text-xs uppercase tracking-widest text-gray-400">Nouvelle Notification</h4>
                   <textarea value={notif.message} onChange={e => setNotif({...notif, message: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200" placeholder="Message..." />
                   
+                  {/* ZONE CIBLAGE (QUI RECOIT ?) */}
+                  <div className="flex flex-wrap gap-2">
+                      <button onClick={() => setNotif({...notif, targets: ['all']})} className={`px-3 py-1 rounded-full text-xs font-bold ${notif.targets?.includes('all') ? 'bg-black text-white' : 'bg-gray-200 text-gray-500'}`}>TOUS</button>
+                      {users.map((u: any) => (
+                          <button key={u.id} onClick={() => {
+                              const current = notif.targets?.includes('all') ? [] : (notif.targets || []);
+                              const newTargets = current.includes(u.id) ? current.filter(t => t !== u.id) : [...current, u.id];
+                              setNotif({...notif, targets: newTargets});
+                          }} className={`px-3 py-1 rounded-full text-xs font-bold ${notif.targets?.includes(u.id) ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-500'}`}>{u.name || u.letter}</button>
+                      ))}
+                  </div>
+
                   {/* ZONE REDIRECTION INTELLIGENTE */}
                   <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-4 rounded-xl border border-gray-200">
                       <div className="flex items-center gap-2 min-w-[200px]">
@@ -618,6 +681,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
                               <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase mr-2 ${n.type === 'alert' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{n.type}</span>
                               <span className="font-bold">{n.message}</span>
                               {n.linkView && <span className="ml-2 text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-500">Link: {n.linkView}</span>}
+                              {n.targets && !n.targets.includes('all') && <span className="ml-2 text-[10px] text-gray-400">({n.targets.length} destinataires)</span>}
                               <div className="text-xs text-gray-400 mt-1">Répétition: {n.repeat} • Créé le {new Date(n.createdAt).toLocaleDateString()}</div>
                           </div>
                           <button onClick={() => deleteDoc(doc(db, 'notifications', n.id))} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button>
@@ -820,19 +884,19 @@ const App: React.FC = () => {
 
     const unsubN = onSnapshot(query(collection(db, 'notifications'), orderBy('createdAt', 'desc')), (s) => {
         const rawNotifs = s.docs.map(d => ({id: d.id, ...d.data()} as AppNotification));
-        // LOGIQUE DE FILTRAGE INTELLIGENTE
         const visibleNotifs = rawNotifs.filter(n => {
             if(!user.email) return false;
+            // FILTER BY TARGET
+            if (n.targets && !n.targets.includes('all') && !n.targets.includes(user.email)) return false;
+
             const readDate = n.readBy[user.email];
             if(!readDate) return true; // Jamais lu
-            
             const lastRead = new Date(readDate);
             const now = new Date();
             
-            if(n.repeat === 'once') return false; // Déjà lu et repeat=once -> masqué
-            if(n.repeat === 'daily') return lastRead.getDate() !== now.getDate(); // Réapparait si lu hier
+            if(n.repeat === 'once') return false; 
+            if(n.repeat === 'daily') return lastRead.getDate() !== now.getDate(); 
             if(n.repeat === 'monthly') return lastRead.getMonth() !== now.getMonth();
-            
             return true;
         });
         setNotifications(visibleNotifs);
@@ -866,14 +930,12 @@ const App: React.FC = () => {
                  const element = document.getElementById(anchorId);
                  if (element) {
                      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                     // Petit effet visuel pour montrer l'élément
                      element.classList.add('ring-4', 'ring-offset-2', 'ring-orange-400', 'transition-all', 'duration-1000');
                      setTimeout(() => element.classList.remove('ring-4', 'ring-offset-2', 'ring-orange-400'), 2000);
                  }
-             }, 800); // Délai pour laisser le temps au DOM de charger
+             }, 800); 
          }
          
-         // Nettoyage URL
          window.history.replaceState({}, document.title, window.location.pathname);
      }
   }, [xsitePages]);
@@ -913,7 +975,7 @@ const App: React.FC = () => {
           } else if (n.linkId) {
               setTimeout(() => {
                   const element = document.getElementById(n.linkId!);
-                  if (element) element.scrollIntoView({ behavior: 'smooth' });
+                  if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' });
               }, 500);
           }
       }
@@ -998,7 +1060,7 @@ const App: React.FC = () => {
       <main className="max-w-7xl mx-auto px-6 pt-28 pb-32 relative z-10">
         
         {currentView === 'home' && (
-          <div className="space-y-16 animate-in fade-in duration-1000">
+          <div className="space-y-16 animate-in fade-in duration-1000" id="top">
             <section className="relative h-[60vh] rounded-[3rem] overflow-hidden shadow-2xl group">
               <img src={config.welcomeImage} className="w-full h-full object-cover transition-transform duration-[10s] group-hover:scale-110" />
               <div className="absolute inset-0 bg-black/40 flex flex-col justify-end p-10">
