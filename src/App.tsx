@@ -10,7 +10,7 @@ import {
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
-  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail, CornerDownRight, Store, MapPin
+  Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail, CornerDownRight, Store, CalendarClock
 } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat } from './services/geminiService';
@@ -20,11 +20,18 @@ import RecipeCard from './components/RecipeCard';
 // --- SÉCURITÉ ---
 const ADMIN_EMAIL = "gabriel.frezouls@gmail.com";
 
-// --- LISTE MAGASINS PRÉDÉFINIS ---
+// --- LISTE MAGASINS ÉTENDUE ---
 const COMMON_STORES = [
-    "Auchan", "Lidl", "Carrefour", "Leclerc", "Grand Frais", "Intermarché", 
-    "Marché", "Drive", "Biocoop", "Picard", "Action", "Pharmacie", 
-    "Boulangerie", "Boucherie", "Amazon", "Leroy Merlin", "IKEA", "Jardinerie"
+    "Auchan", "Lidl", "Carrefour", "Leclerc", "Grand Frais", "Intermarché", "Super U", "Monoprix",
+    "Marché", "Drive", "Biocoop", "Picard", "Thiriet",
+    "Action", "Gifi", "La Foir'Fouille", "Hema",
+    "Pharmacie", "Boulangerie", "Boucherie", "Tabac/Presse",
+    "Amazon", "Cdiscount", "Relais Colis",
+    "Leroy Merlin", "Castorama", "Brico Dépôt", "IKEA", "Jardinerie", "Truffaut",
+    "Cultura", "Fnac", "Boulanger", "Darty",
+    "Decathlon", "Intersport", "Go Sport",
+    "Sephora", "Nocibé", "Marionnaud",
+    "Zara", "H&M", "Kiabi", "Vinted"
 ];
 
 // --- TYPES ---
@@ -34,12 +41,23 @@ interface AppNotification {
     type: 'info' | 'alert' | 'fun';
     repeat: 'once' | 'daily' | 'monthly';
     targets: string[]; // ['all'] ou ['email1', 'email2']
-    targetDate?: string; 
+    scheduledFor?: string; // ISO String pour envoi différé
     linkView?: string; 
     linkId?: string;   
     createdAt: string;
     readBy: Record<string, string>; 
 }
+
+// --- ANCRES DE REDIRECTION ---
+const VIEW_ANCHORS: Record<string, {label: string, id: string}[]> = {
+    home: [{ label: 'Haut de page', id: 'top' }, { label: 'Widget HTML', id: 'home-widget' }, { label: 'Accès Rapides', id: 'home-shortcuts' }],
+    hub: [{ label: 'Haut de page', id: 'top' }, { label: 'Saisie Rapide', id: 'hub-input' }, { label: 'Liste de Courses', id: 'hub-shop' }, { label: 'Pense-bêtes', id: 'hub-notes' }, { label: 'Le Mur', id: 'hub-msg' }],
+    recipes: [{ label: 'Haut de page', id: 'top' }, { label: 'Liste des recettes', id: 'recipes-list' }],
+    wallet: [{ label: 'Haut de page', id: 'top' }, { label: 'Graphique Solde', id: 'wallet-graph' }, { label: 'Dettes Famille', id: 'wallet-debts' }],
+    tasks: [{ label: 'Tableau', id: 'tasks-table' }],
+    calendar: [{ label: 'Calendrier', id: 'calendar-view' }],
+    cooking: [{ label: 'Semainier', id: 'cooking-frame' }]
+};
 
 // --- CONFIG PAR DÉFAUT ---
 const ORIGINAL_CONFIG: SiteConfig = {
@@ -53,53 +71,38 @@ const ORIGINAL_CONFIG: SiteConfig = {
   homeHtml: '', cookingHtml: ''
 };
 
-// --- LOGIQUE INTELLIGENTE HUB (20 CATÉGORIES) ---
+// --- LOGIQUE INTELLIGENTE HUB ---
 const categorizeShoppingItem = (text: string) => {
     const lower = text.toLowerCase();
-    
-    // Alimentaire Base
     if (/(lait|beurre|yaourt|creme|crème|oeuf|fromage|gruyere|mozarella|skyr)/.test(lower)) return 'Frais & Crèmerie';
     if (/(pomme|banane|legume|fruit|salade|tomate|carotte|oignon|ail|patate|courgette|avocat|citron|poireau)/.test(lower)) return 'Primeur';
     if (/(viande|poulet|poisson|jambon|steak|lardon|saucisse|dinde|boeuf|thon|saumon|crevette)/.test(lower)) return 'Boucherie/Poisson';
     if (/(pain|baguette|brioche|croissant|pain de mie|burger)/.test(lower)) return 'Boulangerie';
-    
-    // Épicerie
     if (/(pates|pâte|riz|conserve|huile|vinaigre|moutarde|sel|poivre|epice|sauce|mayo|ketchup|bocal)/.test(lower)) return 'Épicerie Salée';
     if (/(sucre|farine|chocolat|gateau|biscuit|cereale|miel|confiture|nutella|bonbon|chips|apero)/.test(lower)) return 'Épicerie Sucrée';
-    
-    // Boissons
     if (/(coca|jus|vin|biere|bière|eau|sirop|soda|alcool|cafe|the|tisane|lait)/.test(lower)) return 'Boissons';
-    
-    // Maison & Soin
     if (/(shampoing|savon|dentifrice|papier|toilette|douche|cosmetique|coton|rasoir|deo)/.test(lower)) return 'Hygiène & Beauté';
     if (/(lessive|produit|eponge|sac|poubelle|nettoyant|vaisselle|javel|sopalin)/.test(lower)) return 'Entretien Maison';
-    if (/(ampoule|pile|vis|colle|outil|scotch)/.test(lower)) return 'Bricolage';
+    if (/(ampoule|pile|vis|colle|outil|scotch|peinture)/.test(lower)) return 'Bricolage';
     if (/(fleur|plante|terreau|graine)/.test(lower)) return 'Jardin';
-    
-    // Spécifique
     if (/(croquette|patee|litiere|chat|chien)/.test(lower)) return 'Animaux';
     if (/(glace|surgeles|pizza|frite|poelee)/.test(lower)) return 'Surgelés';
     if (/(couche|bebe|lingette|pot)/.test(lower)) return 'Bébé';
     if (/(medicament|doliprane|pansement|sirop)/.test(lower)) return 'Pharmacie';
-    
     return 'Divers';
 };
 
 // --- LOGIQUE DES TÂCHES ---
 const ROTATION = ['G', 'P', 'V'];
 const REF_DATE = new Date('2025-12-20T12:00:00'); 
-
 const getChores = (date: Date) => {
-  const saturday = new Date(date);
-  saturday.setDate(date.getDate() - (date.getDay() + 1) % 7);
-  saturday.setHours(12, 0, 0, 0);
+  const saturday = new Date(date); saturday.setDate(date.getDate() - (date.getDay() + 1) % 7); saturday.setHours(12, 0, 0, 0);
   const weekId = `${saturday.getDate()}-${saturday.getMonth()+1}-${saturday.getFullYear()}`;
   const diffTime = saturday.getTime() - REF_DATE.getTime();
   const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
   const mod = (n: number, m: number) => ((n % m) + m) % m;
   return { id: weekId, fullDate: saturday, dateStr: `${saturday.getDate()}/${saturday.getMonth()+1}`, haut: ROTATION[mod(diffWeeks, 3)], bas: ROTATION[mod(diffWeeks + 2, 3)], douche: ROTATION[mod(diffWeeks + 1, 3)] };
 };
-
 const getMonthWeekends = () => {
   const today = new Date(); const year = today.getFullYear(); const month = today.getMonth();
   const weekends = []; const date = new Date(year, month, 1);
@@ -170,13 +173,10 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
         if (inputType === 'shop') category = categorizeShoppingItem(newItem);
         
         await addDoc(collection(db, 'hub_items'), {
-            type: inputType,
-            content: newItem,
-            category,
-            store: selectedStore || 'Divers', // Store Logic
+            type: inputType, content: newItem, category,
+            store: inputType === 'shop' ? (selectedStore || 'Divers') : null,
             author: usersMapping[user.email!] || user.email?.charAt(0).toUpperCase(),
-            createdAt: new Date().toISOString(),
-            done: false
+            createdAt: new Date().toISOString(), done: false
         });
         setNewItem('');
         setStoreSearch('');
@@ -211,7 +211,7 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
                         <button onClick={addItem} className="p-4 bg-black text-white rounded-2xl hover:scale-105 transition-transform"><Plus/></button>
                     </div>
 
-                    {/* SELECTEUR MAGASIN (Seulement pour Courses) */}
+                    {/* SELECTEUR MAGASIN */}
                     {inputType === 'shop' && (
                         <div className="relative">
                             <div className="flex items-center bg-gray-50 rounded-xl px-4 border border-gray-200">
@@ -220,17 +220,22 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
                                     value={storeSearch} 
                                     onFocus={() => setShowStoreList(true)}
                                     onChange={e => { setStoreSearch(e.target.value); setSelectedStore(e.target.value); }} 
-                                    placeholder="Rechercher un magasin ou un commerce..." 
+                                    placeholder="Rechercher un magasin..." 
                                     className="w-full py-3 bg-transparent text-xs font-bold outline-none text-gray-600"
                                 />
                             </div>
                             {showStoreList && storeSearch && (
-                                <div className="absolute top-full left-0 right-0 bg-white border border-gray-100 rounded-xl shadow-lg mt-1 max-h-40 overflow-y-auto z-50">
+                                <div className="absolute top-full left-0 right-0 bg-white border border-gray-100 rounded-xl shadow-lg mt-1 max-h-48 overflow-y-auto z-50">
                                     {filteredStores.map(store => (
-                                        <div key={store} onClick={() => { setSelectedStore(store); setStoreSearch(store); setShowStoreList(false); }} className="p-3 text-xs font-bold hover:bg-gray-50 cursor-pointer">
+                                        <div key={store} onClick={() => { setSelectedStore(store); setStoreSearch(store); setShowStoreList(false); }} className="p-3 text-xs font-bold hover:bg-gray-50 cursor-pointer border-b border-gray-50">
                                             {store}
                                         </div>
                                     ))}
+                                    {/* BOUTON AJOUTER SI PAS DANS LA LISTE */}
+                                    <div onClick={() => { setSelectedStore(storeSearch); setShowStoreList(false); }} className="p-3 bg-orange-50 text-orange-600 text-xs font-bold hover:bg-orange-100 cursor-pointer flex items-center justify-between">
+                                        <span>Ajouter "{storeSearch}"</span>
+                                        <Plus size={14}/>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -239,7 +244,7 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {/* COLONNE COURSES TRIÉE */}
+                {/* COLONNE COURSES */}
                 <div className="space-y-4" id="hub-shop">
                     <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><ShoppingCart size={20}/> LISTE DE COURSES</h3>
                     {sortedShopItems.map(item => (
@@ -249,7 +254,8 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
                                     <span className="text-[9px] font-black uppercase text-orange-600 bg-orange-100 px-2 py-0.5 rounded-md">{item.category}</span>
                                     {item.store && <span className="text-[9px] font-bold uppercase text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md"><Store size={8} className="inline mr-1"/>{item.store}</span>}
                                 </div>
-                                <span className="font-bold text-gray-700 block">{item.content} <span className="text-xs text-gray-400 font-normal">({item.store || 'Divers'})</span></span>
+                                {/* SUPPRESSION DE LA PARENTHÈSE ICI */}
+                                <span className="font-bold text-gray-700 block">{item.content}</span>
                             </div>
                             <button onClick={() => deleteItem(item.id)} className="text-gray-300 hover:text-red-500"><X size={18}/></button>
                         </div>
@@ -501,6 +507,8 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   
   // NOTIFICATION STATE
   const [notif, setNotif] = useState<Partial<AppNotification>>({ message: '', type: 'info', repeat: 'once', linkView: '', linkId: '', targets: ['all'] });
+  const [schedDate, setSchedDate] = useState('');
+  const [schedTime, setSchedTime] = useState('');
   const [activeNotifs, setActiveNotifs] = useState<AppNotification[]>([]);
 
   useEffect(() => {
@@ -543,14 +551,23 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
 
   const sendNotification = async () => {
       if(!notif.message) return alert("Message vide");
+      
+      let scheduledISO = undefined;
+      if (schedDate && schedTime) {
+          scheduledISO = new Date(`${schedDate}T${schedTime}`).toISOString();
+      }
+
       await addDoc(collection(db, 'notifications'), {
           ...notif,
           targets: notif.targets?.length ? notif.targets : ['all'],
+          scheduledFor: scheduledISO,
           createdAt: new Date().toISOString(),
           readBy: {}
       });
       setNotif({ message: '', type: 'info', repeat: 'once', linkView: '', linkId: '', targets: ['all'] });
-      alert("Notification envoyée !");
+      setSchedDate('');
+      setSchedTime('');
+      alert("Notification envoyée/programmée !");
   };
 
   const sendEmailToAll = () => {
@@ -624,10 +641,10 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
           <div className="space-y-8 animate-in fade-in">
               <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>NOTIFICATIONS</h3>
               <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
-                  <h4 className="font-bold text-xs uppercase tracking-widest text-gray-400">Nouvelle Notification</h4>
+                  <h4 className="font-bold text-xs uppercase tracking-widest text-gray-400">Contenu & Cible</h4>
                   <textarea value={notif.message} onChange={e => setNotif({...notif, message: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200" placeholder="Message..." />
                   
-                  {/* ZONE CIBLAGE (QUI RECOIT ?) */}
+                  {/* ZONE CIBLAGE */}
                   <div className="flex flex-wrap gap-2">
                       <button onClick={() => setNotif({...notif, targets: ['all']})} className={`px-3 py-1 rounded-full text-xs font-bold ${notif.targets?.includes('all') ? 'bg-black text-white' : 'bg-gray-200 text-gray-500'}`}>TOUS</button>
                       {users.map((u: any) => (
@@ -639,7 +656,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
                       ))}
                   </div>
 
-                  {/* ZONE REDIRECTION INTELLIGENTE */}
+                  {/* ZONE REDIRECTION */}
                   <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-4 rounded-xl border border-gray-200">
                       <div className="flex items-center gap-2 min-w-[200px]">
                           <CornerDownRight size={16} className="text-gray-400"/>
@@ -666,10 +683,18 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
                       )}
                   </div>
 
-                  <div className="flex gap-4">
+                  <h4 className="font-bold text-xs uppercase tracking-widest text-gray-400 mt-4">Type & Programmation</h4>
+                  <div className="flex flex-wrap gap-4">
                       <select value={notif.type} onChange={e => setNotif({...notif, type: e.target.value as any})} className="p-3 rounded-xl border border-gray-200"><option value="info">Info</option><option value="alert">Alerte</option><option value="fun">Fun</option></select>
                       <select value={notif.repeat} onChange={e => setNotif({...notif, repeat: e.target.value as any})} className="p-3 rounded-xl border border-gray-200"><option value="once">Une fois</option><option value="daily">Tous les jours</option><option value="monthly">Tous les mois</option></select>
-                      <button onClick={sendNotification} className="flex-1 bg-black text-white font-bold rounded-xl">Envoyer Interne</button>
+                      
+                      <div className="flex gap-2 items-center bg-white p-2 rounded-xl border border-gray-200">
+                          <CalendarClock size={16} className="text-gray-400"/>
+                          <input type="date" value={schedDate} onChange={e => setSchedDate(e.target.value)} className="text-xs font-bold outline-none"/>
+                          <input type="time" value={schedTime} onChange={e => setSchedTime(e.target.value)} className="text-xs font-bold outline-none"/>
+                      </div>
+
+                      <button onClick={sendNotification} className="flex-1 bg-black text-white font-bold rounded-xl px-6">Envoyer Interne</button>
                   </div>
                   <button onClick={sendEmailToAll} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 font-bold rounded-xl hover:bg-gray-100 flex items-center justify-center gap-2"><Mail size={16}/> Envoyer par Mail (avec lien)</button>
               </div>
@@ -678,11 +703,13 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
                   {activeNotifs.map(n => (
                       <div key={n.id} className="flex justify-between items-center p-4 bg-white rounded-xl border border-gray-100">
                           <div>
-                              <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase mr-2 ${n.type === 'alert' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{n.type}</span>
+                              <div className="flex gap-2 mb-1">
+                                  <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase ${n.type === 'alert' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{n.type}</span>
+                                  {n.scheduledFor && <span className="text-[10px] font-bold bg-orange-100 text-orange-600 px-2 py-1 rounded flex items-center gap-1"><Clock size={10}/> {new Date(n.scheduledFor).toLocaleString()}</span>}
+                              </div>
                               <span className="font-bold">{n.message}</span>
                               {n.linkView && <span className="ml-2 text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-500">Link: {n.linkView}</span>}
                               {n.targets && !n.targets.includes('all') && <span className="ml-2 text-[10px] text-gray-400">({n.targets.length} destinataires)</span>}
-                              <div className="text-xs text-gray-400 mt-1">Répétition: {n.repeat} • Créé le {new Date(n.createdAt).toLocaleDateString()}</div>
                           </div>
                           <button onClick={() => deleteDoc(doc(db, 'notifications', n.id))} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button>
                       </div>
@@ -785,6 +812,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
            <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b: string) => setLocalC({...localC, welcomeImage: b}))} />
            <div onClick={() => fileRef.current?.click()} className="p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer text-xs uppercase font-bold text-gray-400">Changer la photo</div>
            
+           {/* RESTAURATION DU CHAMP HTML ACCUEIL */}
            <textarea 
               value={localC.homeHtml} 
               onChange={e => setLocalC({...localC, homeHtml: e.target.value})} 
@@ -888,6 +916,9 @@ const App: React.FC = () => {
             if(!user.email) return false;
             // FILTER BY TARGET
             if (n.targets && !n.targets.includes('all') && !n.targets.includes(user.email)) return false;
+            
+            // FILTER BY DATE (DELAYED SEND)
+            if (n.scheduledFor && new Date() < new Date(n.scheduledFor)) return false;
 
             const readDate = n.readBy[user.email];
             if(!readDate) return true; // Jamais lu
