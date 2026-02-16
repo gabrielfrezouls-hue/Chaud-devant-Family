@@ -18,7 +18,7 @@ import Background from './components/Background';
 import RecipeCard from './components/RecipeCard';
 
 // ============================================================================
-// 1. CONFIGURATION & DONNÉES STATIQUES
+// 1. CONSTANTES & LOGIQUE
 // ============================================================================
 
 const ADMIN_EMAIL = "gabriel.frezouls@gmail.com";
@@ -43,81 +43,27 @@ const ORIGINAL_CONFIG: SiteConfig = {
   welcomeTitle: 'CHAUD DEVANT',
   welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
   welcomeImage: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
-  navigationLabels: { 
-      home: 'ACCUEIL', 
-      hub: 'TABLEAU', 
-      fridge: 'FRIGO', 
-      xsite: 'XSITE', 
-      cooking: 'SEMAINIER', 
-      recipes: 'RECETTES', 
-      calendar: 'CALENDRIER', 
-      tasks: 'TÂCHES', 
-      wallet: 'PORTE-MONNAIE' 
-  },
-  homeHtml: '', 
-  cookingHtml: ''
+  navigationLabels: { home: 'ACCUEIL', hub: 'TABLEAU', fridge: 'FRIGO', xsite: 'XSITE', cooking: 'SEMAINIER', recipes: 'RECETTES', calendar: 'CALENDRIER', tasks: 'TÂCHES', wallet: 'PORTE-MONNAIE' },
+  homeHtml: '', cookingHtml: ''
 };
-
-// ============================================================================
-// 2. TYPES & LOGIQUE MÉTIER
-// ============================================================================
 
 interface AppNotification {
-    id: string;
-    message: string;
-    type: 'info' | 'alert' | 'fun';
-    repeat: 'once' | 'daily' | 'monthly';
-    targets: string[]; 
-    scheduledFor?: string; // ISO String
-    linkView?: string; 
-    linkId?: string;   
-    createdAt: string;
-    readBy: Record<string, string>; 
+    id: string; message: string; type: 'info' | 'alert' | 'fun'; repeat: 'once' | 'daily' | 'monthly'; targets: string[]; scheduledFor?: string; linkView?: string; linkId?: string; createdAt: string; readBy: Record<string, string>; 
 }
 
-// Points d'ancrage pour le scroll automatique (Deep Linking)
 const VIEW_ANCHORS: Record<string, {label: string, id: string}[]> = {
-    home: [
-        { label: 'Haut de page', id: 'top' }, 
-        { label: 'Widget HTML', id: 'home-widget' }, 
-        { label: 'Accès Rapides', id: 'home-shortcuts' }
-    ],
-    hub: [
-        { label: 'Haut de page', id: 'top' }, 
-        { label: 'Saisie Rapide', id: 'hub-input' }, 
-        { label: 'Liste de Courses', id: 'hub-shop' }, 
-        { label: 'Pense-bêtes', id: 'hub-notes' }, 
-        { label: 'Le Mur', id: 'hub-msg' }
-    ],
-    fridge: [
-        { label: 'Haut de page', id: 'top' }, 
-        { label: 'Scanner', id: 'fridge-scan' }, 
-        { label: 'Inventaire', id: 'fridge-list' }
-    ],
-    recipes: [
-        { label: 'Haut de page', id: 'top' }, 
-        { label: 'Liste des recettes', id: 'recipes-list' }
-    ],
-    wallet: [
-        { label: 'Haut de page', id: 'top' }, 
-        { label: 'Graphique Solde', id: 'wallet-graph' }, 
-        { label: 'Dettes Famille', id: 'wallet-debts' }
-    ],
-    tasks: [
-        { label: 'Tableau', id: 'tasks-table' }
-    ],
-    calendar: [
-        { label: 'Calendrier', id: 'calendar-view' }
-    ],
-    cooking: [
-        { label: 'Semainier', id: 'cooking-frame' }
-    ]
+    home: [{ label: 'Haut de page', id: 'top' }, { label: 'Widget HTML', id: 'home-widget' }, { label: 'Accès Rapides', id: 'home-shortcuts' }],
+    hub: [{ label: 'Haut de page', id: 'top' }, { label: 'Saisie Rapide', id: 'hub-input' }, { label: 'Liste de Courses', id: 'hub-shop' }, { label: 'Pense-bêtes', id: 'hub-notes' }, { label: 'Le Mur', id: 'hub-msg' }],
+    fridge: [{ label: 'Haut de page', id: 'top' }, { label: 'Scanner', id: 'fridge-scan' }, { label: 'Inventaire', id: 'fridge-list' }],
+    recipes: [{ label: 'Haut de page', id: 'top' }, { label: 'Liste des recettes', id: 'recipes-list' }],
+    wallet: [{ label: 'Haut de page', id: 'top' }, { label: 'Graphique Solde', id: 'wallet-graph' }, { label: 'Dettes Famille', id: 'wallet-debts' }],
+    tasks: [{ label: 'Tableau', id: 'tasks-table' }],
+    calendar: [{ label: 'Calendrier', id: 'calendar-view' }],
+    cooking: [{ label: 'Semainier', id: 'cooking-frame' }]
 };
 
-// Logique de tri automatique par catégorie (Hub & Frigo)
 const categorizeShoppingItem = (text: string) => {
     const lower = text.toLowerCase();
-    
     if (/(lait|beurre|yaourt|creme|crème|oeuf|fromage|gruyere|mozarella|skyr)/.test(lower)) return 'Frais & Crèmerie';
     if (/(pomme|banane|legume|fruit|salade|tomate|carotte|oignon|ail|patate|courgette|avocat|citron|poireau)/.test(lower)) return 'Primeur';
     if (/(viande|poulet|poisson|jambon|steak|lardon|saucisse|dinde|boeuf|thon|saumon|crevette)/.test(lower)) return 'Boucherie/Poisson';
@@ -133,49 +79,9 @@ const categorizeShoppingItem = (text: string) => {
     if (/(glace|surgeles|pizza|frite|poelee)/.test(lower)) return 'Surgelés';
     if (/(couche|bebe|lingette|pot)/.test(lower)) return 'Bébé';
     if (/(medicament|doliprane|pansement|sirop)/.test(lower)) return 'Pharmacie';
-    
     return 'Divers';
 };
 
-// Rotation des Tâches Ménagères
-const ROTATION = ['G', 'P', 'V'];
-const REF_DATE = new Date('2025-12-20T12:00:00'); 
-
-const getChores = (date: Date) => {
-  const saturday = new Date(date);
-  saturday.setDate(date.getDate() - (date.getDay() + 1) % 7);
-  saturday.setHours(12, 0, 0, 0);
-
-  const weekId = `${saturday.getDate()}-${saturday.getMonth()+1}-${saturday.getFullYear()}`;
-  const diffTime = saturday.getTime() - REF_DATE.getTime();
-  const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
-  const mod = (n: number, m: number) => ((n % m) + m) % m;
-
-  return { 
-      id: weekId, 
-      fullDate: saturday, 
-      dateStr: `${saturday.getDate()}/${saturday.getMonth()+1}`, 
-      haut: ROTATION[mod(diffWeeks, 3)], 
-      bas: ROTATION[mod(diffWeeks + 2, 3)], 
-      douche: ROTATION[mod(diffWeeks + 1, 3)] 
-  };
-};
-
-const getMonthWeekends = () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  const weekends = [];
-  const date = new Date(year, month, 1);
-  while (date.getDay() !== 6) { date.setDate(date.getDate() + 1); }
-  while (date.getMonth() === month) {
-    weekends.push(getChores(new Date(date)));
-    date.setDate(date.getDate() + 7);
-  }
-  return weekends;
-};
-
-// API OpenFoodFacts pour récupérer les infos via code-barre (SANS LIBRAIRIE)
 const fetchProductByBarcode = async (barcode: string) => {
     try {
         const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`);
@@ -189,39 +95,66 @@ const fetchProductByBarcode = async (barcode: string) => {
             };
         }
         return null;
-    } catch (e) { 
-        console.error("Erreur API:", e); 
-        return null; 
-    }
+    } catch (e) { console.error("Erreur API:", e); return null; }
+};
+
+const ROTATION = ['G', 'P', 'V'];
+const REF_DATE = new Date('2025-12-20T12:00:00'); 
+const getChores = (date: Date) => {
+  const saturday = new Date(date); saturday.setDate(date.getDate() - (date.getDay() + 1) % 7); saturday.setHours(12, 0, 0, 0);
+  const weekId = `${saturday.getDate()}-${saturday.getMonth()+1}-${saturday.getFullYear()}`;
+  const diffTime = saturday.getTime() - REF_DATE.getTime();
+  const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
+  const mod = (n: number, m: number) => ((n % m) + m) % m;
+  return { id: weekId, fullDate: saturday, dateStr: `${saturday.getDate()}/${saturday.getMonth()+1}`, haut: ROTATION[mod(diffWeeks, 3)], bas: ROTATION[mod(diffWeeks + 2, 3)], douche: ROTATION[mod(diffWeeks + 1, 3)] };
+};
+const getMonthWeekends = () => {
+  const today = new Date(); const year = today.getFullYear(); const month = today.getMonth();
+  const weekends = []; const date = new Date(year, month, 1);
+  while (date.getDay() !== 6) { date.setDate(date.getDate() + 1); }
+  while (date.getMonth() === month) { weekends.push(getChores(new Date(date))); date.setDate(date.getDate() + 7); }
+  return weekends;
 };
 
 // ============================================================================
-// 3. COMPOSANTS UI & GRAPHIQUES
+// 2. COMPOSANTS DE NAVIGATION ET UI (Définis AVANT leur utilisation)
 // ============================================================================
+
+const SideMenu = ({ config, isOpen, close, setView, logout }: any) => (
+  <div className={`fixed inset-0 z-[60] ${isOpen ? '' : 'pointer-events-none'}`}>
+    <div className={`absolute inset-0 bg-black/40 transition-opacity ${isOpen ? 'opacity-100' : 'opacity-0'}`} onClick={close} />
+    <div className={`absolute right-0 top-0 h-full w-80 bg-white p-10 transition-transform ${isOpen ? 'translate-x-0' : 'translate-x-full'} overflow-y-auto`}>
+      <button onClick={() => close(false)} className="mb-10 text-gray-300"><X /></button>
+      <div className="space-y-4">
+        {['home','hub','fridge','recipes','cooking','calendar', 'tasks', 'wallet', 'edit'].map(v => (
+          <button key={v} onClick={() => { setView(v); close(false); }} className="block w-full text-left p-4 hover:bg-black/5 rounded-xl uppercase font-black text-xs tracking-widest">{config.navigationLabels[v] || v}</button>
+        ))}
+        <button onClick={logout} className="block w-full text-left p-4 text-red-500 font-bold text-xs tracking-widest mt-8 border-t">DÉCONNEXION</button>
+      </div>
+    </div>
+  </div>
+);
+
+const BottomNav = ({ config, view, setView }: any) => (
+  <div className="md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 text-white/50 px-4 pb-4 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
+    {[ {id:'home', i:<Home size={22}/>}, {id:'hub', i:<LayoutDashboard size={22}/>}, {id:'fridge', i:<UtensilsCrossed size={22}/>}, {id:'recipes', i:<ChefHat size={22}/>}, {id:'wallet', i:<Wallet size={22}/>} ].map(b => <button key={b.id} onClick={() => setView(b.id)} className={`p-2 ${view === b.id ? 'text-white -translate-y-2 bg-white/20 rounded-xl' : ''}`}>{b.i}</button>)}
+  </div>
+);
+
+const HomeCard = ({ icon, title, label, onClick, color }: any) => (
+  <div onClick={onClick} className="bg-white/70 backdrop-blur-md p-10 rounded-[3rem] cursor-pointer hover:scale-105 transition-transform shadow-lg border border-white/50 group">
+    <div style={{ color }} className="mb-6 group-hover:scale-110 transition-transform">{icon}</div><h3 className="text-2xl font-cinzel font-bold mb-2 uppercase">{title}</h3><p className="text-[10px] font-bold tracking-widest opacity-50 uppercase flex items-center gap-2">{label} <ChevronRight size={14}/></p>
+  </div>
+);
 
 const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
   if (!data || data.length < 2) return <div className="h-full flex items-center justify-center text-gray-300 italic text-xs">Pas assez de données</div>;
   const width = 300; const height = 100; const padding = 5;
   const values = data.map(d => d.solde);
   const min = Math.min(...values); const max = Math.max(...values);
-  const range = max - min || 1; // Sécurité division par zéro
-  
-  const points = data.map((d, i) => {
-    const x = (i / (data.length - 1)) * (width - padding * 2) + padding;
-    const y = height - ((d.solde - min) / range) * (height - padding * 2) - padding;
-    return `${x},${y}`;
-  }).join(' ');
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
-      <polyline fill="none" stroke={color} strokeWidth="3" points={points} strokeLinecap="round" strokeLinejoin="round"/>
-      {data.map((d, i) => {
-        const x = (i / (data.length - 1)) * (width - padding * 2) + padding;
-        const y = height - ((d.solde - min) / range) * (height - padding * 2) - padding;
-        return (<g key={i}><circle cx={x} cy={y} r="3" fill="white" stroke={color} strokeWidth="2" /></g>);
-      })}
-    </svg>
-  );
+  const range = max - min || 1; 
+  const points = data.map((d, i) => { const x = (i / (data.length - 1)) * (width - padding * 2) + padding; const y = height - ((d.solde - min) / range) * (height - padding * 2) - padding; return `${x},${y}`; }).join(' ');
+  return (<svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible"><polyline fill="none" stroke={color} strokeWidth="3" points={points} strokeLinecap="round" strokeLinejoin="round"/>{data.map((d, i) => { const x = (i / (data.length - 1)) * (width - padding * 2) + padding; const y = height - ((d.solde - min) / range) * (height - padding * 2) - padding; return (<g key={i}><circle cx={x} cy={y} r="3" fill="white" stroke={color} strokeWidth="2" /></g>); })}</svg>);
 };
 
 const CircleLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
@@ -229,38 +162,37 @@ const CircleLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
   const size = 200; const radius = 90; const center = size / 2;
   const liquidHeight = (safePercent / 100) * size;
   const liquidY = size - liquidHeight;
-  return (
-    <div className="relative w-full h-full flex justify-center items-center">
-        <svg viewBox={`0 0 ${size} ${size}`} className="w-full h-full drop-shadow-xl overflow-visible">
-            <defs><clipPath id="circleClip"><circle cx={center} cy={center} r={radius} /></clipPath><linearGradient id="liquidGrad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#facc15" /><stop offset="100%" stopColor="#ca8a04" /></linearGradient></defs>
-            <circle cx={center} cy={center} r={radius} fill="#fef9c3" stroke="none" /> 
-            <rect x="0" y={liquidY} width={size} height={liquidHeight} fill="url(#liquidGrad)" clipPath="url(#circleClip)" className="transition-all duration-1000 ease-in-out" />
-            <circle cx={center} cy={center} r={radius} fill="none" stroke="#eab308" strokeWidth="6" />
-        </svg>
-    </div>
-  );
+  return (<div className="relative w-full h-full flex justify-center items-center"><svg viewBox={`0 0 ${size} ${size}`} className="w-full h-full drop-shadow-xl overflow-visible"><defs><clipPath id="circleClip"><circle cx={center} cy={center} r={radius} /></clipPath><linearGradient id="liquidGrad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#facc15" /><stop offset="100%" stopColor="#ca8a04" /></linearGradient></defs><circle cx={center} cy={center} r={radius} fill="#fef9c3" stroke="none" /> <rect x="0" y={liquidY} width={size} height={liquidHeight} fill="url(#liquidGrad)" clipPath="url(#circleClip)" className="transition-all duration-1000 ease-in-out" /><circle cx={center} cy={center} r={radius} fill="none" stroke="#eab308" strokeWidth="6" /></svg></div>);
 };
 
 const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, myLetter }: any) => {
-  const isDone = choreStatus[weekId]?.[letter] || false; 
-  const canCheck = !isLocked && myLetter === letter; 
-  return (
-    <td className="p-4 text-center align-middle">
-      <div className="flex flex-col items-center gap-2">
-        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}> {letter} </span>
-        <button onClick={() => canCheck && toggleChore(weekId, letter)} disabled={!canCheck} className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20 cursor-not-allowed' : ''}`} title={isLocked ? "Trop tôt pour cocher !" : ""}>
-          {isDone ? <CheckSquare className="text-green-500" size={24} /> : (canCheck ? <Square className="text-green-500 hover:fill-green-50" size={24} /> : <Square className="text-gray-200" size={24} />)}
-        </button>
-      </div>
-    </td>
-  );
+  const isDone = choreStatus[weekId]?.[letter] || false; const canCheck = !isLocked && myLetter === letter; 
+  return (<td className="p-4 text-center align-middle"><div className="flex flex-col items-center gap-2"><span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}> {letter} </span><button onClick={() => canCheck && toggleChore(weekId, letter)} disabled={!canCheck} className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20 cursor-not-allowed' : ''}`} title={isLocked ? "Trop tôt pour cocher !" : ""}>{isDone ? <CheckSquare className="text-green-500" size={24} /> : (canCheck ? <Square className="text-green-500 hover:fill-green-50" size={24} /> : <Square className="text-gray-200" size={24} />)}</button></div></td>);
+};
+
+const ButlerFloating = ({ chatHistory, setChatHistory, isAiLoading, setIsAiLoading }: any) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [msg, setMsg] = useState('');
+    const handleChat = async () => {
+        if (!msg.trim()) return;
+        const h = [...chatHistory, { role: 'user', text: msg }];
+        setChatHistory(h); setMsg(''); setIsAiLoading(true);
+        const r = await askAIChat(h);
+        setChatHistory([...h, { role: 'model', text: r }]);
+        setIsAiLoading(false);
+    };
+    return (
+        <div className="fixed bottom-24 right-6 z-[200] flex flex-col items-end">
+            {isOpen && (<div className="w-80 h-96 bg-white rounded-3xl shadow-2xl border border-gray-100 flex flex-col mb-4 animate-in slide-in-from-bottom-5"><div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-3xl"><span className="font-cinzel font-bold text-xs">Le Majordome</span><button onClick={() => setIsOpen(false)}><X size={16}/></button></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{chatHistory.map((c:any, i:number) => (<div key={i} className={`p-3 rounded-2xl text-xs ${c.role === 'user' ? 'bg-orange-100 ml-8' : 'bg-gray-100 mr-8'}`}>{c.text}</div>))}{isAiLoading && <Loader2 className="animate-spin text-gray-300 mx-auto"/>}</div><div className="p-3 border-t flex gap-2"><input value={msg} onChange={e => setMsg(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleChat()} placeholder="Une question ?" className="flex-1 text-xs p-2 rounded-xl bg-gray-50 outline-none" /><button onClick={handleChat} className="p-2 bg-black text-white rounded-xl"><Send size={14}/></button></div></div>)}
+            <button onClick={() => setIsOpen(!isOpen)} className="w-14 h-14 bg-black text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-transform">{isOpen ? <X/> : <Sparkles size={24} className="animate-pulse text-orange-400"/>}</button>
+        </div>
+    );
 };
 
 // ============================================================================
-// 4. VUES PRINCIPALES (Hub, Frigo, Wallet)
+// 3. VUES PRINCIPALES (Hub, Frigo, Wallet)
 // ============================================================================
 
-// --- VUE TABLEAU (HUB) AVEC RECHERCHE MAGASIN ---
 const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfig, usersMapping: any }) => {
     const [hubItems, setHubItems] = useState<any[]>([]);
     const [newItem, setNewItem] = useState('');
@@ -281,29 +213,19 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
         if (inputType === 'shop') category = categorizeShoppingItem(newItem);
         
         await addDoc(collection(db, 'hub_items'), {
-            type: inputType,
-            content: newItem,
-            category,
+            type: inputType, content: newItem, category,
             store: inputType === 'shop' ? (selectedStore || 'Divers') : null,
             author: usersMapping[user.email!] || user.email?.charAt(0).toUpperCase(),
-            createdAt: new Date().toISOString(),
-            done: false
+            createdAt: new Date().toISOString(), done: false
         });
-        setNewItem('');
-        setStoreSearch('');
-        setSelectedStore('');
+        setNewItem(''); setStoreSearch(''); setSelectedStore('');
     };
-
     const deleteItem = async (id: string) => { await deleteDoc(doc(db, 'hub_items', id)); };
-
-    // Tri : Magasin (Alphabétique) -> Catégorie (Alphabétique)
     const sortedShopItems = hubItems.filter(i => i.type === 'shop').sort((a, b) => {
-        const storeA = a.store || 'Z'; 
-        const storeB = b.store || 'Z';
+        const storeA = a.store || 'Z'; const storeB = b.store || 'Z';
         if (storeA !== storeB) return storeA.localeCompare(storeB);
         return a.category.localeCompare(b.category);
     });
-
     const filteredStores = COMMON_STORES.filter(s => s.toLowerCase().includes(storeSearch.toLowerCase()));
 
     return (
@@ -314,101 +236,30 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
                     <button onClick={() => setInputType('note')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType === 'note' ? 'bg-yellow-400 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-400'}`}><StickyNote size={16} className="inline mr-2"/> Note</button>
                     <button onClick={() => setInputType('msg')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType === 'msg' ? 'bg-blue-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-400'}`}><MessageSquare size={16} className="inline mr-2"/> Msg</button>
                 </div>
-                
                 <div className="flex flex-col gap-2">
-                    <div className="flex gap-2">
-                        <input 
-                            value={newItem} 
-                            onChange={e => setNewItem(e.target.value)} 
-                            onKeyDown={e => e.key === 'Enter' && addItem()} 
-                            placeholder={inputType === 'shop' ? "Ex: Lait, Beurre..." : "Message..."} 
-                            className="flex-1 p-4 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black transition-colors"
-                        />
-                        <button onClick={addItem} className="p-4 bg-black text-white rounded-2xl hover:scale-105 transition-transform"><Plus/></button>
-                    </div>
-
-                    {/* SELECTEUR MAGASIN INTELLIGENT */}
+                    <div className="flex gap-2"><input value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => e.key === 'Enter' && addItem()} placeholder={inputType === 'shop' ? "Ex: Lait, Beurre..." : "Message..."} className="flex-1 p-4 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black transition-colors"/><button onClick={addItem} className="p-4 bg-black text-white rounded-2xl hover:scale-105 transition-transform"><Plus/></button></div>
                     {inputType === 'shop' && (
                         <div className="relative">
-                            <div className="flex items-center bg-gray-50 rounded-xl px-4 border border-gray-200">
-                                <Store size={16} className="text-gray-400 mr-2"/>
-                                <input 
-                                    value={storeSearch} 
-                                    onFocus={() => setShowStoreList(true)}
-                                    onChange={e => { setStoreSearch(e.target.value); setSelectedStore(e.target.value); }} 
-                                    placeholder="Rechercher un magasin ou commerce..." 
-                                    className="w-full py-3 bg-transparent text-xs font-bold outline-none text-gray-600"
-                                />
-                            </div>
+                            <div className="flex items-center bg-gray-50 rounded-xl px-4 border border-gray-200"><Store size={16} className="text-gray-400 mr-2"/><input value={storeSearch} onFocus={() => setShowStoreList(true)} onChange={e => { setStoreSearch(e.target.value); setSelectedStore(e.target.value); }} placeholder="Rechercher un magasin..." className="w-full py-3 bg-transparent text-xs font-bold outline-none text-gray-600"/></div>
                             {showStoreList && storeSearch && (
                                 <div className="absolute top-full left-0 right-0 bg-white border border-gray-100 rounded-xl shadow-lg mt-1 max-h-48 overflow-y-auto z-50">
-                                    {filteredStores.map(store => (
-                                        <div key={store} onClick={() => { setSelectedStore(store); setStoreSearch(store); setShowStoreList(false); }} className="p-3 text-xs font-bold hover:bg-gray-50 cursor-pointer border-b border-gray-50">
-                                            {store}
-                                        </div>
-                                    ))}
-                                    {/* BOUTON AJOUTER MANUEL */}
-                                    <div onClick={() => { setSelectedStore(storeSearch); setShowStoreList(false); }} className="p-3 bg-orange-50 text-orange-600 text-xs font-bold hover:bg-orange-100 cursor-pointer flex items-center justify-between">
-                                        <span>Ajouter "{storeSearch}"</span>
-                                        <Plus size={14}/>
-                                    </div>
+                                    {filteredStores.map(store => (<div key={store} onClick={() => { setSelectedStore(store); setStoreSearch(store); setShowStoreList(false); }} className="p-3 text-xs font-bold hover:bg-gray-50 cursor-pointer border-b border-gray-50">{store}</div>))}
+                                    <div onClick={() => { setSelectedStore(storeSearch); setShowStoreList(false); }} className="p-3 bg-orange-50 text-orange-600 text-xs font-bold hover:bg-orange-100 cursor-pointer flex items-center justify-between"><span>Ajouter "{storeSearch}"</span><Plus size={14}/></div>
                                 </div>
                             )}
                         </div>
                     )}
                 </div>
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {/* COLONNE COURSES */}
-                <div className="space-y-4" id="hub-shop">
-                    <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><ShoppingCart size={20}/> LISTE DE COURSES</h3>
-                    {sortedShopItems.map(item => (
-                        <div key={item.id} className="group flex justify-between items-center p-4 bg-white rounded-2xl shadow-sm border-l-4 border-orange-400 hover:shadow-md transition-all">
-                            <div>
-                                <div className="flex items-center gap-2 mb-1">
-                                    {item.store && <span className="text-[9px] font-bold uppercase text-gray-500 bg-gray-100 px-2 py-0.5 rounded-md"><Store size={8} className="inline mr-1"/>{item.store}</span>}
-                                    <span className="text-[9px] font-black uppercase text-orange-600 bg-orange-100 px-2 py-0.5 rounded-md">{item.category}</span>
-                                </div>
-                                <span className="font-bold text-gray-700 block">{item.content}</span>
-                            </div>
-                            <button onClick={() => deleteItem(item.id)} className="text-gray-300 hover:text-red-500"><X size={18}/></button>
-                        </div>
-                    ))}
-                    {sortedShopItems.length === 0 && <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-300">Frigo plein !</div>}
-                </div>
-
-                {/* COLONNE PENSE-BÊTE */}
-                <div className="space-y-4" id="hub-notes">
-                    <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><StickyNote size={20}/> PENSE-BÊTES</h3>
-                    <div className="grid grid-cols-2 gap-2">
-                        {hubItems.filter(i => i.type === 'note').map(item => (
-                            <div key={item.id} className="relative p-4 bg-yellow-50 rounded-xl shadow-sm border border-yellow-100 rotate-1 hover:rotate-0 transition-transform">
-                                <button onClick={() => deleteItem(item.id)} className="absolute top-2 right-2 text-yellow-300 hover:text-red-500"><X size={14}/></button>
-                                <p className="font-handwriting font-bold text-yellow-900 text-sm">{item.content}</p>
-                                <div className="mt-2 text-[10px] text-yellow-600 font-bold uppercase text-right">- {item.author}</div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* COLONNE MESSAGES */}
-                <div className="space-y-4" id="hub-msg">
-                    <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><MessageSquare size={20}/> LE MUR</h3>
-                    {hubItems.filter(i => i.type === 'msg').map(item => (
-                        <div key={item.id} className="p-6 bg-blue-500 text-white rounded-tr-3xl rounded-bl-3xl rounded-tl-xl rounded-br-xl shadow-lg relative group">
-                            <button onClick={() => deleteItem(item.id)} className="absolute top-2 right-2 text-blue-300 hover:text-white"><X size={14}/></button>
-                            <p className="font-bold text-lg leading-tight">"{item.content}"</p>
-                            <p className="mt-4 text-xs opacity-60 uppercase tracking-widest text-right">Posté par {item.author}</p>
-                        </div>
-                    ))}
-                </div>
+                <div className="space-y-4" id="hub-shop"><h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><ShoppingCart size={20}/> LISTE DE COURSES</h3>{sortedShopItems.map(item => (<div key={item.id} className="group flex justify-between items-center p-4 bg-white rounded-2xl shadow-sm border-l-4 border-orange-400 hover:shadow-md transition-all"><div><div className="flex items-center gap-2 mb-1"><span className="text-[9px] font-black uppercase text-orange-600 bg-orange-100 px-2 py-0.5 rounded-md">{item.category}</span>{item.store && <span className="text-[9px] font-bold uppercase text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md"><Store size={8} className="inline mr-1"/>{item.store}</span>}</div><span className="font-bold text-gray-700 block">{item.content}</span></div><button onClick={() => deleteItem(item.id)} className="text-gray-300 hover:text-red-500"><X size={18}/></button></div>))}{sortedShopItems.length === 0 && <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-300">Frigo plein !</div>}</div>
+                <div className="space-y-4" id="hub-notes"><h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><StickyNote size={20}/> PENSE-BÊTES</h3><div className="grid grid-cols-2 gap-2">{hubItems.filter(i => i.type === 'note').map(item => (<div key={item.id} className="relative p-4 bg-yellow-50 rounded-xl shadow-sm border border-yellow-100 rotate-1 hover:rotate-0 transition-transform"><button onClick={() => deleteItem(item.id)} className="absolute top-2 right-2 text-yellow-300 hover:text-red-500"><X size={14}/></button><p className="font-handwriting font-bold text-yellow-900 text-sm">{item.content}</p><div className="mt-2 text-[10px] text-yellow-600 font-bold uppercase text-right">- {item.author}</div></div>))}</div></div>
+                <div className="space-y-4" id="hub-msg"><h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><MessageSquare size={20}/> LE MUR</h3>{hubItems.filter(i => i.type === 'msg').map(item => (<div key={item.id} className="p-6 bg-blue-500 text-white rounded-tr-3xl rounded-bl-3xl rounded-tl-xl rounded-br-xl shadow-lg relative group"><button onClick={() => deleteItem(item.id)} className="absolute top-2 right-2 text-blue-300 hover:text-white"><X size={14}/></button><p className="font-bold text-lg leading-tight">"{item.content}"</p><p className="mt-4 text-xs opacity-60 uppercase tracking-widest text-right">Posté par {item.author}</p></div>))}</div>
             </div>
         </div>
     );
 };
 
-// --- VUE FRIGO (SCANNER HYBRIDE : CODE BARRE + PHOTO) ---
 const FridgeView = () => {
     const [items, setItems] = useState<any[]>([]);
     const [isScanning, setIsScanning] = useState(false);
@@ -420,7 +271,6 @@ const FridgeView = () => {
         return () => unsub();
     }, []);
 
-    // 1. SCAN PHOTO IA
     const handlePhotoScan = async (e: any) => {
         const file = e.target.files[0]; if (!file) return;
         setIsScanning(true);
@@ -436,15 +286,12 @@ const FridgeView = () => {
         setIsScanning(false);
     };
 
-    // 2. SCAN CODE BARRE (SANS LIBRAIRIE EXTERNE)
-    // On demande à l'utilisateur de taper le code ou d'utiliser un clavier/douchette
     const handleBarcodeSim = async () => {
         const code = prompt("Scanner ou entrer le Code-Barres :");
         if(code) {
             setIsScanning(true);
             const product = await fetchProductByBarcode(code);
             if(product) {
-                // On demande la date car le code barre ne la contient pas
                 const expiry = prompt(`Produit trouvé : ${product.name}. Date péremption (AAAA-MM-JJ) ?`, new Date(Date.now() + 7*86400000).toISOString().split('T')[0]);
                 await addDoc(collection(db, 'fridge_items'), { 
                     name: product.name, 
@@ -513,7 +360,6 @@ const FridgeView = () => {
     );
 };
 
-// --- VUE WALLET (Fix affichage beige + scroll menu) ---
 const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   const [activeTab, setActiveTab] = useState<'family' | 'personal'>('family');
   const [chartRange, setChartRange] = useState<'1M' | '1Y' | '5Y'>('1M');
@@ -528,20 +374,12 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
     if (!user) return;
     const unsubDebts = onSnapshot(query(collection(db, 'family_debts'), orderBy('createdAt', 'desc')), (s) => setDebts(s.docs.map(d => ({id: d.id, ...d.data()}))));
     const unsubWallet = onSnapshot(doc(db, 'user_wallets', user.email!), (s) => {
-      if (s.exists()) { 
-          const data = s.data();
-          setMyWallet(data); 
-          if(data.savingsGoal) setGoalInput(data.savingsGoal.toString()); 
-      } else { 
-          const initialData = { balance: 0, history: [], tasks: [], savingsGoal: 0, startBalance: 0 };
-          setDoc(doc(db, 'user_wallets', user.email!), initialData);
-          setMyWallet(initialData);
-      }
+      if (s.exists()) { setMyWallet(s.data()); if(s.data().savingsGoal) setGoalInput(s.data().savingsGoal.toString()); } 
+      else { const i = { balance: 0, history: [], tasks: [], savingsGoal: 0, startBalance: 0 }; setDoc(doc(db, 'user_wallets', user.email!), i); setMyWallet(i); }
     });
     return () => { unsubDebts(); unsubWallet(); };
   }, [user]);
 
-  // Si pas encore chargé, afficher Loader au lieu de rien (écran beige)
   if (!myWallet && activeTab === 'personal') return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-gray-400"/></div>;
 
   const addDebt = async () => { if (!newDebt.from || !newDebt.to || !newDebt.amount) return alert("Champs vides"); await addDoc(collection(db, 'family_debts'), { ...newDebt, amount: parseFloat(newDebt.amount), interest: parseFloat(newDebt.interest || '0'), createdAt: new Date().toISOString() }); setNewDebt({ from: '', to: '', amount: '', interest: '', reason: '' }); };
@@ -551,46 +389,18 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   const addWalletTask = async () => { if (newTask) { await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: [...(myWallet.tasks || []), { id: Date.now(), text: newTask, done: false }] }); setNewTask(''); }};
   const toggleWalletTask = async (taskId: number) => { await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: myWallet.tasks.map((t: any) => t.id === taskId ? { ...t, done: !t.done } : t) }); };
   const deleteWalletTask = async (taskId: number) => { await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: myWallet.tasks.filter((t: any) => t.id !== taskId) }); };
-  
-  const getGraphData = () => {
-      if (!myWallet?.history) return [];
-      const now = new Date(); let cutoff = new Date();
-      if(chartRange === '1M') cutoff.setMonth(now.getMonth() - 1);
-      if(chartRange === '1Y') cutoff.setFullYear(now.getFullYear() - 1);
-      if(chartRange === '5Y') cutoff.setFullYear(now.getFullYear() - 5);
-      const filtered = myWallet.history.filter((h:any) => new Date(h.date) >= cutoff);
-      filtered.sort((a:any, b:any) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      return filtered.map((h: any) => ({ name: new Date(h.date).toLocaleDateString(), solde: h.newBalance }));
-  };
-
+  const getGraphData = () => { if (!myWallet?.history) return []; const now = new Date(); let cutoff = new Date(); if(chartRange === '1M') cutoff.setMonth(now.getMonth() - 1); if(chartRange === '1Y') cutoff.setFullYear(now.getFullYear() - 1); if(chartRange === '5Y') cutoff.setFullYear(now.getFullYear() - 5); const filtered = myWallet.history.filter((h:any) => new Date(h.date) >= cutoff); filtered.sort((a:any, b:any) => new Date(a.date).getTime() - new Date(b.date).getTime()); return filtered.map((h: any) => ({ name: new Date(h.date).toLocaleDateString(), solde: h.newBalance })); };
   const graphData = getGraphData();
   const currentMonthHistory = (myWallet?.history || []).filter((h: any) => new Date(h.date).getMonth() === new Date().getMonth());
   let fillPercent = 0; if (myWallet && (myWallet.savingsGoal - myWallet.startBalance) > 0) { fillPercent = ((myWallet.balance - myWallet.startBalance) / (myWallet.savingsGoal - myWallet.startBalance)) * 100; } if (myWallet && myWallet.balance >= myWallet.savingsGoal && myWallet.savingsGoal > 0) fillPercent = 100;
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in" id="top">
-      <div className="flex justify-center gap-4 mb-8">
-        <button onClick={() => setActiveTab('family')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'family' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}><ShieldAlert className="inline mr-2 mb-1" size={16}/> Dettes Famille</button>
-        <button onClick={() => setActiveTab('personal')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'personal' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}><PiggyBank className="inline mr-2 mb-1" size={16}/> Ma Tirelire</button>
-      </div>
+      <div className="flex justify-center gap-4 mb-8"><button onClick={() => setActiveTab('family')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'family' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}><ShieldAlert className="inline mr-2 mb-1" size={16}/> Dettes Famille</button><button onClick={() => setActiveTab('personal')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'personal' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}><PiggyBank className="inline mr-2 mb-1" size={16}/> Ma Tirelire</button></div>
       {activeTab === 'family' ? (
         <div className="bg-white/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-xl border border-white space-y-8" id="wallet-debts">
-           <div className="flex flex-col md:flex-row gap-4 items-end bg-gray-50 p-6 rounded-3xl">
-             <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Qui doit ?</label><input value={newDebt.from} onChange={e => setNewDebt({...newDebt, from: e.target.value})} placeholder="ex: G" className="w-full p-3 rounded-xl border-none font-bold" /></div>
-             <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">À qui ?</label><input value={newDebt.to} onChange={e => setNewDebt({...newDebt, to: e.target.value})} placeholder="ex: P" className="w-full p-3 rounded-xl border-none font-bold" /></div>
-             <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Montant (€)</label><input type="number" value={newDebt.amount} onChange={e => setNewDebt({...newDebt, amount: e.target.value})} placeholder="0" className="w-full p-3 rounded-xl border-none font-bold" /></div>
-             <div className="w-24"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Taux (%)</label><input type="number" value={newDebt.interest} onChange={e => setNewDebt({...newDebt, interest: e.target.value})} placeholder="0%" className="w-full p-3 rounded-xl border-none font-bold text-orange-500" /></div>
-             <button onClick={addDebt} className="p-4 bg-black text-white rounded-xl shadow-lg hover:scale-105 transition-transform"><Plus/></button>
-           </div>
-           <div className="grid md:grid-cols-2 gap-4">
-             {debts.map(d => (
-               <div key={d.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 relative group">
-                 <button onClick={() => deleteDoc(doc(db, 'family_debts', d.id))} className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-red-400"><Trash2 size={16}/></button>
-                 <div className="flex justify-between items-center mb-2"><span className="font-cinzel font-bold text-xl">{d.from} <span className="text-gray-300 text-xs mx-1">DOIT À</span> {d.to}</span><span className="text-2xl font-black" style={{color: config.primaryColor}}>{calculateDebt(d)}€</span></div>
-                 <div className="flex gap-4 text-[10px] font-bold uppercase text-gray-400"><span>Initial: {d.amount}€</span>{d.interest > 0 && <span className="text-orange-400 flex items-center"><Percent size={10} className="mr-1"/> Intérêt: {d.interest}%</span>}<span>{new Date(d.createdAt).toLocaleDateString()}</span></div>
-               </div>
-             ))}
-           </div>
+           <div className="flex flex-col md:flex-row gap-4 items-end bg-gray-50 p-6 rounded-3xl"><div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Qui doit ?</label><input value={newDebt.from} onChange={e => setNewDebt({...newDebt, from: e.target.value})} placeholder="ex: G" className="w-full p-3 rounded-xl border-none font-bold" /></div><div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">À qui ?</label><input value={newDebt.to} onChange={e => setNewDebt({...newDebt, to: e.target.value})} placeholder="ex: P" className="w-full p-3 rounded-xl border-none font-bold" /></div><div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Montant (€)</label><input type="number" value={newDebt.amount} onChange={e => setNewDebt({...newDebt, amount: e.target.value})} placeholder="0" className="w-full p-3 rounded-xl border-none font-bold" /></div><div className="w-24"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Taux (%)</label><input type="number" value={newDebt.interest} onChange={e => setNewDebt({...newDebt, interest: e.target.value})} placeholder="0%" className="w-full p-3 rounded-xl border-none font-bold text-orange-500" /></div><button onClick={addDebt} className="p-4 bg-black text-white rounded-xl shadow-lg hover:scale-105 transition-transform"><Plus/></button></div>
+           <div className="grid md:grid-cols-2 gap-4">{debts.map(d => (<div key={d.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 relative group"><button onClick={() => deleteDoc(doc(db, 'family_debts', d.id))} className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-red-400"><Trash2 size={16}/></button><div className="flex justify-between items-center mb-2"><span className="font-cinzel font-bold text-xl">{d.from} <span className="text-gray-300 text-xs mx-1">DOIT À</span> {d.to}</span><span className="text-2xl font-black" style={{color: config.primaryColor}}>{calculateDebt(d)}€</span></div><div className="flex gap-4 text-[10px] font-bold uppercase text-gray-400"><span>Initial: {d.amount}€</span>{d.interest > 0 && <span className="text-orange-400 flex items-center"><Percent size={10} className="mr-1"/> Intérêt: {d.interest}%</span>}<span>{new Date(d.createdAt).toLocaleDateString()}</span></div></div>))}</div>
         </div>
       ) : (
         <div className="grid lg:grid-cols-3 gap-6">
@@ -609,56 +419,56 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   );
 };
 
-// --- COMPOSANT : MAJORDOME FLOTTANT ---
-const ButlerFloating = ({ chatHistory, setChatHistory, isAiLoading, setIsAiLoading }: any) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const [msg, setMsg] = useState('');
-    const handleChat = async () => {
-        if (!msg.trim()) return;
-        const h = [...chatHistory, { role: 'user', text: msg }];
-        setChatHistory(h); setMsg(''); setIsAiLoading(true);
-        const r = await askAIChat(h);
-        setChatHistory([...h, { role: 'model', text: r }]);
-        setIsAiLoading(false);
-    };
-    return (
-        <div className="fixed bottom-24 right-6 z-[200] flex flex-col items-end">
-            {isOpen && (
-                <div className="w-80 h-96 bg-white rounded-3xl shadow-2xl border border-gray-100 flex flex-col mb-4 animate-in slide-in-from-bottom-5">
-                    <div className="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-3xl"><span className="font-cinzel font-bold text-xs">Le Majordome</span><button onClick={() => setIsOpen(false)}><X size={16}/></button></div>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">{chatHistory.map((c:any, i:number) => (<div key={i} className={`p-3 rounded-2xl text-xs ${c.role === 'user' ? 'bg-orange-100 ml-8' : 'bg-gray-100 mr-8'}`}>{c.text}</div>))}{isAiLoading && <Loader2 className="animate-spin text-gray-300 mx-auto"/>}</div>
-                    <div className="p-3 border-t flex gap-2"><input value={msg} onChange={e => setMsg(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleChat()} placeholder="Une question ?" className="flex-1 text-xs p-2 rounded-xl bg-gray-50 outline-none" /><button onClick={handleChat} className="p-2 bg-black text-white rounded-xl"><Send size={14}/></button></div>
-                </div>
-            )}
-            <button onClick={() => setIsOpen(!isOpen)} className="w-14 h-14 bg-black text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-transform">{isOpen ? <X/> : <Sparkles size={24} className="animate-pulse text-orange-400"/>}</button>
-        </div>
-    );
-};
+// ============================================================================
+// 5. ADMIN PANEL & EVENT MODAL
+// ============================================================================
 
-// --- MENU LATÉRAL (SCROLL FIX) ---
-const SideMenu = ({ config, isOpen, close, setView, logout }: any) => (
-  <div className={`fixed inset-0 z-[60] ${isOpen ? '' : 'pointer-events-none'}`}>
-    <div className={`absolute inset-0 bg-black/40 transition-opacity ${isOpen ? 'opacity-100' : 'opacity-0'}`} onClick={close} />
-    <div className={`absolute right-0 top-0 h-full w-80 bg-white p-10 transition-transform ${isOpen ? 'translate-x-0' : 'translate-x-full'} overflow-y-auto`}>
-      <button onClick={() => close(false)} className="mb-10 text-gray-300"><X /></button>
-      <div className="space-y-4">
-        {['home','hub','fridge','recipes','cooking','calendar', 'tasks', 'wallet', 'edit'].map(v => (
-          <button key={v} onClick={() => { setView(v); close(false); }} className="block w-full text-left p-4 hover:bg-black/5 rounded-xl uppercase font-black text-xs tracking-widest">{config.navigationLabels[v] || v}</button>
-        ))}
-        <button onClick={logout} className="block w-full text-left p-4 text-red-500 font-bold text-xs tracking-widest mt-8 border-t pt-8">DÉCONNEXION</button>
+const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }: any) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300">
+        <button onClick={() => onClose(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
+        <div className="text-center space-y-2"><div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><CalIcon size={32} style={{ color: config.primaryColor }} /></div><h3 className="text-2xl font-cinzel font-bold">Nouvel Événement</h3></div>
+        <div className="space-y-4">
+          <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quoi ?</label><input value={newEvent.title} onChange={e => setNewEvent({...newEvent, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none focus:ring-2" placeholder="Anniversaire..." autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} /></div>
+          <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quand ?</label><input type="date" value={newEvent.date} onChange={e => setNewEvent({...newEvent, date: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none cursor-pointer" /></div>
+          <div onClick={() => setNewEvent({...newEvent, isAllDay: !newEvent.isAllDay})} className="flex items-center justify-between p-4 rounded-xl border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"><div className="flex items-center gap-3"><Clock size={20} className={newEvent.isAllDay ? "text-gray-300" : "text-black"} /><span className="font-bold text-sm">Toute la journée</span></div>{newEvent.isAllDay ? <ToggleRight size={32} className="text-green-500"/> : <ToggleLeft size={32} className="text-gray-300"/>}</div>
+          {!newEvent.isAllDay && (<div className="animate-in slide-in-from-top-2"><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label><input type="text" value={newEvent.time} onChange={e => setNewEvent({...newEvent, time: e.target.value})} placeholder="Ex: 20h00, Midi..." className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-bold text-lg" /></div>)}
+        </div>
+        <button disabled={isSubmitting} onClick={async () => { if (newEvent.title && newEvent.date) { setIsSubmitting(true); await addEntry('family_events', { title: newEvent.title, date: newEvent.date, time: newEvent.isAllDay ? null : (newEvent.time || '') }); setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true }); setIsSubmitting(false); onClose(false); } else { alert("Titre et date requis !"); } }} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting ? 'opacity-50' : ''}`} style={{ backgroundColor: config.primaryColor }}>{isSubmitting ? "Ajout..." : "Ajouter au calendrier"}</button>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
-// --- MENU DU BAS ---
-const BottomNav = ({ config, view, setView }: any) => (
-  <div className="md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 text-white/50 px-4 pb-4 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
-    {[ {id:'home', i:<Home size={22}/>}, {id:'hub', i:<LayoutDashboard size={22}/>}, {id:'fridge', i:<UtensilsCrossed size={22}/>}, {id:'recipes', i:<ChefHat size={22}/>}, {id:'wallet', i:<Wallet size={22}/>} ].map(b => <button key={b.id} onClick={() => setView(b.id)} className={`p-2 ${view === b.id ? 'text-white -translate-y-2 bg-white/20 rounded-xl' : ''}`}>{b.i}</button>)}
-  </div>
-);
+const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe, updateEntry, addEntry }: any) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  
+  const handleFile = (e: any, callback: any) => { const f = e.target.files[0]; if (!f) return; setIsCompressing(true); const reader = new FileReader(); reader.onload = (event: any) => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); const MAX_WIDTH = 800; const scale = MAX_WIDTH / img.width; if (scale < 1) { canvas.width = MAX_WIDTH; canvas.height = img.height * scale; } else { canvas.width = img.width; canvas.height = img.height; } const ctx = canvas.getContext('2d'); if(ctx) { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7); callback(compressedDataUrl); setIsCompressing(false); } }; img.src = event.target.result; }; reader.readAsDataURL(f); };
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
+        <button onClick={() => onClose(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
+        <div className="text-center space-y-2"><div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><ChefHat size={32} style={{ color: config.primaryColor }} /></div><h3 className="text-2xl font-cinzel font-bold">{currentRecipe.id ? 'Modifier la Recette' : 'Nouvelle Recette'}</h3></div>
+        <div className="space-y-4">
+          <input value={currentRecipe.title} onChange={e => setCurrentRecipe({...currentRecipe, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Nom du plat (ex: Gratin Dauphinois)" autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} />
+          <div className="flex gap-4"><input value={currentRecipe.chef} onChange={e => setCurrentRecipe({...currentRecipe, chef: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Chef (ex: Papa)" /><select value={currentRecipe.category} onChange={e => setCurrentRecipe({...currentRecipe, category: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"><option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option></select></div>
+          <div onClick={() => !isCompressing && fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">{isCompressing ? <div className="flex items-center gap-2 text-blue-500 font-bold"><Loader2 className="animate-spin"/> Compression...</div> : currentRecipe.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}</div>
+          <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
+          <button disabled={isSubmitting || isCompressing} onClick={async () => { if(currentRecipe.title) { setIsSubmitting(true); const recipeToSave = { ...currentRecipe }; try { if (recipeToSave.id) { await updateEntry('family_recipes', recipeToSave.id, recipeToSave); } else { await addEntry('family_recipes', recipeToSave); } onClose(false); } catch (e) { alert("Image trop lourde ou erreur technique."); setIsSubmitting(false); } } else { alert("Il faut au moins un titre !"); } }} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting || isCompressing ? 'opacity-50 cursor-not-allowed' : ''}`} style={{ backgroundColor: config.primaryColor }}>{isSubmitting ? "Enregistrement..." : (isCompressing ? "Traitement image..." : "Enregistrer la recette")}</button>
+          <div className="grid md:grid-cols-2 gap-4"><textarea value={currentRecipe.ingredients} onChange={e => setCurrentRecipe({...currentRecipe, ingredients: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Ingrédients (un par ligne)..." /><textarea value={currentRecipe.steps} onChange={e => setCurrentRecipe({...currentRecipe, steps: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Étapes de préparation..." /></div>
+        </div>
+        <div className="h-10"></div>
+      </div>
+    </div>
+  );
+};
 
-// --- COMPOSANT ADMIN PANEL ---
 const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, refreshUsers }: any) => {
   const [tab, setTab] = useState('users');
   const [newUser, setNewUser] = useState({ email: '', letter: '', name: '' });
@@ -844,7 +654,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
 };
 
 // ============================================================================
-// APP COMPONENT PRINCIPAL
+// 6. COMPOSANT APP PRINCIPAL
 // ============================================================================
 
 const App: React.FC = () => {
