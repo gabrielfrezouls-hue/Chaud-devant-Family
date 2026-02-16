@@ -40,8 +40,8 @@ interface AppNotification {
     message: string;
     type: 'info' | 'alert' | 'fun';
     repeat: 'once' | 'daily' | 'monthly';
-    targets: string[]; // ['all'] ou ['email1', 'email2']
-    scheduledFor?: string; // ISO String pour envoi différé
+    targets: string[]; 
+    scheduledFor?: string; 
     linkView?: string; 
     linkId?: string;   
     createdAt: string;
@@ -111,18 +111,20 @@ const getMonthWeekends = () => {
   return weekends;
 };
 
-// --- GRAPHIQUES ---
+// --- GRAPHIQUES (Corrigé pour éviter le crash écran beige) ---
 const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
   if (!data || data.length < 2) return <div className="h-full flex items-center justify-center text-gray-300 italic text-xs">Pas assez de données</div>;
   const width = 300; const height = 100; const padding = 5;
   const values = data.map(d => d.solde);
   const min = Math.min(...values); const max = Math.max(...values);
-  const range = max - min || 1;
+  const range = max - min || 1; // Évite division par zéro
+  
   const points = data.map((d, i) => {
     const x = (i / (data.length - 1)) * (width - padding * 2) + padding;
     const y = height - ((d.solde - min) / range) * (height - padding * 2) - padding;
     return `${x},${y}`;
   }).join(' ');
+
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
       <polyline fill="none" stroke={color} strokeWidth="3" points={points} strokeLinecap="round" strokeLinejoin="round"/>
@@ -136,7 +138,7 @@ const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
 };
 
 const CircleLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
-  const safePercent = Math.min(Math.max(fillPercentage, 0), 100);
+  const safePercent = isNaN(fillPercentage) ? 0 : Math.min(Math.max(fillPercentage, 0), 100);
   const size = 200; const radius = 90; const center = size / 2;
   const liquidHeight = (safePercent / 100) * size;
   const liquidY = size - liquidHeight;
@@ -185,7 +187,6 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
 
     const deleteItem = async (id: string) => { await deleteDoc(doc(db, 'hub_items', id)); };
 
-    // LOGIQUE DE TRI : Magasin (Alpha) -> Catégorie (Alpha)
     const sortedShopItems = hubItems.filter(i => i.type === 'shop').sort((a, b) => {
         const storeA = a.store || 'Z';
         const storeB = b.store || 'Z';
@@ -197,7 +198,6 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
 
     return (
         <div className="space-y-8 pb-24 animate-in fade-in" id="top">
-            {/* INPUT ZONE */}
             <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 sticky top-24 z-30" id="hub-input">
                 <div className="flex gap-2 mb-4 justify-center">
                     <button onClick={() => setInputType('shop')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType === 'shop' ? 'bg-orange-500 text-white shadow-lg scale-105' : 'bg-gray-100 text-gray-400'}`}><ShoppingCart size={16} className="inline mr-2"/> Course</button>
@@ -211,7 +211,6 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
                         <button onClick={addItem} className="p-4 bg-black text-white rounded-2xl hover:scale-105 transition-transform"><Plus/></button>
                     </div>
 
-                    {/* SELECTEUR MAGASIN */}
                     {inputType === 'shop' && (
                         <div className="relative">
                             <div className="flex items-center bg-gray-50 rounded-xl px-4 border border-gray-200">
@@ -231,7 +230,6 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
                                             {store}
                                         </div>
                                     ))}
-                                    {/* BOUTON AJOUTER SI PAS DANS LA LISTE */}
                                     <div onClick={() => { setSelectedStore(storeSearch); setShowStoreList(false); }} className="p-3 bg-orange-50 text-orange-600 text-xs font-bold hover:bg-orange-100 cursor-pointer flex items-center justify-between">
                                         <span>Ajouter "{storeSearch}"</span>
                                         <Plus size={14}/>
@@ -244,7 +242,6 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {/* COLONNE COURSES */}
                 <div className="space-y-4" id="hub-shop">
                     <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><ShoppingCart size={20}/> LISTE DE COURSES</h3>
                     {sortedShopItems.map(item => (
@@ -254,7 +251,6 @@ const HubView = ({ user, config, usersMapping }: { user: User, config: SiteConfi
                                     <span className="text-[9px] font-black uppercase text-orange-600 bg-orange-100 px-2 py-0.5 rounded-md">{item.category}</span>
                                     {item.store && <span className="text-[9px] font-bold uppercase text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md"><Store size={8} className="inline mr-1"/>{item.store}</span>}
                                 </div>
-                                {/* SUPPRESSION DE LA PARENTHÈSE ICI */}
                                 <span className="font-bold text-gray-700 block">{item.content}</span>
                             </div>
                             <button onClick={() => deleteItem(item.id)} className="text-gray-300 hover:text-red-500"><X size={18}/></button>
@@ -296,7 +292,7 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   const [chartRange, setChartRange] = useState<'1M' | '1Y' | '5Y'>('1M');
   const [debts, setDebts] = useState<any[]>([]);
   const [newDebt, setNewDebt] = useState({ from: '', to: '', amount: '', interest: '', reason: '' });
-  const [myWallet, setMyWallet] = useState<any>({ balance: 0, history: [], tasks: [], savingsGoal: 0, startBalance: 0 });
+  const [myWallet, setMyWallet] = useState<any>(null); // Initialisé à null
   const [walletAmount, setWalletAmount] = useState('');
   const [newTask, setNewTask] = useState('');
   const [goalInput, setGoalInput] = useState('');
@@ -305,11 +301,21 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
     if (!user) return;
     const unsubDebts = onSnapshot(query(collection(db, 'family_debts'), orderBy('createdAt', 'desc')), (s) => setDebts(s.docs.map(d => ({id: d.id, ...d.data()}))));
     const unsubWallet = onSnapshot(doc(db, 'user_wallets', user.email!), (s) => {
-      if (s.exists()) { setMyWallet(s.data()); if(s.data().savingsGoal) setGoalInput(s.data().savingsGoal.toString()); } 
-      else { setDoc(doc(db, 'user_wallets', user.email!), { balance: 0, history: [], tasks: [], savingsGoal: 0, startBalance: 0 }); }
+      if (s.exists()) { 
+          const data = s.data();
+          setMyWallet(data); 
+          if(data.savingsGoal) setGoalInput(data.savingsGoal.toString()); 
+      } else { 
+          const initialData = { balance: 0, history: [], tasks: [], savingsGoal: 0, startBalance: 0 };
+          setDoc(doc(db, 'user_wallets', user.email!), initialData);
+          setMyWallet(initialData);
+      }
     });
     return () => { unsubDebts(); unsubWallet(); };
   }, [user]);
+
+  // Si myWallet n'est pas encore chargé, afficher un petit loader
+  if (!myWallet && activeTab === 'personal') return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-gray-400"/></div>;
 
   const addDebt = async () => {
     if (!newDebt.from || !newDebt.to || !newDebt.amount) return alert("Remplissez les champs !");
@@ -338,18 +344,24 @@ const WalletView = ({ user, config }: { user: User, config: SiteConfig }) => {
   const deleteWalletTask = async (taskId: number) => { const newTasks = myWallet.tasks.filter((t: any) => t.id !== taskId); await updateDoc(doc(db, 'user_wallets', user.email!), { tasks: newTasks }); };
   
   const getGraphData = () => {
+      if (!myWallet?.history) return [];
       const now = new Date(); let cutoff = new Date();
       if(chartRange === '1M') cutoff.setMonth(now.getMonth() - 1);
       if(chartRange === '1Y') cutoff.setFullYear(now.getFullYear() - 1);
       if(chartRange === '5Y') cutoff.setFullYear(now.getFullYear() - 5);
-      const filtered = (myWallet.history || []).filter((h:any) => new Date(h.date) >= cutoff);
+      const filtered = myWallet.history.filter((h:any) => new Date(h.date) >= cutoff);
       filtered.sort((a:any, b:any) => new Date(a.date).getTime() - new Date(b.date).getTime());
       return filtered.map((h: any) => ({ name: new Date(h.date).toLocaleDateString(), solde: h.newBalance }));
   };
 
   const graphData = getGraphData();
-  let fillPercent = 0; if ((myWallet.savingsGoal - myWallet.startBalance) > 0) fillPercent = ((myWallet.balance - myWallet.startBalance) / (myWallet.savingsGoal - myWallet.startBalance)) * 100;
-  if (myWallet.balance >= myWallet.savingsGoal && myWallet.savingsGoal > 0) fillPercent = 100;
+  const currentMonthHistory = (myWallet?.history || []).filter((h: any) => new Date(h.date).getMonth() === new Date().getMonth());
+  
+  let fillPercent = 0;
+  if (myWallet && (myWallet.savingsGoal - myWallet.startBalance) > 0) {
+      fillPercent = ((myWallet.balance - myWallet.startBalance) / (myWallet.savingsGoal - myWallet.startBalance)) * 100;
+  }
+  if (myWallet && myWallet.balance >= myWallet.savingsGoal && myWallet.savingsGoal > 0) fillPercent = 100;
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in" id="top">
@@ -459,7 +471,7 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
 const SideMenu = ({ config, isOpen, close, setView, logout }: any) => (
   <div className={`fixed inset-0 z-[60] ${isOpen ? '' : 'pointer-events-none'}`}>
     <div className={`absolute inset-0 bg-black/40 transition-opacity ${isOpen ? 'opacity-100' : 'opacity-0'}`} onClick={close} />
-    <div className={`absolute right-0 top-0 bottom-0 w-80 bg-[#f5ede7] p-10 transition-transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`} style={{ backgroundColor: config.backgroundColor }}>
+    <div className={`absolute right-0 top-0 h-full w-80 bg-[#f5ede7] p-10 transition-transform ${isOpen ? 'translate-x-0' : 'translate-x-full'} overflow-y-auto`} style={{ backgroundColor: config.backgroundColor }}>
       <button onClick={() => close(false)} className="mb-10"><X /></button>
       <div className="space-y-4">
         {['home','hub','xsite','recipes','cooking','calendar', 'tasks', 'wallet', 'edit'].map(v => (
@@ -912,6 +924,7 @@ const App: React.FC = () => {
 
     const unsubN = onSnapshot(query(collection(db, 'notifications'), orderBy('createdAt', 'desc')), (s) => {
         const rawNotifs = s.docs.map(d => ({id: d.id, ...d.data()} as AppNotification));
+        // LOGIQUE DE FILTRAGE INTELLIGENTE
         const visibleNotifs = rawNotifs.filter(n => {
             if(!user.email) return false;
             // FILTER BY TARGET
