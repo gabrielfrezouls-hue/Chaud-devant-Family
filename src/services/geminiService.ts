@@ -1,105 +1,114 @@
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { SiteConfig } from "../types";
 
-// ✅ Configuration validée : Gemini 3 + import.meta
-const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
-const MODEL_NAME = "gemini-3-flash-preview"; 
+// --- CONFIGURATION ---
+// ⚠️ Remplace ceci par ta vraie clé API Gemini (Google AI Studio)
+const API_KEY = "TA_CLE_API_ICI"; 
 
-// Fonction générique pour parler à Google
-async function callGeminiAPI(payload: any) {
-  if (!apiKey) {
-    console.error("⛔ Clé API manquante (VITE_GEMINI_KEY introuvable)");
-    return null;
-  }
+const genAI = new GoogleGenerativeAI(API_KEY);
 
+// --- 1. CHAT MAJORDOME ---
+export const askAIChat = async (history: { role: string, text: string }[]) => {
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }
-    );
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const chat = model.startChat({
+      history: history.map(h => ({ role: h.role, parts: [{ text: h.text }] })),
+    });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Erreur Google (${response.status}):`, errorText);
-      return null;
-    }
-
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-
+    // Contexte système injecté discrètement
+    const result = await chat.sendMessage("Tu es le Majordome de la famille. Tu es serviable, un peu british, et tu aides pour la cuisine, l'organisation et le ménage. Réponds court.");
+    const response = result.response;
+    return response.text();
   } catch (error) {
-    console.error("Erreur réseau:", error);
-    return null;
+    console.error("Erreur Gemini Chat:", error);
+    return "Désolé, je suis un peu fatigué (Erreur API).";
   }
-}
+};
 
-// --- 1. L'ARCHITECTE (Avec protection du HTML) ---
+// --- 2. ARCHITECTE (DESIGN) ---
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
-  // SÉCURITÉ & PROTECTION : 
-  // On remplace les données lourdes ou sensibles par des textes simples
-  // pour que l'IA ne les lise pas et ne les modifie pas par erreur.
-  const protectedConfig = { 
-    ...currentConfig, 
-    welcomeImage: "(Image ignorée)",
-    homeHtml: "(Code HTML protégé - Ne pas modifier)",    // <--- PROTECTION 1
-    cookingHtml: "(Code HTML protégé - Ne pas modifier)"  // <--- PROTECTION 2
-  };
-
-  const requestBody = {
-    contents: [{
-      parts: [{
-        text: `
-          Tu es l'Architecte Visuel de l'application 'Chaud devant'.
-          Modifie la configuration JSON ci-dessous selon la demande : "${prompt}".
-          
-          RÈGLES IMPORTANTES :
-          1. Renvoie UNIQUEMENT le JSON valide. Pas de markdown.
-          2. Ne touche PAS aux champs marqués "(Code protégé)".
-          3. Modifie les couleurs, les polices, les titres pour correspondre à l'ambiance demandée.
-          
-          CONFIG ACTUELLE : ${JSON.stringify(protectedConfig)}
-        `
-      }]
-    }]
-  };
-
-  const text = await callGeminiAPI(requestBody);
-  if (!text) return null;
-
   try {
-    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const newConfig = JSON.parse(cleanJson) as SiteConfig;
-
-    // RESTAURATION DES DONNÉES PROTÉGÉES
-    // On remet les vraies valeurs originales à la place des placeholders
-    // Si l'IA a touché à l'image, on la remet aussi
-    if (newConfig.welcomeImage === "(Image ignorée)") {
-        newConfig.welcomeImage = currentConfig.welcomeImage;
-    }
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const finalPrompt = `
+      Tu es un architecte web expert en UI/UX.
+      Configuration actuelle : ${JSON.stringify(currentConfig)}
+      Demande utilisateur : "${prompt}"
+      
+      Renvoie UNIQUEMENT un objet JSON valide (sans Markdown) avec les champs à modifier parmi: 
+      { primaryColor, backgroundColor, fontFamily, welcomeTitle, welcomeText, welcomeImage }.
+      Pour welcomeImage, choisis une URL Unsplash haute qualité adaptée.
+    `;
     
-    // On force la remise des codes HTML originaux, quoi qu'il arrive
-    newConfig.homeHtml = currentConfig.homeHtml;       // <--- RESTAURATION 1
-    newConfig.cookingHtml = currentConfig.cookingHtml; // <--- RESTAURATION 2
-
-    return newConfig;
-  } catch (e) {
-    console.error("Erreur format JSON IA", e);
+    const result = await model.generateContent(finalPrompt);
+    const text = result.response.text().replace(/```json|```/g, '').trim();
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("Erreur Architecte:", error);
     return null;
   }
 };
 
-// --- 2. LE MAJORDOME (Nécessaire pour le chat) ---
-export const askAIChat = async (history: { role: string, text: string }[]) => {
-  return await callGeminiAPI({
-    contents: history.map(h => ({
-      role: h.role === 'user' ? 'user' : 'model',
-      parts: [{ text: h.text }]
-    })),
-    systemInstruction: {
-      parts: [{ text: "Tu es le majordome de la famille Chaud devant. Raffiné, serviable et poli." }]
-    }
-  });
+// --- 3. EXTRACTION RECETTE (LIEN) ---
+export const extractRecipeFromUrl = async (url: string) => {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const prompt = `
+      Analyse cette URL (ou ce texte qui décrit une recette) : ${url}
+      Extrais les infos pour créer une fiche recette structurée.
+      Renvoie UNIQUEMENT un objet JSON :
+      {
+        "title": "Nom du plat",
+        "chef": "Nom du site ou Auteur",
+        "category": "entrée/plat/dessert",
+        "ingredients": "liste des ingrédients avec quantités, séparés par des sauts de ligne",
+        "steps": "étapes de préparation numérotées"
+      }
+    `;
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().replace(/```json|```/g, '').trim();
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("Erreur Recette:", error);
+    return null;
+  }
+};
+
+// --- 4. SCANNER PRODUIT (PHOTO) ---
+// C'est la fonction qui manquait !
+export const scanProductImage = async (file: File) => {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Utilise un modèle Vision
+    
+    // Conversion File -> Base64
+    const base64Data = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+    });
+    
+    const imagePart = {
+      inlineData: {
+        data: base64Data.split(',')[1],
+        mimeType: file.type
+      },
+    };
+
+    const prompt = `
+      Analyse cette image de produit alimentaire.
+      Identifie le produit.
+      Estime une date de péremption logique si tu ne la vois pas (ex: Lait = +1 mois, Jambon = +1 semaine, Pâtes = +1 an).
+      Renvoie UNIQUEMENT un JSON :
+      {
+        "name": "Nom précis du produit",
+        "expiryDate": "YYYY-MM-DD" (Format date strict)
+      }
+    `;
+
+    const result = await model.generateContent([prompt, imagePart]);
+    const text = result.response.text().replace(/```json|```/g, '').trim();
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("Erreur Vision:", error);
+    return null;
+  }
 };
