@@ -1,21 +1,10 @@
 import { SiteConfig } from "../types";
 
-// ✅ SÉCURITÉ CLÉ API
-const getApiKey = () => {
-  // Tente de récupérer la clé, sinon retourne une chaine vide pour éviter le crash immédiat
-  return import.meta.env.VITE_GEMINI_KEY || "";
-};
-
+const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
 const MODEL_NAME = "gemini-1.5-flash"; 
 
-// Fonction générique API
 const callGeminiAPI = async (payload: any) => {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    console.error("⛔ CLÉ API MANQUANTE DANS LE FICHIER .ENV");
-    return null;
-  }
-
+  if (!apiKey) return null;
   try {
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`,
@@ -25,154 +14,68 @@ const callGeminiAPI = async (payload: any) => {
         body: JSON.stringify(payload),
       }
     );
-
-    if (!response.ok) {
-      // Gestion spécifique des erreurs 404 ou 400
-      console.error(`Erreur HTTP Gemini: ${response.status} - ${response.statusText}`);
-      return null;
-    }
-
+    if (!response.ok) throw new Error(`API Error: ${response.status}`);
     const data = await response.json();
     return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
   } catch (error) {
-    console.error("Erreur Réseau Gemini:", error);
+    console.error("Erreur Gemini:", error);
     return null;
   }
 };
 
-const cleanJSON = (text: string) => {
+const cleanAndParseJSON = (text: string) => {
   if (!text) return null;
   try {
-    const clean = text.replace(/```json|```/g, "").trim();
-    return JSON.parse(clean);
-  } catch (e) {
-    return null; // Si ce n'est pas du JSON, on retourne null
-  }
-};
-
-// --- 1. SCANNER CODE BARRE PAR IA (Lecture des chiffres sur photo) ---
-export const readBarcodeFromImage = async (file: File) => {
-  try {
-    const base64Data = await fileToBase64(file);
-    const prompt = `
-      Regarde cette image. Il y a un code-barres.
-      Lis les chiffres sous ou dans le code-barres.
-      Renvoie UNIQUEMENT les chiffres, sans espace, sans texte. 
-      Si illisible, renvoie "NULL".
-    `;
-
-    const text = await callGeminiAPI({
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: file.type, data: base64Data } }
-        ]
-      }]
-    });
-
-    const cleanText = text?.trim();
-    return (cleanText && cleanText !== "NULL" && /^\d+$/.test(cleanText)) ? cleanText : null;
+    return JSON.parse(text.replace(/```json|```/g, "").trim());
   } catch (e) {
     return null;
   }
 };
 
-// --- 2. MAJORDOME AGENT (Capable d'agir) ---
-export const askButlerAgent = async (history: { role: string, text: string }[], contextData: any) => {
-  // On donne au Majordome le contexte actuel (ce qu'il y a dans le frigo, les tâches, etc.)
-  const contextPrompt = `
-    CONTEXTE ACTUEL DE LA MAISON :
-    - Courses actuelles : ${JSON.stringify(contextData.hubItems || [])}
-    - Frigo : ${JSON.stringify(contextData.fridgeItems || [])}
-
-    Tu es le Majordome. Tu dois répondre à l'utilisateur.
-    SI l'utilisateur te demande d'ajouter quelque chose aux courses ou au frigo, tu dois répondre en JSON strict.
-    
-    Format JSON pour une action :
-    {
-      "action": "ADD_HUB",
-      "item": "Nom de l'article",
-      "reply": "Bien monsieur, j'ai ajouté l'article."
-    }
-    
-    Sinon, réponds simplement avec du texte (pas de JSON) pour la conversation normale.
-  `;
-
-  const contents = history.map(h => ({
-    role: h.role === 'user' ? 'user' : 'model',
-    parts: [{ text: h.text }]
-  }));
-
-  const response = await callGeminiAPI({
-    contents: [{ role: "user", parts: [{ text: contextPrompt }] }, ...contents]
-  });
-
-  // On tente de voir si c'est une action (JSON) ou du blabla
-  const jsonAction = cleanJSON(response);
-  if (jsonAction && jsonAction.action) {
-    return { type: 'action', data: jsonAction };
-  }
-  return { type: 'text', data: response };
-};
-
-// --- 3. SCANNER PRODUIT (Vision) ---
-export const scanProductImage = async (file: File) => {
-  try {
-    const base64Data = await fileToBase64(file);
-    const prompt = `
-      Analyse ce produit alimentaire.
-      Renvoie un JSON strict :
-      {
-        "name": "Nom du produit",
-        "category": "Categorie (Frais, Épicerie, etc.)",
-        "expiryDate": "YYYY-MM-DD" (Estime une date logique si non visible: Frais +5j, Sec +6mois)
-      }
-    `;
-    const response = await callGeminiAPI({
-      contents: [{
-        parts: [{ text: prompt }, { inline_data: { mime_type: file.type, data: base64Data } }]
-      }]
-    });
-    return cleanJSON(response);
-  } catch (e) { return null; }
-};
-
-// --- 4. ARCHITECTE ---
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
-  // Protection des données
-  const protectedConfig = { ...currentConfig, welcomeImage: "PROTECTED", homeHtml: "PROTECTED", cookingHtml: "PROTECTED" };
-  const finalPrompt = `Expert UI/UX. Modifie cette config JSON selon : "${prompt}". Renvoie JSON uniquement. Champs modifiables: primaryColor, backgroundColor, fontFamily, welcomeTitle, welcomeText.`;
+  const protectedConfig = { ...currentConfig, welcomeImage: "(Ignoré)", homeHtml: "(Protégé)", cookingHtml: "(Protégé)" };
+  const finalPrompt = `Agis comme un architecte UI. Config: ${JSON.stringify(protectedConfig)}. Demande: "${prompt}". Renvoie UN JSON valide avec les champs modifiés (primaryColor, backgroundColor, fontFamily, welcomeTitle, welcomeText, welcomeImage). Ne touche pas aux champs protégés.`;
   
-  const response = await callGeminiAPI({
-    contents: [{ parts: [{ text: finalPrompt + "\nConfig: " + JSON.stringify(protectedConfig) }] }]
-  });
-  
-  const newConfig = cleanJSON(response);
+  const responseText = await callGeminiAPI({ contents: [{ parts: [{ text: finalPrompt }] }] });
+  const newConfig = cleanAndParseJSON(responseText);
+
   if (newConfig) {
-      // Restauration des champs protégés
-      newConfig.welcomeImage = currentConfig.welcomeImage;
-      newConfig.homeHtml = currentConfig.homeHtml;
-      newConfig.cookingHtml = currentConfig.cookingHtml;
-      // Protection des NOMS DE NAVIGATION (Interdiction de modifier)
-      newConfig.navigationLabels = currentConfig.navigationLabels;
-      return { ...currentConfig, ...newConfig };
+    if (!newConfig.welcomeImage || newConfig.welcomeImage === "(Ignoré)") newConfig.welcomeImage = currentConfig.welcomeImage;
+    newConfig.homeHtml = currentConfig.homeHtml;       
+    newConfig.cookingHtml = currentConfig.cookingHtml; 
+    return { ...currentConfig, ...newConfig };
   }
   return null;
 };
 
-// --- 5. RECETTE VIA URL ---
-export const extractRecipeFromUrl = async (url: string) => {
-    const prompt = `Extrais la recette de ce texte/lien: ${url}. JSON strict: {title, chef, category, ingredients, steps}`;
-    const response = await callGeminiAPI({ contents: [{ parts: [{ text: prompt }] }] });
-    return cleanJSON(response);
+// MAJORDOME AMÉLIORÉ (Avec détection d'action)
+export const askAIChat = async (history: { role: string, text: string }[]) => {
+  const contents = history.map(h => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.text }] }));
+  const systemContext = {
+    role: "user",
+    parts: [{ text: "Tu es le Majordome de la famille. Tu peux ajouter des courses. Si l'utilisateur te demande d'ajouter un article (ex: 'ajoute du lait'), réponds EXACTEMENT et UNIQUEMENT : [ADD_SHOP:Lait]. Ne dis rien d'autre. S'il ne demande pas d'ajout, réponds normalement et poliment." }]
+  };
+  const response = await callGeminiAPI({ contents: [systemContext, ...contents] });
+  return response || "Désolé, je suis momentanément indisponible.";
 };
 
-// Utilitaire Base64
-const fileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve((reader.result as string).split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+export const extractRecipeFromUrl = async (url: string) => {
+  const prompt = `Analyse ceci: ${url}. Renvoie UN JSON: {"title": "Nom","chef": "Auteur","category": "plat","ingredients": "ing1\\ning2","steps": "etape1"}`;
+  const response = await callGeminiAPI({ contents: [{ parts: [{ text: prompt }] }] });
+  return cleanAndParseJSON(response);
+};
+
+export const scanProductImage = async (file: File) => {
+  try {
+    const base64Data = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string).split(',')[1]);
+      reader.readAsDataURL(file);
+    });
+    const prompt = `Analyse cette image de produit alimentaire. Renvoie UN JSON valide: {"name": "Nom du produit", "expiryDate": "YYYY-MM-DD"}. Estime une date logique (Frais = +7j, Sec = +1an) si tu ne la vois pas.`;
+    const response = await callGeminiAPI({
+      contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: file.type, data: base64Data } }] }]
+    });
+    return cleanAndParseJSON(response);
+  } catch (error) { return null; }
 };
