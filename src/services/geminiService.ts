@@ -3,7 +3,8 @@ import { SiteConfig } from "../types";
 // --- CONFIGURATION ---
 // On utilise import.meta.env pour Vite
 const getApiKey = () => import.meta.env.VITE_GEMINI_KEY || "";
-const MODEL_NAME = "gemini-1.5-flash"; // Modèle rapide qui gère les images
+// APRÈS ✅
+const MODEL_NAME = "gemini-2.0-flash";
 
 // --- OUTILS INTERNES ---
 const cleanJSON = (text: string) => {
