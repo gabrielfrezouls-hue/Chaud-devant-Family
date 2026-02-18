@@ -1,33 +1,13 @@
 import { SiteConfig } from "../types";
 
-// ============================================================================
-// CONFIGURATION & API KEY
-// ============================================================================
+// ✅ Configuration validée : Gemini 3 + import.meta
+const apiKey = import.meta.env.VITE_GEMINI_KEY || "";
+const MODEL_NAME = "gemini-3-flash-preview"; 
 
-// ⚠️ Assurez-vous d'avoir un fichier .env à la racine avec : VITE_GEMINI_KEY=votre_cle_ici
-const getApiKey = () => {
-  return import.meta.env.VITE_GEMINI_KEY || "";
-};
-
-// On utilise le modèle Flash, rapide et capable de lire des images
-const MODEL_NAME = "gemini-1.5-flash"; 
-
-// Fonction utilitaire pour nettoyer le JSON renvoyé par l'IA
-const cleanJSON = (text: string) => {
-  if (!text) return null;
-  try {
-    const clean = text.replace(/```json|```/g, "").trim();
-    return JSON.parse(clean);
-  } catch (e) {
-    return null;
-  }
-};
-
-// Fonction générique pour appeler l'API Google en HTTP (Sans librairie npm)
-const callGeminiAPI = async (payload: any) => {
-  const apiKey = getApiKey();
+// Fonction générique pour parler à Google
+async function callGeminiAPI(payload: any) {
   if (!apiKey) {
-    console.error("⛔ CLÉ API MANQUANTE (VITE_GEMINI_KEY)");
+    console.error("⛔ Clé API manquante (VITE_GEMINI_KEY introuvable)");
     return null;
   }
 
@@ -42,160 +22,84 @@ const callGeminiAPI = async (payload: any) => {
     );
 
     if (!response.ok) {
-      console.error(`Erreur API Gemini (${response.status}): ${response.statusText}`);
+      const errorText = await response.text();
+      console.error(`Erreur Google (${response.status}):`, errorText);
       return null;
     }
 
     const data = await response.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+
   } catch (error) {
-    console.error("Erreur Réseau Gemini:", error);
+    console.error("Erreur réseau:", error);
     return null;
   }
-};
+}
 
-// Fonction pour convertir une image en Base64 (pour l'envoyer à l'IA)
-const fileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-        const result = reader.result as string;
-        // On retire l'en-tête "data:image/jpeg;base64,"
-        resolve(result.split(',')[1]);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-};
-
-// ============================================================================
-// 2. FONCTIONS EXPORTÉES (Celles demandées par App.tsx)
-// ============================================================================
-
-// --- A. CHAT MAJORDOME SIMPLE ---
-export const askAIChat = async (history: { role: string, text: string }[]) => {
-  const contents = history.map(h => ({
-    role: h.role === 'user' ? 'user' : 'model',
-    parts: [{ text: h.text }]
-  }));
-
-  // Instruction système
-  const systemMsg = {
-    role: 'user',
-    parts: [{ text: "Tu es le Majordome de la maison. Poli, efficace, un peu british. Tu aides pour l'organisation." }]
+// --- 1. L'ARCHITECTE (Avec protection du HTML) ---
+export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
+  // SÉCURITÉ & PROTECTION : 
+  // On remplace les données lourdes ou sensibles par des textes simples
+  // pour que l'IA ne les lise pas et ne les modifie pas par erreur.
+  const protectedConfig = { 
+    ...currentConfig, 
+    welcomeImage: "(Image ignorée)",
+    homeHtml: "(Code HTML protégé - Ne pas modifier)",    // <--- PROTECTION 1
+    cookingHtml: "(Code HTML protégé - Ne pas modifier)"  // <--- PROTECTION 2
   };
 
-  const response = await callGeminiAPI({
-    contents: [systemMsg, ...contents]
-  });
-
-  return response || "Je suis navré, je n'ai pas pu joindre mes serveurs.";
-};
-
-// --- B. MAJORDOME AGENT (Capable d'ajouter des items) ---
-export const askButlerAgent = async (history: { role: string, text: string }[], contextData: any) => {
-  const contextPrompt = `
-    Tu es le Majordome intelligent.
-    Si l'utilisateur veut ajouter un item aux courses ou au frigo, réponds avec un JSON strict :
-    { "action": "ADD_HUB", "item": "Nom de l'article", "reply": "C'est noté monsieur." }
-    Sinon, réponds normalement en texte brut.
-  `;
-
-  const contents = history.map(h => ({
-    role: h.role === 'user' ? 'user' : 'model',
-    parts: [{ text: h.text }]
-  }));
-
-  const response = await callGeminiAPI({
-    contents: [{ role: "user", parts: [{ text: contextPrompt }] }, ...contents]
-  });
-
-  const jsonAction = cleanJSON(response);
-  if (jsonAction && jsonAction.action) {
-    return { type: 'action', data: jsonAction };
-  }
-  return { type: 'text', data: response };
-};
-
-// --- C. SCANNER CODE BARRE PAR IMAGE (IA lit les chiffres) ---
-export const readBarcodeFromImage = async (file: File) => {
-  try {
-    const base64Data = await fileToBase64(file);
-    const prompt = `
-      Regarde cette image. Cherche un code-barres (EAN-13 ou EAN-8).
-      Lis les chiffres qui sont écrits en dessous ou le code lui-même.
-      Renvoie UNIQUEMENT les chiffres (ex: 3017620422003). Pas de texte.
-      Si illisible, renvoie "NULL".
-    `;
-
-    const text = await callGeminiAPI({
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: file.type, data: base64Data } }
-        ]
+  const requestBody = {
+    contents: [{
+      parts: [{
+        text: `
+          Tu es l'Architecte Visuel de l'application 'Chaud devant'.
+          Modifie la configuration JSON ci-dessous selon la demande : "${prompt}".
+          
+          RÈGLES IMPORTANTES :
+          1. Renvoie UNIQUEMENT le JSON valide. Pas de markdown.
+          2. Ne touche PAS aux champs marqués "(Code protégé)".
+          3. Modifie les couleurs, les polices, les titres pour correspondre à l'ambiance demandée.
+          
+          CONFIG ACTUELLE : ${JSON.stringify(protectedConfig)}
+        `
       }]
-    });
+    }]
+  };
 
-    const cleanText = text?.trim();
-    // Vérifie si le résultat ressemble à un code barre (chiffres uniquement)
-    return (cleanText && cleanText !== "NULL" && /^\d+$/.test(cleanText)) ? cleanText : null;
+  const text = await callGeminiAPI(requestBody);
+  if (!text) return null;
+
+  try {
+    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const newConfig = JSON.parse(cleanJson) as SiteConfig;
+
+    // RESTAURATION DES DONNÉES PROTÉGÉES
+    // On remet les vraies valeurs originales à la place des placeholders
+    // Si l'IA a touché à l'image, on la remet aussi
+    if (newConfig.welcomeImage === "(Image ignorée)") {
+        newConfig.welcomeImage = currentConfig.welcomeImage;
+    }
+    
+    // On force la remise des codes HTML originaux, quoi qu'il arrive
+    newConfig.homeHtml = currentConfig.homeHtml;       // <--- RESTAURATION 1
+    newConfig.cookingHtml = currentConfig.cookingHtml; // <--- RESTAURATION 2
+
+    return newConfig;
   } catch (e) {
+    console.error("Erreur format JSON IA", e);
     return null;
   }
 };
 
-// --- D. SCANNER PRODUIT FRAIS (Reconnaissance visuelle) ---
-export const scanProductImage = async (file: File) => {
-  try {
-    const base64Data = await fileToBase64(file);
-    const prompt = `
-      Analyse ce produit alimentaire.
-      Renvoie un JSON strict :
-      {
-        "name": "Nom du produit (avec marque si visible)",
-        "category": "Catégorie (Frais, Épicerie, etc.)",
-        "expiryDate": "YYYY-MM-DD"
-      }
-      Si tu ne vois pas de date, estime-la logiquement (ex: Salade = J+3, Pâtes = J+365).
-      Format date obligatoire: YYYY-MM-DD.
-    `;
-    
-    const response = await callGeminiAPI({
-      contents: [{
-        parts: [
-            { text: prompt }, 
-            { inline_data: { mime_type: file.type, data: base64Data } }
-        ]
-      }]
-    });
-    return cleanJSON(response);
-  } catch (e) { return null; }
-};
-
-// --- E. ARCHITECTE ---
-export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
-  const protectedConfig = { ...currentConfig, welcomeImage: "PROTECTED", homeHtml: "PROTECTED", cookingHtml: "PROTECTED" };
-  const finalPrompt = `Expert UI/UX. Modifie cette config JSON selon : "${prompt}". Renvoie JSON uniquement. Champs modifiables: primaryColor, backgroundColor, fontFamily, welcomeTitle, welcomeText.`;
-  
-  const response = await callGeminiAPI({
-    contents: [{ parts: [{ text: finalPrompt + "\nConfig: " + JSON.stringify(protectedConfig) }] }]
+// --- 2. LE MAJORDOME (Nécessaire pour le chat) ---
+export const askAIChat = async (history: { role: string, text: string }[]) => {
+  return await callGeminiAPI({
+    contents: history.map(h => ({
+      role: h.role === 'user' ? 'user' : 'model',
+      parts: [{ text: h.text }]
+    })),
+    systemInstruction: {
+      parts: [{ text: "Tu es le majordome de la famille Chaud devant. Raffiné, serviable et poli." }]
+    }
   });
-  
-  const newConfig = cleanJSON(response);
-  if (newConfig) {
-      newConfig.welcomeImage = currentConfig.welcomeImage;
-      newConfig.homeHtml = currentConfig.homeHtml;
-      newConfig.cookingHtml = currentConfig.cookingHtml;
-      newConfig.navigationLabels = currentConfig.navigationLabels;
-      return { ...currentConfig, ...newConfig };
-  }
-  return null;
-};
-
-// --- F. RECETTE VIA URL ---
-export const extractRecipeFromUrl = async (url: string) => {
-    const prompt = `Extrais la recette de ce lien/texte: ${url}. JSON strict: {title, chef, category, ingredients, steps}`;
-    const response = await callGeminiAPI({ contents: [{ parts: [{ text: prompt }] }] });
-    return cleanJSON(response);
 };
