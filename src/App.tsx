@@ -14,7 +14,7 @@ import {
   Refrigerator, Scan, Camera, AlertTriangle, Bot, Flame, Info, Package, Barcode, Brain
 } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
-import { askAIArchitect, askAIChat } from './services/geminiService';
+import { askAIArchitect, askAIChat, askButlerAgent, scanProductImage, extractRecipeFromUrl } from './services/geminiService';
 import Background from './components/Background';
 import RecipeCard from './components/RecipeCard';
 
@@ -156,13 +156,11 @@ const CircleLiquid = ({ fillPercentage }: { fillPercentage:number }) => {
 const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
   const [items, setItems] = useState<FrigoItem[]>([]);
   const [newItem, setNewItem] = useState({ name:'', quantity:1, unit:'pcs', expiryDate:'' });
-  const [isScanning, setIsScanning] = useState(false);
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [scanMsg, setScanMsg] = useState('');
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream|null>(null);
+  // Ref pour l'input fichier IA Photo (chargeur de médias standard)
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const q = query(collection(db,'frigo_items'), orderBy('addedAt','desc'));
@@ -201,51 +199,31 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
     setBarcodeInput('');
   };
 
-  const openCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
-      streamRef.current = stream;
-      if(videoRef.current) videoRef.current.srcObject=stream;
-      setIsCameraOpen(true);
-    } catch { alert('Accès caméra refusé.'); }
-  };
-
-  const closeCamera = () => {
-    streamRef.current?.getTracks().forEach(t=>t.stop());
-    setIsCameraOpen(false);
-  };
-
-  const captureAndAnalyze = async () => {
-    if(!videoRef.current) return;
-    const canvas = document.createElement('canvas');
-    canvas.width=videoRef.current.videoWidth;
-    canvas.height=videoRef.current.videoHeight;
-    const ctx=canvas.getContext('2d');
-    if(!ctx) return;
-    ctx.drawImage(videoRef.current,0,0);
-    const base64 = canvas.toDataURL('image/jpeg',0.8).split(',')[1];
+  // IA Photo : via sélecteur de fichiers/médias standard du navigateur
+  // accept="image/*" + capture="environment" → propose Caméra + Galerie sur mobile
+  const handlePhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if(!file) return;
+    // Reset l'input pour permettre de re-sélectionner le même fichier
+    e.target.value = '';
     setIsLoading(true);
-    closeCamera();
+    setScanMsg('⏳ Analyse IA en cours...');
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          model:'claude-sonnet-4-20250514', max_tokens:200,
-          messages:[{role:'user',content:[
-            {type:'image',source:{type:'base64',media_type:'image/jpeg',data:base64}},
-            {type:'text',text:'Identifie le produit alimentaire dans cette image. Réponds UNIQUEMENT avec le nom du produit en français, rien d\'autre. Ex: "Pommes", "Yaourt nature", "Lait demi-écrémé"'}
-          ]}]
-        })
-      });
-      const data=await resp.json();
-      const name = data.content?.[0]?.text?.trim()||'Produit inconnu';
-      await addDoc(collection(db,'frigo_items'),{
-        name, category:categorizeShoppingItem(name),
-        quantity:1, unit:'pcs', addedAt:new Date().toISOString()
-      });
-      setScanMsg(`✅ "${name}" reconnu et ajouté !`);
-    } catch { setScanMsg('❌ Erreur analyse IA.'); }
+      // Appel geminiService — scanProductImage retourne { name, category, expiryDate }
+      const result = await scanProductImage(file);
+      if(result && result.name) {
+        await addDoc(collection(db,'frigo_items'),{
+          name: result.name,
+          category: result.category || categorizeShoppingItem(result.name),
+          expiryDate: result.expiryDate || '',
+          quantity:1, unit:'pcs',
+          addedAt:new Date().toISOString()
+        });
+        setScanMsg(`✅ "${result.name}" reconnu et ajouté !`);
+      } else {
+        setScanMsg('❌ Produit non reconnu. Essayez une autre photo.');
+      }
+    } catch { setScanMsg('❌ Erreur lors de l\'analyse.'); }
     setIsLoading(false);
   };
 
@@ -305,32 +283,35 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
           <button onClick={addItem} className="px-6 py-3 bg-black text-white rounded-2xl font-bold hover:scale-105 transition-transform"><Plus size={18}/></button>
         </div>
 
-        {/* SCAN & CAMÉRA */}
+        {/* SCAN CODE-BARRE + IA PHOTO (sélecteur de médias) */}
         <div className="flex gap-2 pt-2 border-t border-gray-100">
           <div className="flex-1 flex gap-2">
             <input value={barcodeInput} onChange={e=>setBarcodeInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&fetchProductByBarcode(barcodeInput)} placeholder="Scanner / saisir code-barre..." className="flex-1 p-3 bg-gray-50 rounded-xl font-mono text-sm outline-none border-2 border-transparent focus:border-blue-400"/>
-            <button onClick={()=>fetchProductByBarcode(barcodeInput)} disabled={!barcodeInput||isLoading} className="px-4 py-3 bg-blue-500 text-white rounded-xl hover:scale-105 transition-transform flex items-center gap-2">
+            <button onClick={()=>fetchProductByBarcode(barcodeInput)} disabled={!barcodeInput||isLoading} className="px-4 py-3 bg-blue-500 text-white rounded-xl hover:scale-105 transition-transform flex items-center gap-2 disabled:opacity-50">
               {isLoading?<Loader2 size={16} className="animate-spin"/>:<Barcode size={16}/>}
             </button>
           </div>
-          <button onClick={openCamera} className="px-4 py-3 bg-purple-500 text-white rounded-xl hover:scale-105 transition-transform flex items-center gap-2">
-            <Camera size={16}/> <span className="text-xs font-bold hidden sm:block">IA Photo</span>
+          {/* Input fichier caché — accept image/* + capture environment → propose caméra ET galerie sur mobile */}
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handlePhotoFile}
+          />
+          <button
+            onClick={()=>photoInputRef.current?.click()}
+            disabled={isLoading}
+            className="px-4 py-3 bg-purple-500 text-white rounded-xl hover:scale-105 transition-transform flex items-center gap-2 disabled:opacity-50"
+            title="Photographier ou choisir une image du produit"
+          >
+            {isLoading ? <Loader2 size={16} className="animate-spin"/> : <Camera size={16}/>}
+            <span className="text-xs font-bold hidden sm:block">IA Photo</span>
           </button>
         </div>
-        {scanMsg&&<div className={`text-center text-sm font-bold py-2 px-4 rounded-xl ${scanMsg.startsWith('✅')?'bg-green-50 text-green-700':'bg-red-50 text-red-700'}`}>{scanMsg}</div>}
+        {scanMsg&&<div className={`text-center text-sm font-bold py-2 px-4 rounded-xl ${scanMsg.startsWith('✅')?'bg-green-50 text-green-700':scanMsg.startsWith('⏳')?'bg-blue-50 text-blue-700':'bg-red-50 text-red-700'}`}>{scanMsg}</div>}
       </div>
-
-      {/* MODAL CAMÉRA */}
-      {isCameraOpen&&(
-        <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center justify-center">
-          <video ref={videoRef} autoPlay playsInline className="w-full max-w-lg rounded-2xl"/>
-          <div className="flex gap-4 mt-6">
-            <button onClick={captureAndAnalyze} className="px-8 py-4 bg-white text-black font-black rounded-2xl text-sm uppercase">📸 Analyser</button>
-            <button onClick={closeCamera} className="px-8 py-4 bg-red-500 text-white font-bold rounded-2xl"><X size={20}/></button>
-          </div>
-          <p className="text-white/60 text-xs mt-4">Pointez vers le produit puis appuyez sur Analyser</p>
-        </div>
-      )}
 
       {/* INVENTAIRE */}
       <div className="bg-white/80 backdrop-blur-md p-6 rounded-[2.5rem] shadow-xl border border-gray-100">
@@ -380,40 +361,27 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem }: { user:User, conf
     setMessages(newMsgs);
     setIsLoading(true);
 
-    // Contexte Hub
+    // Contexte passé au service Gemini
     const shopItems = hubItems.filter(i=>i.type==='shop').map(i=>i.content).join(', ');
-    const systemCtx = `Tu es le Majordome d'une famille française. Tu es expert en organisation, cuisine, gestion de budget et anti-gaspi. 
-Liste de courses actuelle: ${shopItems||'vide'}.
-Tu PEUX ajouter des éléments à la liste de courses si l'utilisateur le demande. Dans ce cas, réponds avec un JSON entre balises <ADD_TO_CART> et </ADD_TO_CART> suivi de ton message:
-<ADD_TO_CART>["item1","item2"]</ADD_TO_CART>
-Tes conseils sont précis, pratiques, bienveillants et professionnels.`;
+    const contextData = { shopItems: shopItems||'vide' };
 
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          model:'claude-sonnet-4-20250514', max_tokens:600,
-          system: systemCtx,
-          messages: newMsgs.map(m=>({role:m.role==='user'?'user':'assistant',content:m.text}))
-        })
-      });
-      const data = await resp.json();
-      let text = data.content?.[0]?.text||'Désolé, une erreur est survenue.';
-      
-      // Parser les ajouts au panier
-      const cartMatch = text.match(/<ADD_TO_CART>([\s\S]*?)<\/ADD_TO_CART>/);
-      if(cartMatch) {
-        try {
-          const itemsToAdd:string[] = JSON.parse(cartMatch[1]);
-          itemsToAdd.forEach(item=>addHubItem(item));
-          text = text.replace(/<ADD_TO_CART>[\s\S]*?<\/ADD_TO_CART>/,'').trim();
-          text += `\n\n✅ J'ai ajouté ${itemsToAdd.length} article(s) à votre liste de courses.`;
-        } catch {}
-      }
+      // askButlerAgent retourne { type: 'action'|'text', data: ... }
+      const result = await askButlerAgent(
+        newMsgs.map(m=>({ role: m.role, text: m.text })),
+        contextData
+      );
 
-      setMessages([...newMsgs,{role:'assistant',text}]);
-    } catch { setMessages([...newMsgs,{role:'assistant',text:'Erreur de connexion.'}]); }
+      if(result.type === 'action' && result.data?.action === 'ADD_HUB') {
+        // Action d'ajout au panier
+        addHubItem(result.data.item);
+        const replyText = result.data.reply || `✅ "${result.data.item}" ajouté à la liste de courses.`;
+        setMessages([...newMsgs,{role:'assistant',text:replyText}]);
+      } else {
+        const text = result.data || 'Désolé, une erreur est survenue.';
+        setMessages([...newMsgs,{role:'assistant',text}]);
+      }
+    } catch { setMessages([...newMsgs,{role:'assistant',text:'Erreur de connexion au Majordome.'}]); }
     setIsLoading(false);
   };
 
@@ -750,25 +718,16 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
     if(!recipeUrl.trim()) return;
     setIsImporting(true);
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          model:'claude-sonnet-4-20250514', max_tokens:1000,
-          messages:[{role:'user',content:`Extrait les informations de cette recette depuis l'URL: ${recipeUrl}
-          
-Réponds UNIQUEMENT avec un JSON dans ce format exact (pas de backticks, pas de markdown):
-{"title":"...","chef":"","category":"plat","ingredients":"ingrédient 1\\ningrédient 2\\n...","steps":"étape 1\\nétape 2\\n..."}`}]
-        })
-      });
-      const data = await resp.json();
-      const text = data.content?.[0]?.text||'';
-      const clean = text.replace(/```json|```/g,'').trim();
-      const parsed = JSON.parse(clean);
-      setCurrentRecipe({...currentRecipe,...parsed});
-      setRecipeUrl('');
-      alert('✅ Recette importée avec succès !');
-    } catch { alert('❌ Impossible d\'importer depuis cette URL. Vérifiez le lien.'); }
+      // extractRecipeFromUrl retourne { title, chef, category, ingredients, steps }
+      const parsed = await extractRecipeFromUrl(recipeUrl.trim());
+      if(parsed && parsed.title) {
+        setCurrentRecipe({...currentRecipe, ...parsed});
+        setRecipeUrl('');
+        alert('✅ Recette importée avec succès !');
+      } else {
+        alert('❌ Impossible d\'extraire la recette depuis cette URL. Vérifiez le lien.');
+      }
+    } catch { alert('❌ Erreur lors de l\'import. Vérifiez le lien.'); }
     setIsImporting(false);
   };
 
@@ -1072,14 +1031,72 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
         <div className="space-y-8 animate-in fade-in">
           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>PARAMÈTRES</h3>
 
-          {/* MAINTENANCE / FUTUR */}
-          <div className="bg-black p-6 rounded-3xl space-y-4">
-            <h4 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><Lock size={16}/> MODE MAINTENANCE</h4>
-            <p className="text-gray-400 text-sm">Si activé, le site affiche "Ici, débute le futur" pour tous sauf l'admin.</p>
-            <div className="flex items-center justify-between">
-              <span className="text-white font-bold">{localC.isLocked?'🔒 Site verrouillé':'🔓 Site accessible'}</span>
-              <button onClick={()=>{ const newVal={...localC,isLocked:!localC.isLocked}; setLocalC(newVal); save(newVal,false); }} className={`px-6 py-3 rounded-xl font-black text-sm transition-all ${localC.isLocked?'bg-red-500 text-white':'bg-green-500 text-white'}`}>{localC.isLocked?<ToggleRight size={20}/>:<ToggleLeft size={20}/>} {localC.isLocked?'Désactiver':'Activer'}</button>
+          {/* MAINTENANCE / FUTUR — Sélection par page */}
+          <div className="bg-black p-6 rounded-3xl space-y-5">
+            <h4 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><Lock size={16}/> MODE MAINTENANCE — PAR PAGE</h4>
+            <p className="text-gray-400 text-sm leading-relaxed">
+              Sélectionnez les pages à verrouiller. Les pages verrouillées affichent
+              <span className="text-white font-bold mx-1">"Ici, débute le futur"</span>
+              pour tous les membres sauf l'admin.
+            </p>
+
+            {/* Switch global rapide */}
+            <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
+              <div>
+                <span className="text-white font-bold text-sm">Tout verrouiller</span>
+                <p className="text-gray-500 text-xs mt-0.5">Verrouille l'intégralité du site</p>
+              </div>
+              <button
+                onClick={()=>{
+                  const allLocked = Object.keys(ORIGINAL_CONFIG.navigationLabels).reduce((acc, key) => ({...acc, [key]: true}), {});
+                  const newVal = {...localC, lockedPages: allLocked};
+                  setLocalC(newVal);
+                  save(newVal, false);
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded-xl font-bold text-xs hover:bg-red-500 transition-colors"
+              >
+                🔒 Tout fermer
+              </button>
             </div>
+
+            {/* Sélection granulaire par page */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {Object.entries(ORIGINAL_CONFIG.navigationLabels).map(([key, label]) => {
+                const isPageLocked = !!(localC.lockedPages as any)?.[key];
+                return (
+                  <button
+                    key={key}
+                    onClick={()=>{
+                      const current = (localC.lockedPages as any) || {};
+                      const newLockedPages = {...current, [key]: !isPageLocked};
+                      const newVal = {...localC, lockedPages: newLockedPages};
+                      setLocalC(newVal);
+                      save(newVal, false);
+                    }}
+                    className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
+                      isPageLocked
+                        ? 'bg-red-900/40 border-red-500/50 text-red-300'
+                        : 'bg-white/5 border-white/10 text-gray-400 hover:border-white/20'
+                    }`}
+                  >
+                    <span className="font-bold text-xs uppercase tracking-wide">{label}</span>
+                    <span className="text-sm">{isPageLocked ? '🔒' : '🔓'}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Bouton tout déverrouiller */}
+            <button
+              onClick={()=>{
+                const newVal = {...localC, lockedPages: {}};
+                setLocalC(newVal);
+                save(newVal, false);
+              }}
+              className="w-full py-3 border border-white/20 text-gray-400 font-bold rounded-xl hover:bg-white/5 transition-colors text-xs uppercase tracking-widest"
+            >
+              🔓 Tout déverrouiller
+            </button>
           </div>
 
           {/* PAGE ACCUEIL */}
@@ -1107,24 +1124,27 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
 };
 
 // ==========================================
-// PAGE MAINTENANCE
+// PAGE MAINTENANCE (par page)
 // ==========================================
-const MaintenancePage = () => (
-  <div className="fixed inset-0 bg-black flex flex-col items-center justify-center z-[999]">
-    <div className="text-center space-y-8 animate-in fade-in duration-1000">
-      <div className="w-24 h-24 mx-auto border-2 border-white/20 rounded-full flex items-center justify-center">
-        <Flame className="text-white/40" size={40}/>
+const MaintenancePage = ({ pageName }: { pageName?: string }) => (
+  <div className="flex flex-col items-center justify-center min-h-[60vh] py-20 bg-black rounded-[3rem]">
+    <div className="text-center space-y-8 animate-in fade-in duration-1000 px-8">
+      <div className="w-20 h-20 mx-auto border border-white/10 rounded-full flex items-center justify-center">
+        <Flame className="text-white/30" size={36}/>
       </div>
       <div>
-        <h1 className="text-4xl md:text-7xl font-black text-white tracking-[0.3em] uppercase" style={{fontFamily:'Georgia, serif', letterSpacing:'0.4em'}}>
+        <h1 className="text-4xl md:text-6xl font-black text-white tracking-[0.3em] uppercase" style={{fontFamily:'Georgia, serif'}}>
           Ici,
         </h1>
-        <h2 className="text-3xl md:text-6xl font-black text-white/60 tracking-widest uppercase mt-2" style={{fontFamily:'Georgia, serif'}}>
+        <h2 className="text-2xl md:text-4xl font-black text-white/50 tracking-widest uppercase mt-2" style={{fontFamily:'Georgia, serif'}}>
           débute le futur.
         </h2>
+        {pageName && (
+          <p className="mt-6 text-white/20 text-xs uppercase tracking-[0.4em]">{pageName} — bientôt disponible</p>
+        )}
       </div>
-      <div className="w-16 h-px bg-white/20 mx-auto"/>
-      <p className="text-white/20 text-xs uppercase tracking-[0.3em]">Revenez bientôt</p>
+      <div className="w-12 h-px bg-white/10 mx-auto"/>
+      <p className="text-white/15 text-xs uppercase tracking-[0.3em]">Revenez bientôt</p>
     </div>
   </div>
 );
@@ -1236,6 +1256,13 @@ const App: React.FC = () => {
   const markNotifRead=async(notifId:string)=>{if(!user?.email)return;await setDoc(doc(db,'notifications',notifId),{readBy:{[user.email]:new Date().toISOString()}},{merge:true});};
   const handleNotificationClick=(n:AppNotification)=>{markNotifRead(n.id);if(n.linkView){setCurrentView(n.linkView);if(n.linkView==='xsite'&&n.linkId){const site=xsitePages.find(p=>p.id===n.linkId);if(site)setSelectedXSite(site);}else if(n.linkId){setTimeout(()=>{const el=document.getElementById(n.linkId!);if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},500);}}setIsNotifOpen(false);};
 
+  // Helper : vérifie si une page est verrouillée pour les non-admins
+  const isPageLocked = (viewKey: string): boolean => {
+    if(!user || user.email === ADMIN_EMAIL) return false;
+    const lockedPages = (config as any).lockedPages || {};
+    return !!lockedPages[viewKey];
+  };
+
   // --- ÉCRANS SPÉCIAUX ---
   if(isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#f5ede7]"><Loader2 className="w-12 h-12 animate-spin text-[#a85c48]"/></div>;
 
@@ -1260,7 +1287,8 @@ const App: React.FC = () => {
   );
 
   // PAGE MAINTENANCE (sauf admin)
-  if(config.isLocked&&user.email!==ADMIN_EMAIL) return <MaintenancePage/>;
+  // NOTE: le verrouillage global est géré page par page via isPageLocked()
+  // (l'ancien config.isLocked global est remplacé par config.lockedPages)
 
   return (
     <div className="min-h-screen pb-24 md:pb-0 transition-colors duration-700" style={{backgroundColor:config.backgroundColor,fontFamily:config.fontFamily}}>
@@ -1351,10 +1379,11 @@ const App: React.FC = () => {
         )}
 
         {/* HUB */}
-        {currentView==='hub'&&<HubView user={user} config={config} usersMapping={usersMapping}/>}
+        {currentView==='hub'&&(isPageLocked('hub')?<MaintenancePage pageName="Le Tableau"/>:<HubView user={user} config={config} usersMapping={usersMapping}/>)}
 
         {/* FRIGO */}
         {currentView==='frigo'&&(
+          isPageLocked('frigo') ? <MaintenancePage pageName="Frigo"/> : (
           <div className="space-y-6">
             <div className="flex flex-col items-center gap-4">
               <h2 className="text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>MON FRIGO</h2>
@@ -1362,13 +1391,14 @@ const App: React.FC = () => {
             </div>
             <FrigoView user={user} config={config}/>
           </div>
+          )
         )}
 
         {/* PORTE-MONNAIE */}
-        {currentView==='wallet'&&<WalletView user={user} config={config}/>}
+        {currentView==='wallet'&&(isPageLocked('wallet')?<MaintenancePage pageName="Porte-Monnaie"/>:<WalletView user={user} config={config}/>)}
 
         {/* TÂCHES */}
-        {currentView==='tasks'&&(
+        {currentView==='tasks'&&(isPageLocked('tasks') ? <MaintenancePage pageName="Tâches"/> : (
           <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8" id="tasks-table">
             <div className="text-center space-y-4">
               <h2 className="text-5xl font-cinzel font-black" style={{color:config.primaryColor}}>TÂCHES MÉNAGÈRES</h2>
@@ -1408,10 +1438,10 @@ const App: React.FC = () => {
               <div className="p-6 bg-gray-50 text-center text-xs text-gray-400 uppercase tracking-widest border-t border-gray-100">G = Gabriel • P = Pauline • V = Valentin</div>
             </div>
           </div>
-        )}
+        ))}
 
         {/* CALENDRIER */}
-        {currentView==='calendar'&&(
+        {currentView==='calendar'&&(isPageLocked('calendar') ? <MaintenancePage pageName="Calendrier"/> : (
           <div className="max-w-3xl mx-auto space-y-10" id="calendar-view">
             <div className="flex flex-col items-center gap-6">
               <h2 className="text-5xl font-cinzel font-black" style={{color:config.primaryColor}}>CALENDRIER</h2>
@@ -1438,10 +1468,10 @@ const App: React.FC = () => {
               {events.length===0&&<div className="text-center text-gray-400 py-10 italic">Rien de prévu pour le moment...</div>}
             </div>
           </div>
-        )}
+        ))}
 
         {/* XSITE */}
-        {currentView==='xsite'&&(
+        {currentView==='xsite'&&(isPageLocked('xsite') ? <MaintenancePage pageName="XSite"/> : (
           <div className="space-y-10">
             {!selectedXSite&&(
               (user.email===ADMIN_EMAIL||favorites.length>0)?(
@@ -1475,10 +1505,10 @@ const App: React.FC = () => {
               )
             )}
           </div>
-        )}
+        ))}
 
         {/* RECETTES */}
-        {currentView==='recipes'&&(
+        {currentView==='recipes'&&(isPageLocked('recipes') ? <MaintenancePage pageName="Recettes"/> : (
           <div className="space-y-10" id="recipes-list">
             <div className="flex flex-col items-center gap-6">
               <h2 className="text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>RECETTES</h2>
@@ -1499,14 +1529,14 @@ const App: React.FC = () => {
               ))}
             </div>
           </div>
-        )}
+        ))}
 
         {/* SEMAINIER */}
-        {currentView==='cooking'&&(
+        {currentView==='cooking'&&(isPageLocked('cooking') ? <MaintenancePage pageName="Semainier"/> : (
           <div className="bg-white/90 rounded-[3rem] min-h-[800px] shadow-xl overflow-hidden border border-black/5" id="cooking-frame">
             {config.cookingHtml?<iframe srcDoc={config.cookingHtml} className="w-full min-h-[800px]"/>:<div className="p-20 text-center opacity-40">Semainier non configuré</div>}
           </div>
-        )}
+        ))}
 
         {/* ADMIN */}
         {currentView==='edit'&&(
