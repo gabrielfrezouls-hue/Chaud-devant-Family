@@ -161,6 +161,31 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
   const [scanMsg, setScanMsg] = useState('');
   // Ref pour l'input fichier IA Photo (chargeur de médias standard)
   const photoInputRef = useRef<HTMLInputElement>(null);
+  // Ref pour la photo de code-barre via IA
+  const barcodePhotoRef = useRef<HTMLInputElement>(null);
+
+  // Analyse une photo pour en extraire le code-barre via geminiService
+  const handleBarcodePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if(!file) return;
+    e.target.value = '';
+    setIsLoading(true);
+    setScanMsg('⏳ Lecture du code-barre en cours...');
+    try {
+      const { readBarcodeFromImage } = await import('./services/geminiService');
+      const code = await readBarcodeFromImage(file);
+      if(code) {
+        setScanMsg(`✅ Code détecté : ${code} — Recherche produit...`);
+        await fetchProductByBarcode(code);
+      } else {
+        setScanMsg('❌ Aucun code-barre lisible sur cette photo.');
+        setIsLoading(false);
+      }
+    } catch {
+      setScanMsg('❌ Erreur lors de la lecture du code-barre.');
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     const q = query(collection(db,'frigo_items'), orderBy('addedAt','desc'));
@@ -231,8 +256,11 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
 
   const getExpiryStatus = (expiryDate?:string) => {
     if(!expiryDate) return null;
-    const exp = new Date(expiryDate);
+    // On parse la date sans heure pour éviter les décalages de fuseau horaire
+    const [y,m,d] = expiryDate.split('-').map(Number);
+    const exp = new Date(y, m-1, d);
     const now = new Date();
+    now.setHours(0,0,0,0);
     const diff = Math.ceil((exp.getTime()-now.getTime())/(1000*60*60*24));
     if(diff<0) return { label:'Périmé !', color:'bg-red-100 text-red-700', icon:'🚨' };
     if(diff<=3) return { label:`${diff}j`, color:'bg-orange-100 text-orange-700', icon:'⚠️' };
@@ -242,7 +270,10 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
 
   const expiringSoon = items.filter(i=>{
     if(!i.expiryDate) return false;
-    const diff=Math.ceil((new Date(i.expiryDate).getTime()-new Date().getTime())/(1000*60*60*24));
+    const [y,m,d] = i.expiryDate.split('-').map(Number);
+    const exp = new Date(y, m-1, d);
+    const now = new Date(); now.setHours(0,0,0,0);
+    const diff=Math.ceil((exp.getTime()-now.getTime())/(1000*60*60*24));
     return diff<=3;
   });
 
@@ -286,27 +317,28 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
         {/* SCAN CODE-BARRE + IA PHOTO (sélecteur de médias) */}
         <div className="flex gap-2 pt-2 border-t border-gray-100">
           <div className="flex-1 flex gap-2">
-            <input value={barcodeInput} onChange={e=>setBarcodeInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&fetchProductByBarcode(barcodeInput)} placeholder="Scanner / saisir code-barre..." className="flex-1 p-3 bg-gray-50 rounded-xl font-mono text-sm outline-none border-2 border-transparent focus:border-blue-400"/>
-            <button onClick={()=>fetchProductByBarcode(barcodeInput)} disabled={!barcodeInput||isLoading} className="px-4 py-3 bg-blue-500 text-white rounded-xl hover:scale-105 transition-transform flex items-center gap-2 disabled:opacity-50">
-              {isLoading?<Loader2 size={16} className="animate-spin"/>:<Barcode size={16}/>}
+            <input value={barcodeInput} onChange={e=>setBarcodeInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&fetchProductByBarcode(barcodeInput)} placeholder="Saisir ou photographier un code-barre..." className="flex-1 p-3 bg-gray-50 rounded-xl font-mono text-sm outline-none border-2 border-transparent focus:border-blue-400"/>
+            {/* Si champ vide → ouvre l'appareil photo pour lire le code-barre par IA */}
+            {/* Si champ rempli → soumet le code directement */}
+            <input ref={barcodePhotoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleBarcodePhoto}/>
+            <button
+              onClick={()=>{ barcodeInput.trim() ? fetchProductByBarcode(barcodeInput) : barcodePhotoRef.current?.click(); }}
+              disabled={isLoading}
+              className="px-4 py-3 bg-blue-500 text-white rounded-xl hover:scale-105 transition-transform flex items-center gap-2 disabled:opacity-50"
+              title={barcodeInput.trim() ? "Rechercher ce code-barre" : "Photographier un code-barre"}
+            >
+              {isLoading?<Loader2 size={16} className="animate-spin"/>: barcodeInput.trim() ? <Barcode size={16}/> : <Camera size={16}/>}
             </button>
           </div>
-          {/* Input fichier caché — accept image/* + capture environment → propose caméra ET galerie sur mobile */}
-          <input
-            ref={photoInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handlePhotoFile}
-          />
+          {/* Bouton IA Photo produit (reconnaissance visuelle du produit) */}
+          <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoFile}/>
           <button
             onClick={()=>photoInputRef.current?.click()}
             disabled={isLoading}
             className="px-4 py-3 bg-purple-500 text-white rounded-xl hover:scale-105 transition-transform flex items-center gap-2 disabled:opacity-50"
-            title="Photographier ou choisir une image du produit"
+            title="Identifier un produit par photo (IA)"
           >
-            {isLoading ? <Loader2 size={16} className="animate-spin"/> : <Camera size={16}/>}
+            {isLoading ? <Loader2 size={16} className="animate-spin"/> : <Brain size={16}/>}
             <span className="text-xs font-bold hidden sm:block">IA Photo</span>
           </button>
         </div>
@@ -788,7 +820,7 @@ const BottomNav = ({ config, view, setView }: any) => (
     {[
       {id:'home',i:<Home size={22}/>},
       {id:'hub',i:<LayoutDashboard size={22}/>},
-      {id:'frigo',i:<Refrigerator size={22}/>},
+      {id:'tasks',i:<CheckSquare size={22}/>},
       {id:'recipes',i:<ChefHat size={22}/>},
       {id:'cooking',i:<CalIcon size={22}/>}
     ].map(b=><button key={b.id} onClick={()=>setView(b.id)} className={`p-2 ${view===b.id?'text-white -translate-y-2 bg-white/20 rounded-xl':''}`}>{b.i}</button>)}
@@ -833,6 +865,36 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   const saveVersionName=(id:string)=>{upd('site_versions',id,{name:tempVersionName});setEditingVersionId(null);};
   const generateQrCode=(siteId:string)=>{const baseUrl=window.location.href.split('?')[0];const fullUrl=`${baseUrl}?id=${siteId}`;const apiUrl=`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fullUrl)}`;setQrCodeUrl(apiUrl);};
   const copyCookingLink=()=>{const baseUrl=window.location.href.split('?')[0];const fullUrl=`${baseUrl}?view=cooking`;navigator.clipboard.writeText(fullUrl);alert("Lien copié !");};
+
+  // Import données JSONBin → Firebase Recettes
+  const importFromJsonBin = async () => {
+    if(!confirm("⚠️ Importer les favoris de l'ancien semainier JSONBin vers les Recettes Firebase ?\n\nCela n'écrase rien d'existant.")) return;
+    try {
+      const r = await fetch('https://api.jsonbin.io/v3/b/6888fd29ae596e708fbdb580/latest',{headers:{'X-Master-Key':'$2a$10$1NA4zkzJrIuI1PXd5snGEOeLqrEGV.3YJd/bZqTF7/wiLw/yereFi'}});
+      if(!r.ok) throw new Error('Erreur JSONBin '+r.status);
+      const json = await r.json();
+      const oldData = json.record;
+      let count = 0;
+      if(oldData?.favorisData && Array.isArray(oldData.favorisData)){
+        for(const fav of oldData.favorisData){
+          await addDoc(collection(db,'family_recipes'),{
+            title: fav.platName||'Sans titre',
+            chef: 'Import Ancien Semainier',
+            category: 'plat',
+            ingredients: fav.notes||'',
+            steps: fav.recetteLink ? `Lien recette : ${fav.recetteLink}` : '',
+            image: '',
+            timestamp: new Date().toISOString()
+          });
+          count++;
+        }
+      }
+      alert(`✅ ${count} recette(s) importée(s) depuis l'ancien semainier !`);
+    } catch(e:any){
+      console.error(e);
+      alert('❌ Erreur lors de l\'import : '+e.message);
+    }
+  };;
 
   const registerUser=async()=>{
     if(!newUser.email||!newUser.letter)return alert("Email et Lettre requis");
@@ -1116,7 +1178,234 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
             <button onClick={copyCookingLink} className="flex items-center gap-2 px-6 py-3 bg-black text-white rounded-xl font-bold hover:scale-105 transition-transform"><Copy size={16}/> Copier le lien Semainier</button>
           </div>
 
+          {/* MIGRATION JSONBIN → FIREBASE */}
+          <div className="bg-blue-950 p-6 rounded-3xl space-y-3">
+            <h4 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><Download size={16}/> MIGRATION DONNÉES</h4>
+            <p className="text-blue-300 text-sm">Importer les favoris de l'ancien semainier JSONBin vers les Recettes Firebase.</p>
+            <button onClick={importFromJsonBin} className="w-full py-3 bg-blue-500 hover:bg-blue-400 text-white font-black rounded-xl uppercase tracking-widest transition-colors">
+              📥 Importer depuis JSONBin
+            </button>
+          </div>
+
           <button onClick={()=>save(localC,true)} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{backgroundColor:config.primaryColor}}>Sauvegarder tous les paramètres</button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==========================================
+// SEMAINIER (intégré, remplace l'iframe)
+// ==========================================
+const JOURS = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
+const REPAS = ["Midi","Soir"];
+const PARTICIPANTS = ["Olivier","Lætitia","Gabriel","Valentin","Pauline"];
+const JSONBIN_URL = 'https://api.jsonbin.io/v3/b/6888fd29ae596e708fbdb580';
+const JSONBIN_KEY = '$2a$10$1NA4zkzJrIuI1PXd5snGEOeLqrEGV.3YJd/bZqTF7/wiLw/yereFi';
+
+function getWeekNumber(date:Date){const t=new Date(date.valueOf());const dn=(date.getDay()+6)%7;t.setDate(t.getDate()-dn+3);const ft=t.valueOf();t.setMonth(0,1);if(t.getDay()!==4)t.setMonth(0,1+((4-t.getDay())+7)%7);return 1+Math.ceil((ft-t.valueOf())/604800000);}
+function getMondayOfWeek(offset:number){const now=new Date();now.setHours(0,0,0,0);const day=now.getDay()||7;const mon=new Date(now);mon.setDate(now.getDate()-day+1+(offset*7));return mon;}
+function getWeekId(offset:number){const mon=getMondayOfWeek(offset);return `${mon.getFullYear()}_W${String(getWeekNumber(mon)).padStart(2,'0')}`;}
+function makeKey(day:string,meal:string,offset:number){return `${day}_${meal}_${getWeekId(offset)}`;}
+
+const SemainierView = ({config}:{config:SiteConfig}) => {
+  const [data, setData] = useState<Record<string,any>>({});
+  const [favs, setFavs] = useState<any[]>([]);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [modal, setModal] = useState<{day:string,meal:string}|null>(null);
+  const [form, setForm] = useState({platName:'',participants:[] as string[],recetteLink:'',notes:'',addToFav:false});
+  const [toast, setToast] = useState('');
+  const [syncing, setSyncing] = useState(false);
+
+  const showToast = (msg:string) => { setToast(msg); setTimeout(()=>setToast(''),3000); };
+
+  // Charge depuis JSONBin
+  const loadFromServer = async () => {
+    try {
+      const r = await fetch(`${JSONBIN_URL}/latest`,{headers:{'X-Master-Key':JSONBIN_KEY}});
+      if(!r.ok) throw new Error();
+      const json = await r.json();
+      const rec = json.record || {};
+      if(rec.semainierData) setData(rec.semainierData);
+      if(rec.favorisData) setFavs(rec.favorisData);
+    } catch { showToast('⚠️ Chargement local uniquement'); }
+  };
+
+  const saveToServer = async (newData:any, newFavs:any[]) => {
+    if(syncing) return;
+    setSyncing(true);
+    try {
+      await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY},body:JSON.stringify({semainierData:newData,favorisData:newFavs,lastUpdate:new Date().toISOString()})});
+      showToast('✅ Semainier synchronisé !');
+    } catch { showToast('⚠️ Erreur de sync — données sauvées localement'); }
+    setSyncing(false);
+  };
+
+  useEffect(()=>{ loadFromServer(); },[]);
+
+  const monday = getMondayOfWeek(weekOffset);
+  const weekLabel = `Semaine ${getWeekNumber(monday)} — du ${monday.toLocaleDateString('fr-FR')}`;
+
+  const openModal = (day:string, meal:string) => {
+    const key = makeKey(day,meal,weekOffset);
+    const existing = data[key];
+    setForm({
+      platName: existing?.platName||'',
+      participants: existing?.participants||[],
+      recetteLink: existing?.recetteLink||'',
+      notes: existing?.notes||'',
+      addToFav: false,
+    });
+    setModal({day,meal});
+  };
+
+  const saveModal = () => {
+    if(!modal||!form.platName.trim()){showToast('⚠️ Nom du plat requis');return;}
+    if(!form.participants.length){showToast('⚠️ Sélectionnez au moins un participant');return;}
+    const key = makeKey(modal.day,modal.meal,weekOffset);
+    const newData = {...data,[key]:{platName:form.platName,participants:form.participants,recetteLink:form.recetteLink,notes:form.notes}};
+    let newFavs = [...favs];
+    if(form.addToFav&&!favs.some(f=>f.platName.toLowerCase()===form.platName.toLowerCase())){
+      newFavs = [...favs,{platName:form.platName,recetteLink:form.recetteLink,notes:form.notes}];
+    }
+    setData(newData); setFavs(newFavs); setModal(null);
+    saveToServer(newData,newFavs);
+    showToast('🍽️ Repas enregistré !');
+  };
+
+  const deleteMeal = (day:string, meal:string, e:React.MouseEvent) => {
+    e.stopPropagation();
+    const key = makeKey(day,meal,weekOffset);
+    const newData = {...data};
+    delete newData[key];
+    setData(newData);
+    saveToServer(newData,favs);
+    showToast('🗑️ Repas supprimé');
+  };
+
+  const deleteFav = (idx:number) => {
+    const newFavs = favs.filter((_,i)=>i!==idx);
+    setFavs(newFavs);
+    saveToServer(data,newFavs);
+    showToast('🗑️ Favori supprimé');
+  };
+
+  const loadFav = (fav:any) => {
+    setForm(f=>({...f,platName:fav.platName,recetteLink:fav.recetteLink||'',notes:fav.notes||''}));
+  };
+
+  const toggleParticipant = (p:string) => {
+    setForm(f=>({...f,participants:f.participants.includes(p)?f.participants.filter(x=>x!==p):[...f.participants,p]}));
+  };
+
+  return (
+    <div className="p-4 md:p-8 space-y-6">
+      {/* Toast */}
+      {toast&&<div className="fixed top-24 right-6 bg-black text-white px-5 py-3 rounded-2xl font-bold shadow-2xl z-[300] animate-in slide-in-from-right text-sm">{toast}</div>}
+
+      {/* Header semainier */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h2 className="text-3xl font-cinzel font-black" style={{color:config.primaryColor}}>SEMAINIER</h2>
+        <div className="flex items-center gap-3">
+          <button onClick={()=>setWeekOffset(w=>w-1)} className="w-10 h-10 rounded-full border-2 flex items-center justify-center font-black text-lg hover:bg-black hover:text-white transition-colors" style={{borderColor:config.primaryColor,color:config.primaryColor}}>‹</button>
+          <span className="font-bold text-sm text-gray-600 min-w-[200px] text-center">{weekLabel}</span>
+          <button onClick={()=>setWeekOffset(w=>w+1)} className="w-10 h-10 rounded-full border-2 flex items-center justify-center font-black text-lg hover:bg-black hover:text-white transition-colors" style={{borderColor:config.primaryColor,color:config.primaryColor}}>›</button>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={loadFromServer} className="px-4 py-2 bg-gray-100 rounded-xl font-bold text-xs hover:bg-gray-200 transition-colors flex items-center gap-2"><RotateCcw size={14}/> Recharger</button>
+        </div>
+      </div>
+
+      {/* Tableau repas */}
+      <div className="overflow-x-auto rounded-2xl shadow-lg border border-gray-100">
+        <table className="w-full border-collapse min-w-[700px]">
+          <thead>
+            <tr style={{backgroundColor:config.primaryColor}}>
+              <th className="p-3 text-white font-black text-xs uppercase w-20">Repas</th>
+              {JOURS.map(j=><th key={j} className="p-3 text-white font-black text-xs uppercase">{j}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {REPAS.map(meal=>(
+              <tr key={meal} className="border-t border-gray-100">
+                <td className="p-3 font-black text-xs uppercase text-center" style={{backgroundColor:config.primaryColor+'22',color:config.primaryColor}}>{meal}</td>
+                {JOURS.map(day=>{
+                  const key=makeKey(day,meal,weekOffset);
+                  const entry=data[key];
+                  return(
+                    <td key={day} onClick={()=>openModal(day,meal)} className="p-2 relative cursor-pointer hover:bg-gray-50 transition-colors group min-h-[80px] align-middle" style={{minHeight:'80px'}}>
+                      {entry?(
+                        <div className="p-2 rounded-xl h-full" style={{backgroundColor:config.primaryColor+'15',borderLeft:`3px solid ${config.primaryColor}`}}>
+                          <button onClick={e=>deleteMeal(day,meal,e)} className="absolute top-1 left-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">×</button>
+                          <div className="font-bold text-sm text-gray-800 leading-tight">{entry.platName}</div>
+                          <div className="text-[10px] text-gray-500 mt-1">{entry.participants?.join(', ')}</div>
+                          {entry.recetteLink&&<a href={entry.recetteLink} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px]" style={{backgroundColor:config.primaryColor,color:'white'}}>🔗</a>}
+                        </div>
+                      ):(
+                        <div className="text-gray-300 italic text-xs text-center py-4">+ ajouter</div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Favoris */}
+      {favs.length>0&&(
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+          <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><Star size={14}/> PLATS FAVORIS</h4>
+          <div className="flex flex-wrap gap-2">
+            {favs.map((f,i)=>(
+              <div key={i} className="flex items-center gap-1 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200">
+                <button onClick={()=>{ if(modal) loadFav(f); else showToast('Ouvrez une case de repas d\'abord'); }} className="font-bold text-xs text-gray-700 hover:text-black">{f.platName}</button>
+                <button onClick={()=>deleteFav(i)} className="ml-1 text-gray-300 hover:text-red-500"><X size={12}/></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Modal ajout repas */}
+      {modal&&(
+        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={()=>setModal(null)}>
+          <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-md shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-cinzel font-black" style={{color:config.primaryColor}}>{modal.meal} — {modal.day}</h3>
+              <button onClick={()=>setModal(null)} className="text-gray-400 hover:text-black"><X/></button>
+            </div>
+
+            {/* Sélecteur favoris */}
+            {favs.length>0&&(
+              <select onChange={e=>{if(e.target.value!=='')loadFav(favs[parseInt(e.target.value)]);}} className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 text-sm font-bold outline-none" defaultValue="">
+                <option value="">⭐ Choisir un favori...</option>
+                {favs.map((f,i)=><option key={i} value={i}>{f.platName}</option>)}
+              </select>
+            )}
+
+            <input value={form.platName} onChange={e=>setForm(f=>({...f,platName:e.target.value}))} placeholder="Nom du plat *" className="w-full p-4 rounded-xl border-2 border-gray-200 font-bold outline-none focus:border-black" autoFocus/>
+            <input value={form.recetteLink} onChange={e=>setForm(f=>({...f,recetteLink:e.target.value}))} placeholder="Lien recette (optionnel)" className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none"/>
+            <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Notes (optionnel)" className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none h-20"/>
+
+            {/* Participants */}
+            <div>
+              <p className="font-black text-xs uppercase text-gray-400 mb-2">Participants *</p>
+              <div className="grid grid-cols-2 gap-2">
+                {PARTICIPANTS.map(p=>(
+                  <button key={p} type="button" onClick={()=>toggleParticipant(p)} className={`p-3 rounded-xl font-bold text-sm transition-all border-2 ${form.participants.includes(p)?'text-white border-transparent':'bg-gray-50 text-gray-600 border-gray-200'}`} style={form.participants.includes(p)?{backgroundColor:config.primaryColor,borderColor:config.primaryColor}:{}}>{p}</button>
+                ))}
+              </div>
+            </div>
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={form.addToFav} onChange={e=>setForm(f=>({...f,addToFav:e.target.checked}))} className="w-5 h-5 accent-black"/>
+              <span className="font-bold text-sm">⭐ Ajouter aux favoris</span>
+            </label>
+
+            <button onClick={saveModal} className="w-full py-4 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg hover:scale-[1.02] transition-transform" style={{backgroundColor:config.primaryColor}}>Enregistrer</button>
+          </div>
         </div>
       )}
     </div>
@@ -1531,10 +1820,12 @@ const App: React.FC = () => {
           </div>
         ))}
 
-        {/* SEMAINIER */}
+        {/* SEMAINIER — intégré directement dans l'app */}
         {currentView==='cooking'&&(isPageLocked('cooking') ? <MaintenancePage pageName="Semainier"/> : (
-          <div className="bg-white/90 rounded-[3rem] min-h-[800px] shadow-xl overflow-hidden border border-black/5" id="cooking-frame">
-            {config.cookingHtml?<iframe srcDoc={config.cookingHtml} className="w-full min-h-[800px]"/>:<div className="p-20 text-center opacity-40">Semainier non configuré</div>}
+          <div className="space-y-0 animate-in fade-in" id="cooking-frame">
+            <div className="bg-white/90 rounded-[3rem] overflow-hidden shadow-xl border border-black/5" style={{minHeight:'800px'}}>
+              <SemainierView config={config}/>
+            </div>
           </div>
         ))}
 
