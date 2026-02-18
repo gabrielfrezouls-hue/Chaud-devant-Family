@@ -10,7 +10,7 @@ import {
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, Image as ImageIcon, 
-  Map, QrCode, Star, Maximize2, Minimize2, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail, CornerDownRight, Store, CalendarClock, ScanBarcode, Camera, Zap, UtensilsCrossed, LogOut, ExternalLink, RefreshCw
+  Map, QrCode, Star, Maximize2, Minimize2, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail, CornerDownRight, Store, CalendarClock, ScanBarcode, Camera, Zap, UtensilsCrossed, LogOut, ToggleLeft, ToggleRight, Upload
 } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat, extractRecipeFromUrl, scanProductImage, askButlerAgent, readBarcodeFromImage } from './services/geminiService';
@@ -23,7 +23,6 @@ import RecipeCard from './components/RecipeCard';
 
 const ADMIN_EMAIL = "gabriel.frezouls@gmail.com";
 
-// ✅ DÉFINITION DE NAV_ITEMS EN PREMIER POUR ÉVITER "REFERENCE ERROR"
 const NAV_ITEMS = {
     home: "ACCUEIL",
     hub: "HUB",
@@ -62,7 +61,7 @@ const ORIGINAL_CONFIG: SiteConfig = {
 };
 
 // ============================================================================
-// 2. LOGIQUE MÉTIER & HELPERS
+// 2. FONCTIONS LOGIQUES (HELPERS)
 // ============================================================================
 
 interface AppNotification {
@@ -81,6 +80,7 @@ const categorizeShoppingItem = (text: string) => {
     return 'Divers';
 };
 
+// API OpenFoodFacts (Appelée après l'IA)
 const fetchProductByBarcode = async (barcode: string) => {
     try {
         const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`);
@@ -95,54 +95,48 @@ const fetchProductByBarcode = async (barcode: string) => {
     } catch (e) { return null; }
 };
 
-// --- LOGIQUE TÂCHES MÉNAGÈRES ---
-const ROTATION = ['G', 'P', 'V']; // Gabriel, Pauline, Valentin
+const ROTATION = ['G', 'P', 'V'];
 const REF_DATE = new Date('2025-12-20T12:00:00'); 
-
 const getChores = (date: Date) => {
-  const saturday = new Date(date);
-  saturday.setDate(date.getDate() - (date.getDay() + 1) % 7);
-  saturday.setHours(12, 0, 0, 0);
-  
-  const weekId = `${saturday.getDate()}-${saturday.getMonth()+1}-${saturday.getFullYear()}`;
-  
-  // Calcul de la différence en semaines
-  const diffTime = saturday.getTime() - REF_DATE.getTime();
-  const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
-  
+  const w = new Date(date); w.setDate(date.getDate() - (date.getDay() + 1) % 7);
+  const diffWeeks = Math.floor((w.getTime() - REF_DATE.getTime()) / (604800000));
   const mod = (n: number, m: number) => ((n % m) + m) % m;
-  
-  return { 
-      id: weekId, 
-      fullDate: saturday, 
-      dateStr: `${saturday.getDate()}/${saturday.getMonth()+1}`, 
-      haut: ROTATION[mod(diffWeeks, 3)], 
-      bas: ROTATION[mod(diffWeeks + 2, 3)], 
-      douche: ROTATION[mod(diffWeeks + 1, 3)] 
-  };
+  return { id: `${w.getDate()}-${w.getMonth()+1}`, dateStr: `${w.getDate()}/${w.getMonth()+1}`, haut: ROTATION[mod(diffWeeks, 3)], bas: ROTATION[mod(diffWeeks + 2, 3)], douche: ROTATION[mod(diffWeeks + 1, 3)] };
 };
-
 const getMonthWeekends = () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  const weekends = [];
-  const date = new Date(year, month, 1);
-  
-  // Trouver le premier samedi
-  while (date.getDay() !== 6) { date.setDate(date.getDate() + 1); }
-  
-  // Ajouter tous les samedis du mois
-  while (date.getMonth() === month) {
-    weekends.push(getChores(new Date(date)));
-    date.setDate(date.getDate() + 7);
-  }
-  return weekends;
+  const d = new Date(); const m = d.getMonth(); const res = []; const w = new Date(d.getFullYear(), m, 1);
+  while (w.getDay() !== 6) w.setDate(w.getDate() + 1);
+  while (w.getMonth() === m) { res.push(getChores(new Date(w))); w.setDate(w.getDate() + 7); }
+  return res;
 };
 
 // ============================================================================
 // 3. COMPOSANTS UI (DÉFINIS AVANT UTILISATION)
 // ============================================================================
+
+const SideMenu = ({ config, isOpen, close, setView, logout }: any) => (
+  <div className={`fixed inset-0 z-[60] ${isOpen ? '' : 'pointer-events-none'}`}>
+    <div className={`absolute inset-0 bg-black/40 transition-opacity ${isOpen ? 'opacity-100' : 'opacity-0'}`} onClick={() => close(false)} />
+    <div className={`absolute right-0 top-0 h-full w-80 bg-white p-10 transition-transform ${isOpen ? 'translate-x-0' : 'translate-x-full'} overflow-y-auto`}>
+      <button onClick={() => close(false)} className="mb-10 text-gray-300"><X /></button>
+      <div className="space-y-4">
+        {Object.keys(NAV_ITEMS).filter(k => k !== 'edit').map(key => (
+          <button key={key} onClick={() => { setView(key); close(false); }} className="block w-full text-left p-4 hover:bg-black/5 rounded-xl uppercase font-black text-xs tracking-widest text-gray-800">
+            {NAV_ITEMS[key as keyof typeof NAV_ITEMS]}
+          </button>
+        ))}
+        <button onClick={() => { setView('edit'); close(false); }} className="block w-full text-left p-4 hover:bg-black/5 rounded-xl uppercase font-black text-xs tracking-widest text-gray-800">ADMINISTRATION</button>
+        <button onClick={logout} className="block w-full text-left p-4 text-red-500 font-bold text-xs tracking-widest mt-8 border-t pt-8">DÉCONNEXION</button>
+      </div>
+    </div>
+  </div>
+);
+
+const BottomNav = ({ config, view, setView }: any) => (
+  <div className="md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 text-white/50 px-4 pb-4 shadow-xl" style={{ backgroundColor: config.primaryColor }}>
+    {[ {id:'home', i:<Home size={22}/>}, {id:'hub', i:<LayoutDashboard size={22}/>}, {id:'fridge', i:<UtensilsCrossed size={22}/>}, {id:'recipes', i:<ChefHat size={22}/>}, {id:'wallet', i:<Wallet size={22}/>} ].map(b => <button key={b.id} onClick={() => setView(b.id)} className={`p-2 ${view === b.id ? 'text-white -translate-y-2 bg-white/20 rounded-xl' : ''}`}>{b.i}</button>)}
+  </div>
+);
 
 const HomeCard = ({ icon, title, label, onClick, color }: any) => (
   <div onClick={onClick} className="bg-white/70 backdrop-blur-md p-8 rounded-[2.5rem] cursor-pointer hover:scale-105 transition-transform shadow-lg border border-white/50 group flex flex-col justify-between h-48">
@@ -151,20 +145,9 @@ const HomeCard = ({ icon, title, label, onClick, color }: any) => (
   </div>
 );
 
-const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, myLetter }: any) => {
-  const isDone = choreStatus[weekId]?.[letter] || false; 
-  const canCheck = !isLocked && myLetter === letter; 
-  return (
-    <td className="p-4 text-center align-middle">
-      <div className="flex flex-col items-center gap-2">
-        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}> {letter} </span>
-        <button onClick={() => canCheck && toggleChore(weekId, letter)} disabled={!canCheck} className={`transition-transform active:scale-95 ${!canCheck && !isDone ? 'opacity-20 cursor-not-allowed' : ''}`} title={isLocked ? "Trop tôt pour cocher !" : ""}>
-          {isDone ? <CheckSquare className="text-green-500" size={24} /> : (canCheck ? <Square className="text-green-500 hover:fill-green-50" size={24} /> : <Square className="text-gray-200" size={24} />)}
-        </button>
-      </div>
-    </td>
-  );
-};
+const TaskCell = ({ letter, isLocked, isDone, toggle }: any) => (
+    <td className="p-4 text-center"><div className="flex flex-col items-center gap-2"><span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{letter}</span><button onClick={toggle} disabled={!isLocked && !isDone} className={`transition-transform active:scale-95 ${!isLocked && !isDone ? 'opacity-20' : ''}`}>{isDone ? <CheckSquare className="text-green-500"/> : <Square className="text-gray-300"/>}</button></div></td>
+);
 
 const CircleLiquid = ({ fillPercentage }: { fillPercentage: number }) => {
   const safePercent = isNaN(fillPercentage) ? 0 : Math.min(Math.max(fillPercentage, 0), 100);
@@ -206,6 +189,55 @@ const SimpleLineChart = ({ data, color }: { data: any[], color: string }) => {
   );
 };
 
+// --- MODALES (RECETTES, EVENTS) ---
+
+const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }: any) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300">
+        <button onClick={() => onClose(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
+        <div className="text-center space-y-2"><div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><CalIcon size={32} style={{ color: config.primaryColor }} /></div><h3 className="text-2xl font-cinzel font-bold">Nouvel Événement</h3></div>
+        <div className="space-y-4">
+          <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quoi ?</label><input value={newEvent.title} onChange={e => setNewEvent({...newEvent, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none focus:ring-2" placeholder="Anniversaire..." autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} /></div>
+          <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quand ?</label><input type="date" value={newEvent.date} onChange={e => setNewEvent({...newEvent, date: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none cursor-pointer" /></div>
+          <div onClick={() => setNewEvent({...newEvent, isAllDay: !newEvent.isAllDay})} className="flex items-center justify-between p-4 rounded-xl border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"><div className="flex items-center gap-3"><Clock size={20} className={newEvent.isAllDay ? "text-gray-300" : "text-black"} /><span className="font-bold text-sm">Toute la journée</span></div>{newEvent.isAllDay ? <ToggleRight size={32} className="text-green-500"/> : <ToggleLeft size={32} className="text-gray-300"/>}</div>
+          {!newEvent.isAllDay && (<div className="animate-in slide-in-from-top-2"><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label><input type="text" value={newEvent.time} onChange={e => setNewEvent({...newEvent, time: e.target.value})} placeholder="Ex: 20h00, Midi..." className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-bold text-lg" /></div>)}
+        </div>
+        <button disabled={isSubmitting} onClick={async () => { if (newEvent.title && newEvent.date) { setIsSubmitting(true); await addEntry('family_events', { title: newEvent.title, date: newEvent.date, time: newEvent.isAllDay ? null : (newEvent.time || '') }); setNewEvent({ title: '', date: new Date().toISOString().split('T')[0], time: '', isAllDay: true }); setIsSubmitting(false); onClose(false); } else { alert("Titre et date requis !"); } }} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting ? 'opacity-50' : ''}`} style={{ backgroundColor: config.primaryColor }}>{isSubmitting ? "Ajout..." : "Ajouter au calendrier"}</button>
+      </div>
+    </div>
+  );
+};
+
+const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe, updateEntry, addEntry }: any) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  
+  const handleFile = (e: any, callback: any) => { const f = e.target.files[0]; if (!f) return; setIsCompressing(true); const reader = new FileReader(); reader.onload = (event: any) => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); const MAX_WIDTH = 800; const scale = MAX_WIDTH / img.width; if (scale < 1) { canvas.width = MAX_WIDTH; canvas.height = img.height * scale; } else { canvas.width = img.width; canvas.height = img.height; } const ctx = canvas.getContext('2d'); if(ctx) { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7); callback(compressedDataUrl); setIsCompressing(false); } }; img.src = event.target.result; }; reader.readAsDataURL(f); };
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
+        <button onClick={() => onClose(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
+        <div className="text-center space-y-2"><div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-black mb-4"><ChefHat size={32} style={{ color: config.primaryColor }} /></div><h3 className="text-2xl font-cinzel font-bold">{currentRecipe.id ? 'Modifier la Recette' : 'Nouvelle Recette'}</h3></div>
+        <div className="space-y-4">
+          <input value={currentRecipe.title} onChange={e => setCurrentRecipe({...currentRecipe, title: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Nom du plat (ex: Gratin Dauphinois)" autoFocus style={{ '--tw-ring-color': config.primaryColor } as any} />
+          <div className="flex gap-4"><input value={currentRecipe.chef} onChange={e => setCurrentRecipe({...currentRecipe, chef: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Chef (ex: Papa)" /><select value={currentRecipe.category} onChange={e => setCurrentRecipe({...currentRecipe, category: e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"><option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option></select></div>
+          <div onClick={() => !isCompressing && fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center justify-center text-gray-400 gap-2">{isCompressing ? <div className="flex items-center gap-2 text-blue-500 font-bold"><Loader2 className="animate-spin"/> Compression...</div> : currentRecipe.image ? <div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/> Photo ajoutée !</div> : <><Upload size={24}/><span>Ajouter une photo</span></>}</div>
+          <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e => handleFile(e, (b:string) => setCurrentRecipe({...currentRecipe, image: b}))} />
+          <button disabled={isSubmitting || isCompressing} onClick={async () => { if(currentRecipe.title) { setIsSubmitting(true); const recipeToSave = { ...currentRecipe }; try { if (recipeToSave.id) { await updateEntry('family_recipes', recipeToSave.id, recipeToSave); } else { await addEntry('family_recipes', recipeToSave); } onClose(false); } catch (e) { alert("Image trop lourde ou erreur technique."); setIsSubmitting(false); } } else { alert("Il faut au moins un titre !"); } }} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting || isCompressing ? 'opacity-50 cursor-not-allowed' : ''}`} style={{ backgroundColor: config.primaryColor }}>{isSubmitting ? "Enregistrement..." : (isCompressing ? "Traitement image..." : "Enregistrer la recette")}</button>
+          <div className="grid md:grid-cols-2 gap-4"><textarea value={currentRecipe.ingredients} onChange={e => setCurrentRecipe({...currentRecipe, ingredients: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Ingrédients (un par ligne)..." /><textarea value={currentRecipe.steps} onChange={e => setCurrentRecipe({...currentRecipe, steps: e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Étapes de préparation..." /></div>
+        </div>
+        <div className="h-10"></div>
+      </div>
+    </div>
+  );
+};
+
+// MAJORDOME FLOTTANT & ACTIF
 const ButlerFloating = ({ chatHistory, setChatHistory, isAiLoading, setIsAiLoading, onAction }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const [msg, setMsg] = useState('');
@@ -231,7 +263,7 @@ const ButlerFloating = ({ chatHistory, setChatHistory, isAiLoading, setIsAiLoadi
 };
 
 // ============================================================================
-// 4. VUES (Hub, Frigo, Wallet, Tâches, Recettes, etc.)
+// 4. VUES (CONTENU)
 // ============================================================================
 
 const HubView = ({ user, config, usersMapping, onAddItem }: any) => {
@@ -294,7 +326,7 @@ const FridgeView = () => {
                     alert(`Code ${code} lu, mais produit inconnu.`);
                 }
             } else {
-                alert("Code barre illisible sur la photo. Essayez de bien cadrer et d'avoir de la lumière.");
+                alert("Code barre illisible sur la photo.");
             }
         } else {
             res = await scanProductImage(f);
@@ -354,15 +386,28 @@ const WalletView = ({ user }: any) => {
 
   if (!myWallet && activeTab === 'personal') return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-gray-400"/></div>;
 
-  const addDebt = async () => { if (!newDebt.from || !newDebt.amount) return; await addDoc(collection(db, 'family_debts'), { ...newDebt, amount: parseFloat(newDebt.amount), interest: parseFloat(newDebt.interest || '0'), createdAt: new Date().toISOString() }); setNewDebt({ from: '', to: '', amount: '', interest: '0' }); };
+  const addDebt = async () => { if (!newDebt.from || !newDebt.to || !newDebt.amount) return; await addDoc(collection(db, 'family_debts'), { ...newDebt, amount: parseFloat(newDebt.amount), interest: parseFloat(newDebt.interest || '0'), createdAt: new Date().toISOString() }); setNewDebt({ from: '', to: '', amount: '', interest: '0' }); };
   const updateBalance = async (type: 'add' | 'sub') => { const val = parseFloat(walletAmount); if (!val) return; const newBal = type === 'add' ? myWallet.balance + val : myWallet.balance - val; await updateDoc(doc(db, 'user_wallets', user.email!), { balance: newBal, history: [...(myWallet.history || []), { date: new Date().toISOString(), amount: type === 'add' ? val : -val, newBalance: newBal }] }); setWalletAmount(''); };
   const saveGoal = async () => { const v = parseFloat(goalInput); if(!isNaN(v)) await updateDoc(doc(db, 'user_wallets', user.email!), { savingsGoal: v, startBalance: myWallet.balance }); };
   
-  let fillPercent = 0; if (myWallet && (myWallet.savingsGoal - myWallet.startBalance) > 0) { fillPercent = ((myWallet.balance - myWallet.startBalance) / (myWallet.savingsGoal - myWallet.startBalance)) * 100; }
+  const getGraphData = () => {
+      if (!myWallet?.history) return [];
+      const now = new Date(); let cutoff = new Date();
+      if(chartRange === '1M') cutoff.setMonth(now.getMonth() - 1);
+      if(chartRange === '1Y') cutoff.setFullYear(now.getFullYear() - 1);
+      if(chartRange === '5Y') cutoff.setFullYear(now.getFullYear() - 5);
+      const filtered = myWallet.history.filter((h:any) => new Date(h.date) >= cutoff);
+      filtered.sort((a:any, b:any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      return filtered.map((h: any) => ({ name: new Date(h.date).toLocaleDateString(), solde: h.newBalance }));
+  };
+
+  const graphData = getGraphData();
+  const currentMonthHistory = (myWallet?.history || []).filter((h: any) => new Date(h.date).getMonth() === new Date().getMonth());
+  let fillPercent = 0; if (myWallet && (myWallet.savingsGoal - myWallet.startBalance) > 0) { fillPercent = ((myWallet.balance - myWallet.startBalance) / (myWallet.savingsGoal - myWallet.startBalance)) * 100; } if (myWallet && myWallet.balance >= myWallet.savingsGoal && myWallet.savingsGoal > 0) fillPercent = 100;
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in" id="top">
-      <div className="flex justify-center gap-4 mb-8"><button onClick={() => setActiveTab('family')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'family' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}><ShieldAlert className="inline mr-2 mb-1" size={16}/> Dettes</button><button onClick={() => setActiveTab('personal')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'personal' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}><PiggyBank className="inline mr-2 mb-1" size={16}/> Tirelire</button></div>
+      <div className="flex justify-center gap-4 mb-8"><button onClick={() => setActiveTab('family')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'family' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}><ShieldAlert className="inline mr-2 mb-1" size={16}/> Dettes Famille</button><button onClick={() => setActiveTab('personal')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab === 'personal' ? 'bg-black text-white shadow-lg' : 'bg-white text-gray-400'}`}><PiggyBank className="inline mr-2 mb-1" size={16}/> Ma Tirelire</button></div>
       {activeTab === 'family' ? (
         <div className="bg-white/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-xl border border-white space-y-8" id="wallet-debts">
            <div className="flex gap-2 items-end"><input value={newDebt.from} onChange={e => setNewDebt({...newDebt, from: e.target.value})} placeholder="Qui doit ?" className="p-3 rounded-xl bg-white w-24" /><input value={newDebt.to} onChange={e => setNewDebt({...newDebt, to: e.target.value})} placeholder="À qui ?" className="p-3 rounded-xl bg-white w-24" /><input type="number" value={newDebt.amount} onChange={e => setNewDebt({...newDebt, amount: e.target.value})} placeholder="€" className="p-3 rounded-xl bg-white w-20" /><button onClick={addDebt} className="p-3 bg-black text-white rounded-xl"><Plus/></button></div>
@@ -373,6 +418,7 @@ const WalletView = ({ user }: any) => {
              <div className="relative h-48 w-full"><CircleLiquid fillPercentage={fillPercent} /><div className="absolute inset-0 flex flex-col items-center justify-center"><h2 className="text-4xl font-black text-yellow-900">{myWallet?.balance?.toFixed(0)}€</h2></div></div>
              <div className="flex gap-2 justify-center"><button onClick={() => updateBalance('sub')} className="p-3 bg-red-100 text-red-600 rounded-xl"><Minus/></button><input type="number" value={walletAmount} onChange={e => setWalletAmount(e.target.value)} className="w-24 text-center bg-white rounded-xl" /><button onClick={() => updateBalance('add')} className="p-3 bg-green-100 text-green-600 rounded-xl"><Plus/></button></div>
              <div className="flex gap-2 items-center"><Target size={16}/><input type="number" value={goalInput} onChange={e => setGoalInput(e.target.value)} onBlur={saveGoal} placeholder="Objectif..." className="w-full bg-transparent font-bold"/></div>
+             <div className="h-60 w-full p-2"><SimpleLineChart data={graphData} color={config.primaryColor} /></div>
         </div>
       )}
     </div>
