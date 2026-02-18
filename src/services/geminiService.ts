@@ -2,7 +2,7 @@ import { SiteConfig } from "../types";
 
 // --- CONFIGURATION ---
 const getApiKey = () => import.meta.env.VITE_GEMINI_KEY || "";
-const MODEL_NAME = "gemini-3-pro-preview";
+const MODEL_NAME = "gemini-1.5-flash-latest";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent`;
 
 // --- UTILITAIRES ---
