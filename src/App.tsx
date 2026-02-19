@@ -195,24 +195,9 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
 
   const addItem = async () => {
     if(!newItem.name.trim()) return;
-    let expiryDate = newItem.expiryDate;
-    // Si pas de date saisie, on estime via Gemini selon le type de produit
-    if(!expiryDate) {
-      try {
-        const { askAIChat } = await import('./services/geminiService');
-        const today = new Date().toISOString().split('T')[0];
-        const res = await askAIChat([{
-          role:'user',
-          text:`Aujourd'hui nous sommes le ${today}. Quel est le nombre de jours typique de conservation à domicile (au frigo ou en cuisine) pour : "${newItem.name.trim()}" ? Réponds UNIQUEMENT avec une date au format YYYY-MM-DD correspondant à la date limite estimée à partir d'aujourd'hui. Rien d'autre.`
-        }]);
-        const match = res?.match(/\d{4}-\d{2}-\d{2}/);
-        if(match) expiryDate = match[0];
-      } catch { /* ignore — on ajoute sans date */ }
-    }
     await addDoc(collection(db,'frigo_items'),{
       ...newItem, name:newItem.name.trim(),
       category: categorizeShoppingItem(newItem.name),
-      expiryDate,
       addedAt: new Date().toISOString()
     });
     setNewItem({name:'',quantity:1,unit:'pcs',expiryDate:''});
@@ -269,27 +254,48 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
 
   const deleteItem = async (id:string) => { await deleteDoc(doc(db,'frigo_items',id)); };
 
-  const getExpiryStatus = (expiryDate?:string) => {
-    if(!expiryDate) return null;
-    // On parse la date sans heure pour éviter les décalages de fuseau horaire
-    const [y,m,d] = expiryDate.split('-').map(Number);
+  // Durée de conservation (jours) selon la catégorie
+  const SHELF_LIFE: Record<string,number> = {
+    'Boucherie/Poisson': 3,
+    'Boulangerie': 3,
+    'Plat préparé': 4,
+    'Restes': 4,
+    'Primeur': 7,
+    'Frais & Crèmerie': 10,
+    'Épicerie Salée': 90,
+    'Épicerie Sucrée': 90,
+    'Boissons': 90,
+    'Surgelés': 90,
+    'Divers': 14,
+  };
+
+  // Calcule la date limite estimée à partir de la date d'ajout et de la catégorie
+  const estimateExpiryFromCategory = (addedAt:string, category:string): string => {
+    const days = SHELF_LIFE[category] ?? 14;
+    const d = new Date(addedAt);
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split('T')[0];
+  };
+
+  const getExpiryStatus = (item: FrigoItem) => {
+    // Date limite : expiryDate saisie, sinon estimée depuis addedAt + catégorie
+    let expiryStr = item.expiryDate;
+    if(!expiryStr && item.addedAt) {
+      expiryStr = estimateExpiryFromCategory(item.addedAt, item.category);
+    }
+    if(!expiryStr) return null;
+    const [y,m,d] = expiryStr.split('-').map(Number);
     const exp = new Date(y, m-1, d);
-    const now = new Date();
-    now.setHours(0,0,0,0);
+    const now = new Date(); now.setHours(0,0,0,0);
     const diff = Math.ceil((exp.getTime()-now.getTime())/(1000*60*60*24));
-    if(diff<0) return { label:'Périmé !', color:'bg-red-100 text-red-700', icon:'🚨' };
-    if(diff<=3) return { label:`${diff}j`, color:'bg-orange-100 text-orange-700', icon:'⚠️' };
-    if(diff<=7) return { label:`${diff}j`, color:'bg-yellow-100 text-yellow-700', icon:'⏰' };
-    return { label:`${diff}j`, color:'bg-green-100 text-green-700', icon:'✅' };
+    if(diff < 0) return { label:'Périmé', color:'bg-red-100 text-red-700', icon:'🔴' };
+    if(diff <= 3) return { label:`J-${diff}`, color:'bg-orange-100 text-orange-700', icon:'🟠' };
+    return { label:`J-${diff}`, color:'bg-green-100 text-green-700', icon:'🟢' };
   };
 
   const expiringSoon = items.filter(i=>{
-    if(!i.expiryDate) return false;
-    const [y,m,d] = i.expiryDate.split('-').map(Number);
-    const exp = new Date(y, m-1, d);
-    const now = new Date(); now.setHours(0,0,0,0);
-    const diff=Math.ceil((exp.getTime()-now.getTime())/(1000*60*60*24));
-    return diff<=3;
+    const s = getExpiryStatus(i);
+    return s && (s.icon==='🔴' || s.icon==='🟠');
   });
 
   return (
@@ -304,7 +310,7 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
           <div className="flex flex-wrap gap-2">
             {expiringSoon.map(i=>(
               <span key={i.id} className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-bold">
-                {i.name} — {getExpiryStatus(i.expiryDate)?.label}
+                {i.name} — {getExpiryStatus(i)?.label}
               </span>
             ))}
           </div>
@@ -366,7 +372,7 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
         {items.length===0&&<div className="text-center py-12 text-gray-300 italic">Frigo vide — ajoutez vos produits !</div>}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {items.map(item=>{
-            const expStatus=getExpiryStatus(item.expiryDate);
+            const expStatus=getExpiryStatus(item);
             return (
               <div key={item.id} className={`group flex justify-between items-center p-4 rounded-2xl border-l-4 transition-all hover:shadow-md ${expStatus?.icon==='🚨'?'bg-red-50 border-red-400':expStatus?.icon==='⚠️'?'bg-orange-50 border-orange-400':'bg-gray-50 border-gray-200'}`}>
                 <div>
@@ -813,22 +819,104 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
 // ==========================================
 // NAVIGATION
 // ==========================================
-const SideMenu = ({ config, isOpen, close, setView, logout }: any) => (
-  <div className={`fixed inset-0 z-[60] ${isOpen?'':'pointer-events-none'}`}>
-    <div className={`absolute inset-0 bg-black/40 transition-opacity ${isOpen?'opacity-100':'opacity-0'}`} onClick={close}/>
-    <div className={`absolute right-0 top-0 h-full w-80 p-10 transition-transform ${isOpen?'translate-x-0':'translate-x-full'} overflow-y-auto`} style={{backgroundColor:config.backgroundColor}}>
-      <button onClick={()=>close(false)} className="mb-10"><X/></button>
-      <div className="space-y-4">
-        {['home','hub','frigo','xsite','recipes','cooking','calendar','tasks','wallet','edit'].map(v=>(
-          <button key={v} onClick={()=>{setView(v);close(false);}} className="block w-full text-left p-4 hover:bg-black/5 rounded-xl uppercase font-bold text-xs tracking-widest">
-            {v==='edit'?'ADMINISTRATION':v==='frigo'?'FRIGO':config.navigationLabels[v]||v}
+const SideMenu = ({ config, isOpen, close, setView, logout }: any) => {
+  const [openUniverse, setOpenUniverse] = useState<string|null>('cuisine');
+
+  const universes = [
+    {
+      id: 'cuisine',
+      label: '🍳 CUISINE',
+      subtitle: 'Le Ventre',
+      links: [
+        {id:'hub', label:'Le Tableau'},
+        {id:'frigo', label:'Le Frigo'},
+        {id:'recipes', label:'Les Recettes'},
+        {id:'cooking', label:'Le Semainier'},
+      ]
+    },
+    {
+      id: 'intendance',
+      label: '📋 INTENDANCE',
+      subtitle: 'La Tête',
+      links: [
+        {id:'tasks', label:'Les Corvées'},
+        {id:'wallet', label:'La Tirelire'},
+        {id:'calendar', label:"L'Agenda"},
+      ]
+    },
+    {
+      id: 'systeme',
+      label: '⚙️ SYSTÈME',
+      subtitle: 'Les Rouages',
+      links: [
+        {id:'xsite', label:'XSite'},
+        {id:'edit', label:'Administration'},
+      ]
+    },
+  ];
+
+  return (
+    <div className={`fixed inset-0 z-[60] ${isOpen?'':'pointer-events-none'}`}>
+      <div className={`absolute inset-0 bg-black/40 transition-opacity ${isOpen?'opacity-100':'opacity-0'}`} onClick={close}/>
+      <div className={`absolute right-0 top-0 h-full w-80 transition-transform ${isOpen?'translate-x-0':'translate-x-full'} overflow-y-auto`} style={{backgroundColor:config.backgroundColor}}>
+        {/* Header */}
+        <div className="p-8 pb-4 flex items-center justify-between border-b border-black/5">
+          <span className="font-cinzel font-black text-lg" style={{color:config.primaryColor}}>CHAUD.DEVANT</span>
+          <button onClick={()=>close(false)} className="text-gray-400 hover:text-black"><X size={20}/></button>
+        </div>
+
+        {/* Accueil */}
+        <div className="px-6 pt-4">
+          <button onClick={()=>{setView('home');close(false);}} className="flex items-center gap-3 w-full p-3 rounded-xl hover:bg-black/5 transition-colors font-bold text-sm">
+            <Home size={16} style={{color:config.primaryColor}}/> Accueil
           </button>
-        ))}
-        <button onClick={logout} className="block w-full text-left p-4 text-red-500 font-bold text-xs tracking-widest mt-8">DÉCONNEXION</button>
+        </div>
+
+        {/* 3 Univers */}
+        <div className="px-4 py-2 space-y-1">
+          {universes.map(u=>(
+            <div key={u.id}>
+              {/* En-tête univers */}
+              <button
+                onClick={()=>setOpenUniverse(openUniverse===u.id?null:u.id)}
+                className="flex items-center justify-between w-full px-4 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all hover:bg-black/5"
+                style={{color: openUniverse===u.id ? config.primaryColor : '#9ca3af'}}
+              >
+                <div className="text-left">
+                  <div>{u.label}</div>
+                  <div className="text-[9px] font-bold opacity-50 normal-case tracking-normal mt-0.5">{u.subtitle}</div>
+                </div>
+                <ChevronRight size={14} className={`transition-transform ${openUniverse===u.id?'rotate-90':''}`}/>
+              </button>
+
+              {/* Liens du groupe */}
+              {openUniverse===u.id&&(
+                <div className="ml-4 pl-3 border-l-2 space-y-0.5 mb-2 animate-in slide-in-from-top-2" style={{borderColor:config.primaryColor+'40'}}>
+                  {u.links.map(link=>(
+                    <button
+                      key={link.id}
+                      onClick={()=>{setView(link.id);close(false);}}
+                      className="block w-full text-left px-4 py-3 rounded-xl font-bold text-sm hover:bg-black/5 transition-colors text-gray-700 hover:text-black"
+                    >
+                      {link.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Déconnexion */}
+        <div className="px-6 mt-4 border-t border-black/5 pt-4">
+          <button onClick={logout} className="flex items-center gap-3 w-full p-3 rounded-xl text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors font-bold text-sm">
+            <LogIn size={16}/> Déconnexion
+          </button>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const BottomNav = ({ config, view, setView }: any) => (
   <div className="md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 text-white/50 px-4 pb-4 shadow-xl" style={{backgroundColor:config.primaryColor}}>
@@ -862,6 +950,9 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   const [currentXSite, setCurrentXSite] = useState({id:'',name:'',html:''});
   const [qrCodeUrl, setQrCodeUrl] = useState<string|null>(null);
   const [notif, setNotif] = useState<Partial<AppNotification>>({message:'',type:'info',repeat:'once',linkView:'',linkId:'',targets:['all']});
+  const [notifMode, setNotifMode] = useState<'manual'|'ai'>('manual');
+  const [aiNotif, setAiNotif] = useState({trigger:'',prompt:'',targets:['all'] as string[]});
+  const [aiNotifLoading, setAiNotifLoading] = useState(false);
   const [schedDate, setSchedDate] = useState('');
   const [schedTime, setSchedTime] = useState('');
   const [activeNotifs, setActiveNotifs] = useState<AppNotification[]>([]);
@@ -896,6 +987,34 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
     setNotif({message:'',type:'info',repeat:'once',linkView:'',linkId:'',targets:['all']});
     setSchedDate('');setSchedTime('');
     alert("Notification envoyée/programmée !");
+  };
+
+  const sendAiNotification = async () => {
+    if(!aiNotif.trigger||!aiNotif.prompt) return alert("Veuillez remplir le déclencheur et la description.");
+    setAiNotifLoading(true);
+    try {
+      const { askAIChat } = await import('./services/geminiService');
+      const res = await askAIChat([{
+        role:'user',
+        text:`Tu es le Majordome de la famille Frézouls, sur l'application familiale "Chaud Devant". Génère une notification push courte (max 2 phrases, ton chaleureux et familier) pour le déclencheur suivant : "${aiNotif.trigger}". Consigne de ton et contenu : "${aiNotif.prompt}". Réponds UNIQUEMENT avec le texte de la notification, rien d'autre.`
+      }]);
+      if(res) {
+        await addDoc(collection(db,'notifications'),{
+          message: res.trim(),
+          type:'info', repeat:'once',
+          targets: aiNotif.targets,
+          createdAt: new Date().toISOString(),
+          readBy:{},
+          generatedByAI: true,
+          trigger: aiNotif.trigger
+        });
+        setAiNotif({trigger:'',prompt:'',targets:['all']});
+        alert("✅ Notification IA générée et envoyée !");
+      } else {
+        alert("❌ L'IA n'a pas pu générer le message.");
+      }
+    } catch(e){ alert("❌ Erreur IA : "+e); }
+    setAiNotifLoading(false);
   };
 
   const sendEmailToAll=()=>{
@@ -953,41 +1072,84 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {/* NOTIF */}
       {tab==='notif'&&(
         <div className="space-y-8 animate-in fade-in">
-          <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>NOTIFICATIONS</h3>
-          <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
-            <textarea value={notif.message} onChange={e=>setNotif({...notif,message:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200" placeholder="Message..."/>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={()=>setNotif({...notif,targets:['all']})} className={`px-3 py-1 rounded-full text-xs font-bold ${notif.targets?.includes('all')?'bg-black text-white':'bg-gray-200 text-gray-500'}`}>TOUS</button>
-              {users.map((u:any)=>(
-                <button key={u.id} onClick={()=>{const current=notif.targets?.includes('all')?[]:(notif.targets||[]);const newTargets=current.includes(u.id)?current.filter(t=>t!==u.id):[...current,u.id];setNotif({...notif,targets:newTargets});}} className={`px-3 py-1 rounded-full text-xs font-bold ${notif.targets?.includes(u.id)?'bg-blue-500 text-white':'bg-gray-200 text-gray-500'}`}>{u.name||u.letter}</button>
-              ))}
-            </div>
-            <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-4 rounded-xl border border-gray-200">
-              <div className="flex items-center gap-2 min-w-[200px]">
-                <CornerDownRight size={16} className="text-gray-400"/>
-                <select value={notif.linkView} onChange={e=>setNotif({...notif,linkView:e.target.value,linkId:''})} className="bg-transparent text-sm font-bold outline-none w-full">
-                  <option value="">-- Page (Aucune) --</option>
-                  {Object.keys(ORIGINAL_CONFIG.navigationLabels).map(key=>(<option key={key} value={key}>{ORIGINAL_CONFIG.navigationLabels[key as keyof typeof ORIGINAL_CONFIG.navigationLabels]}</option>))}
-                </select>
-              </div>
-              {notif.linkView==='xsite'?(<select value={notif.linkId} onChange={e=>setNotif({...notif,linkId:e.target.value})} className="flex-1 bg-transparent text-sm outline-none border-l pl-3 w-full"><option value="">-- Choisir un site --</option>{xsitePages.map((p:any)=><option key={p.id} value={p.id}>{p.name}</option>)}</select>)
-              :notif.linkView&&VIEW_ANCHORS[notif.linkView]?(<select value={notif.linkId} onChange={e=>setNotif({...notif,linkId:e.target.value})} className="flex-1 bg-transparent text-sm outline-none border-l pl-3 w-full"><option value="">-- Section --</option>{VIEW_ANCHORS[notif.linkView].map(a=><option key={a.id} value={a.id}>{a.label}</option>)}</select>)
-              :(<div className="flex-1 text-xs text-gray-400 italic pl-3 border-l">Pas de sous-section</div>)}
-            </div>
-            <div className="flex flex-wrap gap-4">
-              <select value={notif.type} onChange={e=>setNotif({...notif,type:e.target.value as any})} className="p-3 rounded-xl border border-gray-200"><option value="info">Info</option><option value="alert">Alerte</option><option value="fun">Fun</option></select>
-              <select value={notif.repeat} onChange={e=>setNotif({...notif,repeat:e.target.value as any})} className="p-3 rounded-xl border border-gray-200"><option value="once">Une fois</option><option value="daily">Tous les jours</option><option value="monthly">Tous les mois</option></select>
-              <div className="flex gap-2 items-center bg-white p-2 rounded-xl border border-gray-200"><CalendarClock size={16} className="text-gray-400"/><input type="date" value={schedDate} onChange={e=>setSchedDate(e.target.value)} className="text-xs font-bold outline-none"/><input type="time" value={schedTime} onChange={e=>setSchedTime(e.target.value)} className="text-xs font-bold outline-none"/></div>
-              <button onClick={sendNotification} className="flex-1 bg-black text-white font-bold rounded-xl px-6">Envoyer Interne</button>
-            </div>
-            <button onClick={sendEmailToAll} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 font-bold rounded-xl hover:bg-gray-100 flex items-center justify-center gap-2"><Mail size={16}/>Envoyer par Mail</button>
+          {/* Sélecteur de mode */}
+          <div className="flex items-center gap-4">
+            <h3 className="text-3xl font-cinzel font-bold flex-1" style={{color:config.primaryColor}}>NOTIFICATIONS</h3>
+            <select value={notifMode} onChange={e=>setNotifMode(e.target.value as 'manual'|'ai')} className="p-3 rounded-2xl border-2 border-gray-200 font-black text-sm outline-none" style={{borderColor:notifMode==='ai'?config.primaryColor:''}}>
+              <option value="manual">✍️ Manuelle</option>
+              <option value="ai">🤖 Générée par IA</option>
+            </select>
           </div>
+
+          {/* MODE MANUEL */}
+          {notifMode==='manual'&&(
+            <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
+              <textarea value={notif.message} onChange={e=>setNotif({...notif,message:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200" placeholder="Message..."/>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={()=>setNotif({...notif,targets:['all']})} className={`px-3 py-1 rounded-full text-xs font-bold ${notif.targets?.includes('all')?'bg-black text-white':'bg-gray-200 text-gray-500'}`}>TOUS</button>
+                {users.map((u:any)=>(
+                  <button key={u.id} onClick={()=>{const current=notif.targets?.includes('all')?[]:(notif.targets||[]);const newTargets=current.includes(u.id)?current.filter((t:string)=>t!==u.id):[...current,u.id];setNotif({...notif,targets:newTargets});}} className={`px-3 py-1 rounded-full text-xs font-bold ${notif.targets?.includes(u.id)?'bg-blue-500 text-white':'bg-gray-200 text-gray-500'}`}>{u.name||u.letter}</button>
+                ))}
+              </div>
+              <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-4 rounded-xl border border-gray-200">
+                <div className="flex items-center gap-2 min-w-[200px]">
+                  <CornerDownRight size={16} className="text-gray-400"/>
+                  <select value={notif.linkView} onChange={e=>setNotif({...notif,linkView:e.target.value,linkId:''})} className="bg-transparent text-sm font-bold outline-none w-full">
+                    <option value="">-- Page (Aucune) --</option>
+                    {Object.keys(ORIGINAL_CONFIG.navigationLabels).map(key=>(<option key={key} value={key}>{ORIGINAL_CONFIG.navigationLabels[key as keyof typeof ORIGINAL_CONFIG.navigationLabels]}</option>))}
+                  </select>
+                </div>
+                {notif.linkView==='xsite'?(<select value={notif.linkId} onChange={e=>setNotif({...notif,linkId:e.target.value})} className="flex-1 bg-transparent text-sm outline-none border-l pl-3 w-full"><option value="">-- Choisir un site --</option>{xsitePages.map((p:any)=><option key={p.id} value={p.id}>{p.name}</option>)}</select>)
+                :notif.linkView&&VIEW_ANCHORS[notif.linkView]?(<select value={notif.linkId} onChange={e=>setNotif({...notif,linkId:e.target.value})} className="flex-1 bg-transparent text-sm outline-none border-l pl-3 w-full"><option value="">-- Section --</option>{VIEW_ANCHORS[notif.linkView].map(a=><option key={a.id} value={a.id}>{a.label}</option>)}</select>)
+                :(<div className="flex-1 text-xs text-gray-400 italic pl-3 border-l">Pas de sous-section</div>)}
+              </div>
+              <div className="flex flex-wrap gap-4">
+                <select value={notif.type} onChange={e=>setNotif({...notif,type:e.target.value as any})} className="p-3 rounded-xl border border-gray-200"><option value="info">Info</option><option value="alert">Alerte</option><option value="fun">Fun</option></select>
+                <select value={notif.repeat} onChange={e=>setNotif({...notif,repeat:e.target.value as any})} className="p-3 rounded-xl border border-gray-200"><option value="once">Une fois</option><option value="daily">Tous les jours</option><option value="monthly">Tous les mois</option></select>
+                <div className="flex gap-2 items-center bg-white p-2 rounded-xl border border-gray-200"><CalendarClock size={16} className="text-gray-400"/><input type="date" value={schedDate} onChange={e=>setSchedDate(e.target.value)} className="text-xs font-bold outline-none"/><input type="time" value={schedTime} onChange={e=>setSchedTime(e.target.value)} className="text-xs font-bold outline-none"/></div>
+                <button onClick={sendNotification} className="flex-1 bg-black text-white font-bold rounded-xl px-6">Envoyer Interne</button>
+              </div>
+              <button onClick={sendEmailToAll} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 font-bold rounded-xl hover:bg-gray-100 flex items-center justify-center gap-2"><Mail size={16}/>Envoyer par Mail</button>
+            </div>
+          )}
+
+          {/* MODE IA */}
+          {notifMode==='ai'&&(
+            <div className="space-y-4 animate-in fade-in">
+              <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-5">
+                <div>
+                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-2">Déclencheur</label>
+                  <input value={aiNotif.trigger} onChange={e=>setAiNotif(a=>({...a,trigger:e.target.value}))} placeholder="Ex : Toutes les semaines le lundi, Quand un produit est périmé..." className="w-full p-4 rounded-xl border border-gray-200 font-bold outline-none focus:border-black"/>
+                </div>
+                <div>
+                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-2">Description du message</label>
+                  <textarea value={aiNotif.prompt} onChange={e=>setAiNotif(a=>({...a,prompt:e.target.value}))} placeholder="Ex : Ton chaleureux et bienveillant, rappel des corvées du weekend, encourage et félicite..." className="w-full p-4 rounded-xl border border-gray-200 outline-none h-28 resize-none"/>
+                </div>
+                <div>
+                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-2">Destinataires</label>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={()=>setAiNotif(a=>({...a,targets:['all']}))} className={`px-3 py-1 rounded-full text-xs font-bold ${aiNotif.targets.includes('all')?'bg-black text-white':'bg-gray-200 text-gray-500'}`}>TOUS</button>
+                    {users.map((u:any)=>(
+                      <button key={u.id} onClick={()=>{const c=aiNotif.targets.includes('all')?[]:aiNotif.targets;const t=c.includes(u.id)?c.filter((x:string)=>x!==u.id):[...c,u.id];setAiNotif(a=>({...a,targets:t}));}} className={`px-3 py-1 rounded-full text-xs font-bold ${aiNotif.targets.includes(u.id)?'bg-purple-500 text-white':'bg-gray-200 text-gray-500'}`}>{u.name||u.letter}</button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={sendAiNotification} disabled={aiNotifLoading} className="w-full py-4 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg flex items-center justify-center gap-3 disabled:opacity-50 transition-all hover:scale-[1.01]" style={{backgroundColor:config.primaryColor}}>
+                  {aiNotifLoading?<><Loader2 size={18} className="animate-spin"/>Génération en cours...</>:<><Sparkles size={18}/>Générer & Envoyer</>}
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 italic text-center">L'IA génère le message selon vos instructions et l'envoie directement aux destinataires.</p>
+            </div>
+          )}
+
+          {/* LISTE DES NOTIFS ACTIVES */}
           <div className="space-y-2">
             {activeNotifs.map(n=>(
               <div key={n.id} className="flex justify-between items-center p-4 bg-white rounded-xl border border-gray-100">
                 <div>
                   <div className="flex gap-2 mb-1">
                     <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase ${n.type==='alert'?'bg-red-100 text-red-600':'bg-blue-100 text-blue-600'}`}>{n.type}</span>
+                    {(n as any).generatedByAI&&<span className="text-[10px] font-bold bg-purple-100 text-purple-600 px-2 py-1 rounded flex items-center gap-1"><Sparkles size={8}/>IA</span>}
                     {n.scheduledFor&&<span className="text-[10px] font-bold bg-orange-100 text-orange-600 px-2 py-1 rounded flex items-center gap-1"><Clock size={10}/>{new Date(n.scheduledFor).toLocaleString()}</span>}
                   </div>
                   <span className="font-bold">{n.message}</span>
