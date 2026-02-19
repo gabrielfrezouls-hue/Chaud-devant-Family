@@ -195,9 +195,24 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
 
   const addItem = async () => {
     if(!newItem.name.trim()) return;
+    let expiryDate = newItem.expiryDate;
+    // Si pas de date saisie, on estime via Gemini selon le type de produit
+    if(!expiryDate) {
+      try {
+        const { askAIChat } = await import('./services/geminiService');
+        const today = new Date().toISOString().split('T')[0];
+        const res = await askAIChat([{
+          role:'user',
+          text:`Aujourd'hui nous sommes le ${today}. Quel est le nombre de jours typique de conservation à domicile (au frigo ou en cuisine) pour : "${newItem.name.trim()}" ? Réponds UNIQUEMENT avec une date au format YYYY-MM-DD correspondant à la date limite estimée à partir d'aujourd'hui. Rien d'autre.`
+        }]);
+        const match = res?.match(/\d{4}-\d{2}-\d{2}/);
+        if(match) expiryDate = match[0];
+      } catch { /* ignore — on ajoute sans date */ }
+    }
     await addDoc(collection(db,'frigo_items'),{
       ...newItem, name:newItem.name.trim(),
       category: categorizeShoppingItem(newItem.name),
+      expiryDate,
       addedAt: new Date().toISOString()
     });
     setNewItem({name:'',quantity:1,unit:'pcs',expiryDate:''});
@@ -789,7 +804,7 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
           <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e=>handleFile(e,(b:string)=>setCurrentRecipe({...currentRecipe,image:b}))}/>
           <div className="grid md:grid-cols-2 gap-4"><textarea value={currentRecipe.ingredients} onChange={e=>setCurrentRecipe({...currentRecipe,ingredients:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Ingrédients (un par ligne)..."/><textarea value={currentRecipe.steps} onChange={e=>setCurrentRecipe({...currentRecipe,steps:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Étapes de préparation..."/></div>
         </div>
-        <button disabled={isSubmitting||isCompressing} onClick={async()=>{if(currentRecipe.title){setIsSubmitting(true);const recipeToSave={...currentRecipe};try{if(recipeToSave.id){await updateEntry('family_recipes',recipeToSave.id,recipeToSave);}else{await addEntry('family_recipes',recipeToSave);}onClose(false);}catch(e){alert("Image trop lourde ou erreur.");setIsSubmitting(false);}}else{alert("Il faut au moins un titre !");}}} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting||isCompressing?'opacity-50 cursor-not-allowed':''}`} style={{backgroundColor:config.primaryColor}}>{isSubmitting?"Enregistrement...":(isCompressing?"Traitement image...":"Enregistrer la recette")}</button>
+        <button disabled={isSubmitting||isCompressing} onClick={async()=>{if(currentRecipe.title){setIsSubmitting(true);const recipeToSave={...currentRecipe};try{if(recipeToSave.id){await updateEntry('family_recipes',recipeToSave.id,recipeToSave);}else{await addEntry('family_recipes',recipeToSave);}setIsSubmitting(false);onClose(false);}catch(e){alert("Image trop lourde ou erreur.");setIsSubmitting(false);}}else{alert("Il faut au moins un titre !");}}} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting||isCompressing?'opacity-50 cursor-not-allowed':''}`} style={{backgroundColor:config.primaryColor}}>{isSubmitting?"Enregistrement...":(isCompressing?"Traitement image...":"Enregistrer la recette")}</button>
       </div>
     </div>
   );
@@ -864,37 +879,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   const startEditVersion=(v:any)=>{setEditingVersionId(v.id);setTempVersionName(v.name);};
   const saveVersionName=(id:string)=>{upd('site_versions',id,{name:tempVersionName});setEditingVersionId(null);};
   const generateQrCode=(siteId:string)=>{const baseUrl=window.location.href.split('?')[0];const fullUrl=`${baseUrl}?id=${siteId}`;const apiUrl=`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fullUrl)}`;setQrCodeUrl(apiUrl);};
-  const copyCookingLink=()=>{const baseUrl=window.location.href.split('?')[0];const fullUrl=`${baseUrl}?view=cooking`;navigator.clipboard.writeText(fullUrl);alert("Lien copié !");};
-
-  // Import données JSONBin → Firebase (repas du semainier)
-  const importFromJsonBin = async () => {
-    if(!confirm("⚠️ Importer tous les repas du semainier JSONBin vers Firebase ?\n\nLes entrées existantes ne seront pas écrasées.")) return;
-    try {
-      const r = await fetch('https://api.jsonbin.io/v3/b/6888fd29ae596e708fbdb580/latest',{headers:{'X-Master-Key':'$2a$10$1NA4zkzJrIuI1PXd5snGEOeLqrEGV.3YJd/bZqTF7/wiLw/yereFi'}});
-      if(!r.ok) throw new Error('Erreur JSONBin '+r.status);
-      const json = await r.json();
-      const oldData = json.record;
-      let count = 0;
-      // On migre semainierData : chaque clé = "Lundi_Midi_2024_W03" → un document Firebase
-      if(oldData?.semainierData && typeof oldData.semainierData === 'object'){
-        for(const [key, entry] of Object.entries(oldData.semainierData as Record<string,any>)){
-          if(!entry || !entry.platName) continue;
-          await setDoc(doc(db,'semainier_meals', key),{
-            platName: entry.platName||'',
-            participants: entry.participants||[],
-            recetteLink: entry.recetteLink||'',
-            notes: entry.notes||'',
-            importedAt: new Date().toISOString()
-          });
-          count++;
-        }
-      }
-      alert(`✅ ${count} repas importés depuis l'ancien semainier JSONBin !`);
-    } catch(e:any){
-      console.error(e);
-      alert('❌ Erreur lors de l\'import : '+e.message);
-    }
-  };;
+  const copyCookingLink=()=>{const baseUrl=window.location.href.split('?')[0];const fullUrl=`${baseUrl}?view=cooking`;navigator.clipboard.writeText(fullUrl);alert("Lien copié !");};;
 
   const registerUser=async()=>{
     if(!newUser.email||!newUser.letter)return alert("Email et Lettre requis");
@@ -1178,15 +1163,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
             <button onClick={copyCookingLink} className="flex items-center gap-2 px-6 py-3 bg-black text-white rounded-xl font-bold hover:scale-105 transition-transform"><Copy size={16}/> Copier le lien Semainier</button>
           </div>
 
-          {/* MIGRATION JSONBIN → FIREBASE */}
-          <div className="bg-blue-950 p-6 rounded-3xl space-y-3">
-            <h4 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><Download size={16}/> MIGRATION DONNÉES</h4>
-            <p className="text-blue-300 text-sm">Importer les repas du semainier JSONBin (toutes les semaines) vers Firebase.</p>
-            <button onClick={importFromJsonBin} className="w-full py-3 bg-blue-500 hover:bg-blue-400 text-white font-black rounded-xl uppercase tracking-widest transition-colors">
-              📥 Importer les repas du semainier
-            </button>
-          </div>
-
           <button onClick={()=>save(localC,true)} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{backgroundColor:config.primaryColor}}>Sauvegarder tous les paramètres</button>
         </div>
       )}
@@ -1195,53 +1171,47 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
 };
 
 // ==========================================
-// SEMAINIER (intégré, remplace l'iframe)
+// SEMAINIER (intégré, données Firebase)
 // ==========================================
 const JOURS = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
 const REPAS = ["Midi","Soir"];
 const PARTICIPANTS = ["Olivier","Lætitia","Gabriel","Valentin","Pauline"];
-const JSONBIN_URL = 'https://api.jsonbin.io/v3/b/6888fd29ae596e708fbdb580';
-const JSONBIN_KEY = '$2a$10$1NA4zkzJrIuI1PXd5snGEOeLqrEGV.3YJd/bZqTF7/wiLw/yereFi';
 
 function getWeekNumber(date:Date){const t=new Date(date.valueOf());const dn=(date.getDay()+6)%7;t.setDate(t.getDate()-dn+3);const ft=t.valueOf();t.setMonth(0,1);if(t.getDay()!==4)t.setMonth(0,1+((4-t.getDay())+7)%7);return 1+Math.ceil((ft-t.valueOf())/604800000);}
 function getMondayOfWeek(offset:number){const now=new Date();now.setHours(0,0,0,0);const day=now.getDay()||7;const mon=new Date(now);mon.setDate(now.getDate()-day+1+(offset*7));return mon;}
 function getWeekId(offset:number){const mon=getMondayOfWeek(offset);return `${mon.getFullYear()}_W${String(getWeekNumber(mon)).padStart(2,'0')}`;}
 function makeKey(day:string,meal:string,offset:number){return `${day}_${meal}_${getWeekId(offset)}`;}
 
-const SemainierView = ({config}:{config:SiteConfig}) => {
+const SemainierView = ({config, recipes}:{config:SiteConfig, recipes:Recipe[]}) => {
   const [data, setData] = useState<Record<string,any>>({});
-  const [favs, setFavs] = useState<any[]>([]);
   const [weekOffset, setWeekOffset] = useState(0);
   const [modal, setModal] = useState<{day:string,meal:string}|null>(null);
-  const [form, setForm] = useState({platName:'',participants:[] as string[],recetteLink:'',notes:'',addToFav:false});
+  const [form, setForm] = useState({platName:'',participants:[] as string[],recetteLink:'',notes:''});
   const [toast, setToast] = useState('');
-  const [syncing, setSyncing] = useState(false);
+  const [dragOver, setDragOver] = useState<string|null>(null);
 
   const showToast = (msg:string) => { setToast(msg); setTimeout(()=>setToast(''),3000); };
 
-  // Charge depuis JSONBin
-  const loadFromServer = async () => {
-    try {
-      const r = await fetch(`${JSONBIN_URL}/latest`,{headers:{'X-Master-Key':JSONBIN_KEY}});
-      if(!r.ok) throw new Error();
-      const json = await r.json();
-      const rec = json.record || {};
-      if(rec.semainierData) setData(rec.semainierData);
-      if(rec.favorisData) setFavs(rec.favorisData);
-    } catch { showToast('⚠️ Chargement local uniquement'); }
+  // Favoris = toutes les recettes Firebase
+  const favs = recipes.map(r=>({platName:r.title, recetteLink:'', notes:'', recipeId:r.id}));
+
+  // Charge depuis Firebase collection semainier_meals
+  useEffect(()=>{
+    const unsub = onSnapshot(collection(db,'semainier_meals'), snap => {
+      const d:Record<string,any> = {};
+      snap.docs.forEach(doc=>{ d[doc.id] = doc.data(); });
+      setData(d);
+    });
+    return ()=>unsub();
+  },[]);
+
+  const saveEntry = async (key:string, entry:any) => {
+    await setDoc(doc(db,'semainier_meals',key), entry);
   };
 
-  const saveToServer = async (newData:any, newFavs:any[]) => {
-    if(syncing) return;
-    setSyncing(true);
-    try {
-      await fetch(JSONBIN_URL,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY},body:JSON.stringify({semainierData:newData,favorisData:newFavs,lastUpdate:new Date().toISOString()})});
-      showToast('✅ Semainier synchronisé !');
-    } catch { showToast('⚠️ Erreur de sync — données sauvées localement'); }
-    setSyncing(false);
+  const deleteEntry = async (key:string) => {
+    await deleteDoc(doc(db,'semainier_meals',key));
   };
-
-  useEffect(()=>{ loadFromServer(); },[]);
 
   const monday = getMondayOfWeek(weekOffset);
   const weekLabel = `Semaine ${getWeekNumber(monday)} — du ${monday.toLocaleDateString('fr-FR')}`;
@@ -1254,40 +1224,23 @@ const SemainierView = ({config}:{config:SiteConfig}) => {
       participants: existing?.participants||[],
       recetteLink: existing?.recetteLink||'',
       notes: existing?.notes||'',
-      addToFav: false,
     });
     setModal({day,meal});
   };
 
-  const saveModal = () => {
+  const saveModal = async () => {
     if(!modal||!form.platName.trim()){showToast('⚠️ Nom du plat requis');return;}
     if(!form.participants.length){showToast('⚠️ Sélectionnez au moins un participant');return;}
     const key = makeKey(modal.day,modal.meal,weekOffset);
-    const newData = {...data,[key]:{platName:form.platName,participants:form.participants,recetteLink:form.recetteLink,notes:form.notes}};
-    let newFavs = [...favs];
-    if(form.addToFav&&!favs.some(f=>f.platName.toLowerCase()===form.platName.toLowerCase())){
-      newFavs = [...favs,{platName:form.platName,recetteLink:form.recetteLink,notes:form.notes}];
-    }
-    setData(newData); setFavs(newFavs); setModal(null);
-    saveToServer(newData,newFavs);
+    await saveEntry(key,{platName:form.platName,participants:form.participants,recetteLink:form.recetteLink,notes:form.notes});
+    setModal(null);
     showToast('🍽️ Repas enregistré !');
   };
 
-  const deleteMeal = (day:string, meal:string, e:React.MouseEvent) => {
+  const deleteMeal = async (day:string, meal:string, e:React.MouseEvent) => {
     e.stopPropagation();
-    const key = makeKey(day,meal,weekOffset);
-    const newData = {...data};
-    delete newData[key];
-    setData(newData);
-    saveToServer(newData,favs);
+    await deleteEntry(makeKey(day,meal,weekOffset));
     showToast('🗑️ Repas supprimé');
-  };
-
-  const deleteFav = (idx:number) => {
-    const newFavs = favs.filter((_,i)=>i!==idx);
-    setFavs(newFavs);
-    saveToServer(data,newFavs);
-    showToast('🗑️ Favori supprimé');
   };
 
   const loadFav = (fav:any) => {
@@ -1298,12 +1251,26 @@ const SemainierView = ({config}:{config:SiteConfig}) => {
     setForm(f=>({...f,participants:f.participants.includes(p)?f.participants.filter(x=>x!==p):[...f.participants,p]}));
   };
 
+  // Drag & drop : déposer un favori directement dans une case
+  const handleDrop = async (e:React.DragEvent, day:string, meal:string) => {
+    e.preventDefault();
+    setDragOver(null);
+    const platName = e.dataTransfer.getData('platName');
+    const recetteLink = e.dataTransfer.getData('recetteLink');
+    if(!platName) return;
+    const key = makeKey(day,meal,weekOffset);
+    // Utilise les participants déjà en place ou tous par défaut
+    const existing = data[key];
+    const participants = existing?.participants?.length ? existing.participants : PARTICIPANTS;
+    await saveEntry(key,{platName,participants,recetteLink,notes:''});
+    showToast(`✅ "${platName}" placé en ${meal} ${day}`);
+  };
+
   return (
     <div className="p-4 md:p-8 space-y-6">
-      {/* Toast */}
       {toast&&<div className="fixed top-24 right-6 bg-black text-white px-5 py-3 rounded-2xl font-bold shadow-2xl z-[300] animate-in slide-in-from-right text-sm">{toast}</div>}
 
-      {/* Header semainier */}
+      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 className="text-3xl font-cinzel font-black" style={{color:config.primaryColor}}>SEMAINIER</h2>
         <div className="flex items-center gap-3">
@@ -1311,12 +1278,9 @@ const SemainierView = ({config}:{config:SiteConfig}) => {
           <span className="font-bold text-sm text-gray-600 min-w-[200px] text-center">{weekLabel}</span>
           <button onClick={()=>setWeekOffset(w=>w+1)} className="w-10 h-10 rounded-full border-2 flex items-center justify-center font-black text-lg hover:bg-black hover:text-white transition-colors" style={{borderColor:config.primaryColor,color:config.primaryColor}}>›</button>
         </div>
-        <div className="flex gap-2">
-          <button onClick={loadFromServer} className="px-4 py-2 bg-gray-100 rounded-xl font-bold text-xs hover:bg-gray-200 transition-colors flex items-center gap-2"><RotateCcw size={14}/> Recharger</button>
-        </div>
       </div>
 
-      {/* Tableau repas */}
+      {/* Tableau — hauteur uniforme = taille de la plus grande cellule */}
       <div className="overflow-x-auto rounded-2xl shadow-lg border border-gray-100">
         <table className="w-full border-collapse min-w-[700px] table-fixed">
           <thead>
@@ -1328,23 +1292,31 @@ const SemainierView = ({config}:{config:SiteConfig}) => {
           <tbody>
             {REPAS.map(meal=>(
               <tr key={meal} className="border-t border-gray-100">
-                <td className="p-3 font-black text-xs uppercase text-center h-28 align-middle" style={{backgroundColor:config.primaryColor+'22',color:config.primaryColor}}>{meal}</td>
+                <td className="p-3 font-black text-xs uppercase text-center align-middle" style={{backgroundColor:config.primaryColor+'22',color:config.primaryColor}}>{meal}</td>
                 {JOURS.map(day=>{
                   const key=makeKey(day,meal,weekOffset);
                   const entry=data[key];
+                  const isDragTarget = dragOver===key;
                   return(
-                    <td key={day} onClick={()=>openModal(day,meal)} className="p-2 relative cursor-pointer hover:bg-gray-50 transition-colors group h-28 align-top">
+                    <td
+                      key={day}
+                      onClick={()=>openModal(day,meal)}
+                      onDragOver={e=>{e.preventDefault();setDragOver(key);}}
+                      onDragLeave={()=>setDragOver(null)}
+                      onDrop={e=>handleDrop(e,day,meal)}
+                      className={`p-2 relative cursor-pointer transition-all group align-top ${isDragTarget?'bg-blue-50 ring-2 ring-blue-400 ring-inset':'hover:bg-gray-50'}`}
+                    >
                       {entry?(
-                        <div className="p-2 rounded-xl h-full flex flex-col justify-between" style={{backgroundColor:config.primaryColor+'15',borderLeft:`3px solid ${config.primaryColor}`}}>
-                          <div>
-                            <button onClick={e=>deleteMeal(day,meal,e)} className="absolute top-1 left-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">×</button>
-                            <div className="font-bold text-sm text-gray-800 leading-tight pr-5">{entry.platName}</div>
-                            <div className="text-[10px] text-gray-500 mt-1">{entry.participants?.join(', ')}</div>
-                          </div>
+                        <div className="p-2 rounded-xl min-h-[80px] flex flex-col gap-1" style={{backgroundColor:config.primaryColor+'15',borderLeft:`3px solid ${config.primaryColor}`}}>
+                          <button onClick={e=>deleteMeal(day,meal,e)} className="absolute top-1 left-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">×</button>
+                          <div className="font-bold text-sm text-gray-800 leading-tight pr-5">{entry.platName}</div>
+                          <div className="text-[10px] text-gray-500">{entry.participants?.join(', ')}</div>
                           {entry.recetteLink&&<a href={entry.recetteLink} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px]" style={{backgroundColor:config.primaryColor,color:'white'}}>🔗</a>}
                         </div>
                       ):(
-                        <div className="h-full flex items-center justify-center text-gray-300 italic text-xs">+ ajouter</div>
+                        <div className={`min-h-[80px] flex items-center justify-center text-xs italic transition-colors ${isDragTarget?'text-blue-400 font-bold':'text-gray-300'}`}>
+                          {isDragTarget?'Déposer ici':'+ ajouter'}
+                        </div>
                       )}
                     </td>
                   );
@@ -1355,15 +1327,22 @@ const SemainierView = ({config}:{config:SiteConfig}) => {
         </table>
       </div>
 
-      {/* Favoris */}
+      {/* Favoris (recettes) — glissables vers les cases */}
       {favs.length>0&&(
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-          <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><Star size={14}/> PLATS FAVORIS</h4>
+          <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-1 flex items-center gap-2"><Star size={14}/> RECETTES — glissez vers une case</h4>
+          <p className="text-[10px] text-gray-400 mb-4 italic">Sur mobile : appuyez pour ouvrir la case, puis choisissez dans la liste</p>
           <div className="flex flex-wrap gap-2">
             {favs.map((f,i)=>(
-              <div key={i} className="flex items-center gap-1 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200">
-                <button onClick={()=>{ if(modal) loadFav(f); else showToast('Ouvrez une case de repas d\'abord'); }} className="font-bold text-xs text-gray-700 hover:text-black">{f.platName}</button>
-                <button onClick={()=>deleteFav(i)} className="ml-1 text-gray-300 hover:text-red-500"><X size={12}/></button>
+              <div
+                key={i}
+                draggable
+                onDragStart={e=>{e.dataTransfer.setData('platName',f.platName);e.dataTransfer.setData('recetteLink',f.recetteLink||'');}}
+                className="flex items-center gap-1 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200 cursor-grab active:cursor-grabbing hover:border-black hover:shadow-sm transition-all select-none"
+                title="Glissez vers une case du tableau"
+              >
+                <span className="font-bold text-xs text-gray-700">{f.platName}</span>
+                <span className="text-gray-300 ml-1">⠿</span>
               </div>
             ))}
           </div>
@@ -1379,10 +1358,10 @@ const SemainierView = ({config}:{config:SiteConfig}) => {
               <button onClick={()=>setModal(null)} className="text-gray-400 hover:text-black"><X/></button>
             </div>
 
-            {/* Sélecteur favoris */}
+            {/* Sélecteur recettes/favoris */}
             {favs.length>0&&(
               <select onChange={e=>{if(e.target.value!=='')loadFav(favs[parseInt(e.target.value)]);}} className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 text-sm font-bold outline-none" defaultValue="">
-                <option value="">⭐ Choisir un favori...</option>
+                <option value="">⭐ Choisir une recette...</option>
                 {favs.map((f,i)=><option key={i} value={i}>{f.platName}</option>)}
               </select>
             )}
@@ -1391,7 +1370,6 @@ const SemainierView = ({config}:{config:SiteConfig}) => {
             <input value={form.recetteLink} onChange={e=>setForm(f=>({...f,recetteLink:e.target.value}))} placeholder="Lien recette (optionnel)" className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none"/>
             <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Notes (optionnel)" className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none h-20"/>
 
-            {/* Participants */}
             <div>
               <p className="font-black text-xs uppercase text-gray-400 mb-2">Participants *</p>
               <div className="grid grid-cols-2 gap-2">
@@ -1400,11 +1378,6 @@ const SemainierView = ({config}:{config:SiteConfig}) => {
                 ))}
               </div>
             </div>
-
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" checked={form.addToFav} onChange={e=>setForm(f=>({...f,addToFav:e.target.checked}))} className="w-5 h-5 accent-black"/>
-              <span className="font-bold text-sm">⭐ Ajouter aux favoris</span>
-            </label>
 
             <button onClick={saveModal} className="w-full py-4 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg hover:scale-[1.02] transition-transform" style={{backgroundColor:config.primaryColor}}>Enregistrer</button>
           </div>
@@ -1826,7 +1799,7 @@ const App: React.FC = () => {
         {currentView==='cooking'&&(isPageLocked('cooking') ? <MaintenancePage pageName="Semainier"/> : (
           <div className="space-y-0 animate-in fade-in" id="cooking-frame">
             <div className="bg-white/90 rounded-[3rem] overflow-hidden shadow-xl border border-black/5" style={{minHeight:'800px'}}>
-              <SemainierView config={config}/>
+              <SemainierView config={config} recipes={recipes}/>
             </div>
           </div>
         ))}
