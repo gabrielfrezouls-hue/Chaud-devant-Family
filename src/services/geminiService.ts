@@ -2,7 +2,7 @@ import { SiteConfig } from "../types";
 
 // --- CONFIGURATION ---
 const getApiKey = () => import.meta.env.VITE_GEMINI_KEY || "";
-const MODEL_NAME = "gemini-2.5-flash-lite";
+const MODEL_NAME = "gemini-2.0-flash";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent`;
 
 // --- UTILITAIRES ---
@@ -84,6 +84,15 @@ export const askAIChat = async (history: { role: string; text: string }[]) => {
   return res.type === "text" ? res.data : "Action effectuée.";
 };
 
+// 2b. APPEL DIRECT GEMINI (pour usage interne avancé, ex: notifications IA)
+export const callGeminiDirect = async (history: { role: string; text: string }[]): Promise<string | null> => {
+  const contents = history.map(h => ({
+    role: h.role === 'user' ? 'user' : 'model',
+    parts: [{ text: h.text }],
+  }));
+  return callGemini({ contents });
+};
+
 // 3. SCANNER CODE BARRE via image (Vision)
 export const readBarcodeFromImage = async (file: File): Promise<string | null> => {
   try {
@@ -103,18 +112,56 @@ export const readBarcodeFromImage = async (file: File): Promise<string | null> =
   }
 };
 
-// 4. SCANNER PRODUIT FRAIS par photo (Vision)
+// 4b. CLASSIFIER UN PRODUIT PAR NOM (texte → catégorie + date estimée)
+export const classifyFrigoItem = async (productName: string) => {
+  const today = new Date().toISOString().split('T')[0];
+  const res = await callGemini({
+    contents: [{
+      parts: [{
+        text: `Tu es un assistant de gestion de frigo familial. Classifie ce produit : "${productName}".
+Réponds UNIQUEMENT avec un JSON strict sans markdown :
+{
+  "category": "UNE de ces catégories exactes : Boucherie/Poisson | Boulangerie | Plat préparé | Primeur | Frais & Crèmerie | Épicerie Salée | Épicerie Sucrée | Boissons | Surgelés | Divers",
+  "expiryDate": "YYYY-MM-DD"
+}
+Règles pour expiryDate à partir du ${today} :
+- Boucherie/Poisson → +3 jours
+- Boulangerie → +3 jours  
+- Plat préparé → +4 jours
+- Primeur (légumes, fruits) → +7 jours
+- Frais & Crèmerie (lait, yaourt, fromage, œufs) → +10 jours
+- Épicerie Salée / Épicerie Sucrée → +90 jours
+- Boissons → +90 jours
+- Surgelés → +180 jours
+- Divers → +14 jours`
+      }]
+    }]
+  });
+  return cleanJSON(res);
+};
 export const scanProductImage = async (file: File) => {
   try {
     const b64 = await fileToBase64(file);
+    const today = new Date().toISOString().split('T')[0];
     const res = await callGemini({
       contents: [{
         parts: [
           {
-            text: `Identifie ce produit alimentaire sur la photo.
-Renvoie UNIQUEMENT un JSON strict sans markdown :
-{"name": "Nom du produit en français", "category": "Frais/Épicerie/Légume/Viande/etc.", "expiryDate": "YYYY-MM-DD"}
-Pour expiryDate, estime une date logique à partir d'aujourd'hui si non visible (lait = +7j, pommes = +14j, yaourt = +21j, fromage = +14j).`,
+            text: `Tu es un assistant de gestion de frigo familial. Identifie ce produit alimentaire sur la photo.
+Réponds UNIQUEMENT avec un JSON strict sans markdown ni explication :
+{
+  "name": "Nom précis du produit en français",
+  "category": "UNE de ces catégories exactes : Boucherie/Poisson | Boulangerie | Plat préparé | Primeur | Frais & Crèmerie | Épicerie Salée | Épicerie Sucrée | Boissons | Surgelés | Divers",
+  "expiryDate": "YYYY-MM-DD"
+}
+Règles pour expiryDate (à partir du ${today}) :
+- Boucherie/Poisson → +3 jours
+- Boulangerie → +3 jours
+- Plat préparé → +4 jours
+- Primeur (légumes, fruits) → +7 jours
+- Frais & Crèmerie (lait, yaourt, fromage) → +10 jours
+- Épicerie / Boissons / Surgelés → +90 jours
+Si une date est visible sur l'emballage, utilise-la en priorité.`,
           },
           { inline_data: { mime_type: file.type, data: b64 } },
         ],
@@ -126,19 +173,79 @@ Pour expiryDate, estime une date logique à partir d'aujourd'hui si non visible 
   }
 };
 
-// 5. IMPORTATEUR DE RECETTES depuis URL
+// 5. IMPORTATEUR DE RECETTES depuis URL (sans IA — lecture du schema.org/Recipe)
 export const extractRecipeFromUrl = async (url: string) => {
-  const res = await callGemini({
-    contents: [{
-      parts: [{
-        text: `Analyse cette URL de recette et extrais toutes les informations disponibles : "${url}".
-Renvoie UNIQUEMENT un JSON strict sans markdown :
-{"title": "Titre de la recette", "chef": "Auteur si disponible sinon vide", "category": "plat ou dessert ou entrée ou autre", "ingredients": "ingrédient 1\\ningrédient 2\\ningrédient 3", "steps": "Étape 1 : ...\\nÉtape 2 : ..."}
-Les ingrédients et étapes sont séparés par des \\n.`,
-      }],
-    }],
-  });
-  return cleanJSON(res);
+  try {
+    // allorigins.win est un proxy CORS gratuit qui permet de lire n'importe quelle page web
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+    const res = await fetch(proxyUrl);
+    if (!res.ok) throw new Error("Proxy inaccessible");
+    const data = await res.json();
+    const html: string = data.contents;
+
+    // Parse le HTML pour extraire le JSON-LD (format schema.org/Recipe)
+    // La quasi-totalité des sites de recettes (Marmiton, 750g, etc.) l'utilisent
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+    const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
+
+    for (const script of scripts) {
+      try {
+        const json = JSON.parse(script.textContent || "");
+        // Cherche le bon objet (peut être un tableau ou direct)
+        const recipes = Array.isArray(json) ? json : [json];
+        for (const item of recipes) {
+          const recipe = item["@type"] === "Recipe" ? item
+            : item["@graph"]?.find((g: any) => g["@type"] === "Recipe");
+          if (!recipe) continue;
+
+          // Extrait les ingrédients
+          const ingredients = (recipe.recipeIngredient || []).join("\n");
+
+          // Extrait les étapes
+          const stepsRaw = recipe.recipeInstructions || [];
+          const steps = stepsRaw
+            .map((s: any) => typeof s === "string" ? s : s.text || "")
+            .filter(Boolean)
+            .join("\n");
+
+          // Extrait l'auteur
+          const chef = typeof recipe.author === "string"
+            ? recipe.author
+            : recipe.author?.name || "";
+
+          // Catégorie
+          const cat = (recipe.recipeCategory || "plat").toLowerCase();
+
+          return {
+            title: recipe.name || "Recette importée",
+            chef,
+            category: cat.includes("dessert") ? "dessert"
+              : cat.includes("entr") ? "entrée" : "plat",
+            ingredients,
+            steps,
+          };
+        }
+      } catch { continue; }
+    }
+
+    // Fallback : si pas de schema.org, tente de lire les balises meta
+    const title = doc.querySelector('meta[property="og:title"]')?.getAttribute("content")
+      || doc.querySelector("h1")?.textContent?.trim()
+      || "Recette importée";
+
+    return {
+      title,
+      chef: "",
+      category: "plat",
+      ingredients: "⚠️ Ingrédients non détectés automatiquement — à saisir manuellement",
+      steps: "⚠️ Étapes non détectées automatiquement — à saisir manuellement",
+    };
+
+  } catch (err) {
+    console.error("Erreur import recette:", err);
+    return null;
+  }
 };
 
 // 6. ARCHITECTE IA (modification du design/config)
