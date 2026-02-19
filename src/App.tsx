@@ -866,30 +866,30 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   const generateQrCode=(siteId:string)=>{const baseUrl=window.location.href.split('?')[0];const fullUrl=`${baseUrl}?id=${siteId}`;const apiUrl=`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fullUrl)}`;setQrCodeUrl(apiUrl);};
   const copyCookingLink=()=>{const baseUrl=window.location.href.split('?')[0];const fullUrl=`${baseUrl}?view=cooking`;navigator.clipboard.writeText(fullUrl);alert("Lien copié !");};
 
-  // Import données JSONBin → Firebase Recettes
+  // Import données JSONBin → Firebase (repas du semainier)
   const importFromJsonBin = async () => {
-    if(!confirm("⚠️ Importer les favoris de l'ancien semainier JSONBin vers les Recettes Firebase ?\n\nCela n'écrase rien d'existant.")) return;
+    if(!confirm("⚠️ Importer tous les repas du semainier JSONBin vers Firebase ?\n\nLes entrées existantes ne seront pas écrasées.")) return;
     try {
       const r = await fetch('https://api.jsonbin.io/v3/b/6888fd29ae596e708fbdb580/latest',{headers:{'X-Master-Key':'$2a$10$1NA4zkzJrIuI1PXd5snGEOeLqrEGV.3YJd/bZqTF7/wiLw/yereFi'}});
       if(!r.ok) throw new Error('Erreur JSONBin '+r.status);
       const json = await r.json();
       const oldData = json.record;
       let count = 0;
-      if(oldData?.favorisData && Array.isArray(oldData.favorisData)){
-        for(const fav of oldData.favorisData){
-          await addDoc(collection(db,'family_recipes'),{
-            title: fav.platName||'Sans titre',
-            chef: 'Import Ancien Semainier',
-            category: 'plat',
-            ingredients: fav.notes||'',
-            steps: fav.recetteLink ? `Lien recette : ${fav.recetteLink}` : '',
-            image: '',
-            timestamp: new Date().toISOString()
+      // On migre semainierData : chaque clé = "Lundi_Midi_2024_W03" → un document Firebase
+      if(oldData?.semainierData && typeof oldData.semainierData === 'object'){
+        for(const [key, entry] of Object.entries(oldData.semainierData as Record<string,any>)){
+          if(!entry || !entry.platName) continue;
+          await setDoc(doc(db,'semainier_meals', key),{
+            platName: entry.platName||'',
+            participants: entry.participants||[],
+            recetteLink: entry.recetteLink||'',
+            notes: entry.notes||'',
+            importedAt: new Date().toISOString()
           });
           count++;
         }
       }
-      alert(`✅ ${count} recette(s) importée(s) depuis l'ancien semainier !`);
+      alert(`✅ ${count} repas importés depuis l'ancien semainier JSONBin !`);
     } catch(e:any){
       console.error(e);
       alert('❌ Erreur lors de l\'import : '+e.message);
@@ -1181,9 +1181,9 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
           {/* MIGRATION JSONBIN → FIREBASE */}
           <div className="bg-blue-950 p-6 rounded-3xl space-y-3">
             <h4 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><Download size={16}/> MIGRATION DONNÉES</h4>
-            <p className="text-blue-300 text-sm">Importer les favoris de l'ancien semainier JSONBin vers les Recettes Firebase.</p>
+            <p className="text-blue-300 text-sm">Importer les repas du semainier JSONBin (toutes les semaines) vers Firebase.</p>
             <button onClick={importFromJsonBin} className="w-full py-3 bg-blue-500 hover:bg-blue-400 text-white font-black rounded-xl uppercase tracking-widest transition-colors">
-              📥 Importer depuis JSONBin
+              📥 Importer les repas du semainier
             </button>
           </div>
 
@@ -1318,7 +1318,7 @@ const SemainierView = ({config}:{config:SiteConfig}) => {
 
       {/* Tableau repas */}
       <div className="overflow-x-auto rounded-2xl shadow-lg border border-gray-100">
-        <table className="w-full border-collapse min-w-[700px]">
+        <table className="w-full border-collapse min-w-[700px] table-fixed">
           <thead>
             <tr style={{backgroundColor:config.primaryColor}}>
               <th className="p-3 text-white font-black text-xs uppercase w-20">Repas</th>
@@ -1328,21 +1328,23 @@ const SemainierView = ({config}:{config:SiteConfig}) => {
           <tbody>
             {REPAS.map(meal=>(
               <tr key={meal} className="border-t border-gray-100">
-                <td className="p-3 font-black text-xs uppercase text-center" style={{backgroundColor:config.primaryColor+'22',color:config.primaryColor}}>{meal}</td>
+                <td className="p-3 font-black text-xs uppercase text-center h-28 align-middle" style={{backgroundColor:config.primaryColor+'22',color:config.primaryColor}}>{meal}</td>
                 {JOURS.map(day=>{
                   const key=makeKey(day,meal,weekOffset);
                   const entry=data[key];
                   return(
-                    <td key={day} onClick={()=>openModal(day,meal)} className="p-2 relative cursor-pointer hover:bg-gray-50 transition-colors group min-h-[80px] align-middle" style={{minHeight:'80px'}}>
+                    <td key={day} onClick={()=>openModal(day,meal)} className="p-2 relative cursor-pointer hover:bg-gray-50 transition-colors group h-28 align-top">
                       {entry?(
-                        <div className="p-2 rounded-xl h-full" style={{backgroundColor:config.primaryColor+'15',borderLeft:`3px solid ${config.primaryColor}`}}>
-                          <button onClick={e=>deleteMeal(day,meal,e)} className="absolute top-1 left-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">×</button>
-                          <div className="font-bold text-sm text-gray-800 leading-tight">{entry.platName}</div>
-                          <div className="text-[10px] text-gray-500 mt-1">{entry.participants?.join(', ')}</div>
+                        <div className="p-2 rounded-xl h-full flex flex-col justify-between" style={{backgroundColor:config.primaryColor+'15',borderLeft:`3px solid ${config.primaryColor}`}}>
+                          <div>
+                            <button onClick={e=>deleteMeal(day,meal,e)} className="absolute top-1 left-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">×</button>
+                            <div className="font-bold text-sm text-gray-800 leading-tight pr-5">{entry.platName}</div>
+                            <div className="text-[10px] text-gray-500 mt-1">{entry.participants?.join(', ')}</div>
+                          </div>
                           {entry.recetteLink&&<a href={entry.recetteLink} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px]" style={{backgroundColor:config.primaryColor,color:'white'}}>🔗</a>}
                         </div>
                       ):(
-                        <div className="text-gray-300 italic text-xs text-center py-4">+ ajouter</div>
+                        <div className="h-full flex items-center justify-center text-gray-300 italic text-xs">+ ajouter</div>
                       )}
                     </td>
                   );
