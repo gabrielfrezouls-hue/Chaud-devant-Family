@@ -3,7 +3,7 @@ import { auth, googleProvider, db } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import {
   collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc,
-  where, getDoc, arrayUnion, arrayRemove
+  where, getDoc, getDocs, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import {
   Lock, Menu, X, Home, BookHeart, ChefHat, Wallet, PiggyBank,
@@ -195,12 +195,34 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
 
   const addItem = async () => {
     if(!newItem.name.trim()) return;
-    await addDoc(collection(db,'frigo_items'),{
-      ...newItem, name:newItem.name.trim(),
-      category: categorizeShoppingItem(newItem.name),
-      addedAt: new Date().toISOString()
-    });
-    setNewItem({name:'',quantity:1,unit:'pcs',expiryDate:''});
+    setIsLoading(true);
+    setScanMsg('⏳ Classification IA en cours...');
+    try {
+      const { classifyFrigoItem } = await import('./services/geminiService');
+      const aiResult = await classifyFrigoItem(newItem.name.trim());
+      const category = aiResult?.category || categorizeShoppingItem(newItem.name);
+      const expiryDate = newItem.expiryDate || aiResult?.expiryDate || '';
+      await addDoc(collection(db,'frigo_items'),{
+        ...newItem,
+        name: newItem.name.trim(),
+        category,
+        expiryDate,
+        addedAt: new Date().toISOString()
+      });
+      setScanMsg(`✅ "${newItem.name.trim()}" → ${category}${expiryDate ? ` · péremption ${expiryDate}` : ''}`);
+      setNewItem({name:'',quantity:1,unit:'pcs',expiryDate:''});
+      setTimeout(()=>setScanMsg(''), 4000);
+    } catch {
+      // Fallback silencieux si IA indisponible
+      await addDoc(collection(db,'frigo_items'),{
+        ...newItem, name:newItem.name.trim(),
+        category: categorizeShoppingItem(newItem.name),
+        addedAt: new Date().toISOString()
+      });
+      setNewItem({name:'',quantity:1,unit:'pcs',expiryDate:''});
+      setScanMsg('');
+    }
+    setIsLoading(false);
   };
 
   const fetchProductByBarcode = async (code:string) => {
@@ -212,12 +234,13 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
       if(data.status===1&&data.product) {
         const p = data.product;
         const name = p.product_name_fr||p.product_name||'Produit inconnu';
+        const category = categorizeShoppingItem(name);
         await addDoc(collection(db,'frigo_items'),{
-          name, category: categorizeShoppingItem(name),
+          name, category,
           quantity:1, unit:'pcs',
           barcode:code, addedAt:new Date().toISOString()
         });
-        setScanMsg(`✅ "${name}" ajouté !`);
+        setScanMsg(`✅ "${name}" (${category}) ajouté !`);
       } else { setScanMsg('❌ Produit introuvable dans OpenFoodFacts.'); }
     } catch { setScanMsg('❌ Erreur réseau.'); }
     setIsLoading(false);
@@ -229,22 +252,22 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
   const handlePhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if(!file) return;
-    // Reset l'input pour permettre de re-sélectionner le même fichier
     e.target.value = '';
     setIsLoading(true);
     setScanMsg('⏳ Analyse IA en cours...');
     try {
-      // Appel geminiService — scanProductImage retourne { name, category, expiryDate }
       const result = await scanProductImage(file);
       if(result && result.name) {
+        // La catégorie retournée par l'IA correspond directement aux clés SHELF_LIFE
+        // L'expiryDate est estimée par l'IA selon les règles métier
         await addDoc(collection(db,'frigo_items'),{
           name: result.name,
           category: result.category || categorizeShoppingItem(result.name),
           expiryDate: result.expiryDate || '',
-          quantity:1, unit:'pcs',
-          addedAt:new Date().toISOString()
+          quantity: 1, unit: 'pcs',
+          addedAt: new Date().toISOString()
         });
-        setScanMsg(`✅ "${result.name}" reconnu et ajouté !`);
+        setScanMsg(`✅ "${result.name}" (${result.category}) — péremption le ${result.expiryDate || 'estimée auto'}`);
       } else {
         setScanMsg('❌ Produit non reconnu. Essayez une autre photo.');
       }
@@ -374,7 +397,7 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
           {items.map(item=>{
             const expStatus=getExpiryStatus(item);
             return (
-              <div key={item.id} className={`group flex justify-between items-center p-4 rounded-2xl border-l-4 transition-all hover:shadow-md ${expStatus?.icon==='🚨'?'bg-red-50 border-red-400':expStatus?.icon==='⚠️'?'bg-orange-50 border-orange-400':'bg-gray-50 border-gray-200'}`}>
+              <div key={item.id} className={`group flex justify-between items-center p-4 rounded-2xl border-l-4 transition-all hover:shadow-md ${expStatus?.icon==='🔴'?'bg-red-50 border-red-400':expStatus?.icon==='🟠'?'bg-orange-50 border-orange-400':'bg-gray-50 border-gray-200'}`}>
                 <div>
                   <span className="font-bold text-gray-800 block">{item.name}</span>
                   <div className="flex items-center gap-2 mt-1">
@@ -993,27 +1016,142 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
     if(!aiNotif.trigger||!aiNotif.prompt) return alert("Veuillez remplir le déclencheur et la description.");
     setAiNotifLoading(true);
     try {
-      const { askAIChat } = await import('./services/geminiService');
-      const res = await askAIChat([{
-        role:'user',
-        text:`Tu es le Majordome de la famille Frézouls, sur l'application familiale "Chaud Devant". Génère une notification push courte (max 2 phrases, ton chaleureux et familier) pour le déclencheur suivant : "${aiNotif.trigger}". Consigne de ton et contenu : "${aiNotif.prompt}". Réponds UNIQUEMENT avec le texte de la notification, rien d'autre.`
-      }]);
-      if(res) {
-        await addDoc(collection(db,'notifications'),{
-          message: res.trim(),
-          type:'info', repeat:'once',
-          targets: aiNotif.targets,
-          createdAt: new Date().toISOString(),
-          readBy:{},
-          generatedByAI: true,
-          trigger: aiNotif.trigger
-        });
-        setAiNotif({trigger:'',prompt:'',targets:['all']});
-        alert("✅ Notification IA générée et envoyée !");
+      const { callGeminiDirect } = await import('./services/geminiService');
+
+      // ── 1. Collecte TOUTES les données du site ──────────────────────────────
+      const [frigoSnap, semainierSnap, hubSnap, eventSnap, walletSnap] = await Promise.all([
+        getDocs(collection(db, 'frigo_items')),
+        getDocs(collection(db, 'semainier_meals')),
+        getDocs(collection(db, 'hub_items')),
+        getDocs(collection(db, 'family_events')),
+        getDocs(collection(db, 'wallet_entries')),
+      ]);
+
+      const frigoItems    = frigoSnap.docs.map(d => ({id:d.id, ...d.data()} as any));
+      const semainierData = Object.fromEntries(semainierSnap.docs.map(d => [d.id, d.data()]));
+      const hubData       = hubSnap.docs.map(d => ({id:d.id, ...d.data()} as any));
+      const eventsData    = eventSnap.docs.map(d => ({id:d.id, ...d.data()} as any));
+
+      // ── 2. Calcule les dates/semaine ───────────────────────────────────────
+      const today     = new Date();
+      const todayStr  = today.toISOString().split('T')[0];
+      const dayName   = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][today.getDay()];
+      const getWN = (d:Date) => { const t=new Date(d.valueOf());const dn=(d.getDay()+6)%7;t.setDate(t.getDate()-dn+3);const ft=t.valueOf();t.setMonth(0,1);if(t.getDay()!==4)t.setMonth(0,1+((4-t.getDay())+7)%7);return 1+Math.ceil((ft-t.valueOf())/604800000); };
+      const weekKey   = `${today.getFullYear()}_W${String(getWN(today)).padStart(2,'0')}`;
+
+      // ── 3. Résumés par domaine ─────────────────────────────────────────────
+      // Frigo — avec état péremption
+      const SHELF:Record<string,number> = {'Boucherie/Poisson':3,'Boulangerie':3,'Plat préparé':4,'Restes':4,'Primeur':7,'Frais & Crèmerie':10,'Épicerie Salée':90,'Épicerie Sucrée':90,'Boissons':90,'Surgelés':180,'Divers':14};
+      const frigoLines = frigoItems.map((i:any) => {
+        let expStr = i.expiryDate;
+        if(!expStr && i.addedAt) { const d=new Date(i.addedAt); d.setDate(d.getDate()+(SHELF[i.category]??14)); expStr=d.toISOString().split('T')[0]; }
+        const diff = expStr ? Math.ceil((new Date(expStr).getTime()-today.getTime())/(86400000)) : null;
+        const etat = diff===null?'?': diff<0?'PÉRIMÉ': diff<=3?`⚠️ J-${diff}`:`J-${diff}`;
+        return `${i.name} (${i.category}, ${etat})`;
+      });
+      const frigoResume = frigoLines.length ? frigoLines.join(', ') : 'frigo vide';
+
+      // Courses
+      const courses = hubData.filter((i:any)=>i.type==='shop').map((i:any)=>i.content).join(', ') || 'liste vide';
+
+      // Semainier semaine courante
+      const semResume = Object.entries(semainierData)
+        .filter(([k]) => k.includes(weekKey))
+        .map(([k,v]:any) => `${k.split('_')[0]} ${k.split('_')[1]}: ${v.platName}`)
+        .join(', ') || 'aucun repas planifié';
+
+      // Événements à venir
+      const eventsResume = eventsData
+        .filter((e:any) => e.date >= todayStr)
+        .slice(0,5)
+        .map((e:any) => `${e.title} le ${e.date?.split('T')[0]||'?'}`)
+        .join(', ') || 'aucun événement';
+
+      // Corvées — état détaillé par membre G/P/V
+      const choresDetail = Object.entries(choreStatus as Record<string,any>)
+        .slice(-3)
+        .map(([wid, c]:any) => `${wid}: G=${c.G?'✅':'❌'} P=${c.P?'✅':'❌'} V=${c.V?'✅':'❌'}`)
+        .join(' | ') || 'aucune info';
+
+      // Recettes
+      const recipesResume = (recipes||[]).slice(0,15).map((r:any)=>r.title).join(', ') || 'aucune';
+
+      // ── 4. Construction de la liste des destinataires ciblés ───────────────
+      const targetedUsers: any[] = aiNotif.targets.includes('all')
+        ? users
+        : users.filter((u:any) => aiNotif.targets.includes(u.id));
+
+      // ── 5. Génération personnalisée par utilisateur ────────────────────────
+      let sentCount = 0;
+
+      const generateFor = async (targetUser: any | null) => {
+        const uName   = targetUser?.name   || 'la famille';
+        const uLetter = targetUser?.letter || '';
+        const isGPV   = ['G','P','V'].includes(uLetter);
+
+        // Détail corvées spécifique à ce membre
+        let userChores = '';
+        if(isGPV) {
+          const pending = Object.entries(choreStatus as Record<string,any>)
+            .map(([wid, c]:any) => c[uLetter] ? null : wid)
+            .filter(Boolean);
+          userChores = pending.length
+            ? `${uName} a des corvées NON FAITES pour : ${pending.slice(0,3).join(', ')}`
+            : `${uName} est à JOUR dans ses corvées.`;
+        }
+
+        const prompt = `Tu es le Majordome de la famille Frézouls sur l'application familiale "Chaud Devant".
+Aujourd'hui : ${dayName} ${todayStr}.
+Destinataire : ${uName}${uLetter ? ` (lettre=${uLetter}, membre actif G/P/V=${isGPV})` : ''}
+
+══════════ DONNÉES RÉELLES DU SITE ══════════
+📦 FRIGO (${frigoItems.length} produits) : ${frigoResume}
+🛒 COURSES : ${courses}
+🗓️  SEMAINIER (semaine ${weekKey}) : ${semResume}
+📅 ÉVÉNEMENTS À VENIR : ${eventsResume}
+🧹 CORVÉES : ${userChores || choresDetail}
+📚 RECETTES : ${recipesResume}
+═════════════════════════════════════════════
+
+DÉCLENCHEUR ADMIN : "${aiNotif.trigger}"
+CONSIGNES ADMIN : "${aiNotif.prompt}"
+
+En te basant STRICTEMENT sur les données ci-dessus (cite des éléments réels !), génère UNE notification push courte (2-3 phrases max) pour ${uName}, en français, ton chaleureux et familier.
+${isGPV ? `IMPORTANT : ${uName} est un membre actif (${uLetter}). Personnalise en mentionnant SES corvées spécifiques ou ses repas du semainier si pertinent.` : ''}
+Réponds UNIQUEMENT avec le texte final de la notification, rien d'autre.`;
+
+        const text = await callGeminiDirect([{role:'user', text:prompt}]);
+        if(text?.trim()) {
+          await addDoc(collection(db,'notifications'), {
+            message: text.trim(),
+            type: 'info',
+            repeat: 'once',
+            targets: targetUser ? [targetUser.id] : ['all'],
+            createdAt: new Date().toISOString(),
+            readBy: {},
+            generatedByAI: true,
+            trigger: aiNotif.trigger,
+          });
+          sentCount++;
+        }
+      };
+
+      if(aiNotif.targets.includes('all') && targetedUsers.length === 0) {
+        await generateFor(null); // Notif globale si aucun user ciblé
+      } else if(aiNotif.targets.includes('all')) {
+        // Personnalisée pour chaque membre
+        for(const u of targetedUsers) await generateFor(u);
       } else {
-        alert("❌ L'IA n'a pas pu générer le message.");
+        for(const u of targetedUsers) await generateFor(u);
       }
-    } catch(e){ alert("❌ Erreur IA : "+e); }
+
+      setAiNotif({trigger:'',prompt:'',targets:['all']});
+      alert(`✅ ${sentCount} notification(s) IA personnalisée(s) avec les données réelles du site !`);
+
+    } catch(e:any) {
+      console.error('sendAiNotification error:', e);
+      alert('❌ Erreur : ' + (e.message || e));
+    }
     setAiNotifLoading(false);
   };
 
@@ -1976,7 +2114,7 @@ const App: React.FC = () => {
               recipes={recipes} xsitePages={xsitePages}
               arch={handleArchitect} chat={handleChat}
               prompt={aiPrompt} setP={setAiPrompt} load={isAiLoading} hist={chatHistory}
-              users={siteUsers}
+              users={siteUsers} choreStatus={choreStatus}
             />
           ):(
             <div className="max-w-md mx-auto bg-white/80 p-10 rounded-[3rem] text-center space-y-8 shadow-xl mt-20">
