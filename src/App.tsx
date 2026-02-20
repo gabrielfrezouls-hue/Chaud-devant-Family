@@ -341,52 +341,92 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
       )}
 
       {/* SAISIE PRINCIPALE */}
-      <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 space-y-4">
+      <div className="bg-white p-4 rounded-[2.5rem] shadow-xl border border-gray-100 space-y-3">
         <h3 className="font-black uppercase tracking-widest text-gray-400 text-xs flex items-center gap-2"><Plus size={14}/> AJOUTER UN PRODUIT</h3>
-        
+
+        {/* Ligne 1 : Nom + quantité */}
         <div className="flex gap-2">
-          <input value={newItem.name} onChange={e=>setNewItem({...newItem,name:e.target.value})} onKeyDown={e=>e.key==='Enter'&&addItem()} placeholder="Nom du produit..." className="flex-1 p-4 bg-gray-50 rounded-2xl font-bold outline-none border-2 border-transparent focus:border-black transition-colors"/>
-          <input type="number" value={newItem.quantity} onChange={e=>setNewItem({...newItem,quantity:parseInt(e.target.value)||1})} className="w-16 p-4 bg-gray-50 rounded-2xl font-bold text-center outline-none" min={1}/>
-          <select value={newItem.unit} onChange={e=>setNewItem({...newItem,unit:e.target.value})} className="p-4 bg-gray-50 rounded-2xl font-bold outline-none">
+          <input
+            value={newItem.name}
+            onChange={e=>setNewItem({...newItem,name:e.target.value})}
+            onKeyDown={e=>e.key==='Enter'&&addItem()}
+            placeholder="Nom du produit..."
+            className="flex-1 min-w-0 p-3 bg-gray-50 rounded-2xl font-bold outline-none border-2 border-transparent focus:border-black transition-colors text-sm"
+          />
+          <input
+            type="number"
+            value={newItem.quantity}
+            onChange={e=>setNewItem({...newItem,quantity:parseInt(e.target.value)||1})}
+            className="w-14 p-3 bg-gray-50 rounded-2xl font-bold text-center outline-none text-sm shrink-0"
+            min={1}
+          />
+          <select
+            value={newItem.unit}
+            onChange={e=>setNewItem({...newItem,unit:e.target.value})}
+            className="p-3 bg-gray-50 rounded-2xl font-bold outline-none text-sm shrink-0"
+          >
             <option>pcs</option><option>g</option><option>kg</option><option>ml</option><option>L</option><option>boîte</option>
           </select>
         </div>
-        
+
+        {/* Ligne 2 : Date + Ajouter */}
         <div className="flex gap-2 items-center">
-          <CalIcon size={16} className="text-gray-400"/>
-          <input type="date" value={newItem.expiryDate} onChange={e=>setNewItem({...newItem,expiryDate:e.target.value})} className="flex-1 p-3 bg-gray-50 rounded-xl font-bold text-sm outline-none"/>
-          <button onClick={addItem} className="px-6 py-3 bg-black text-white rounded-2xl font-bold hover:scale-105 transition-transform"><Plus size={18}/></button>
+          <CalIcon size={14} className="text-gray-400 shrink-0"/>
+          <input
+            type="date"
+            value={newItem.expiryDate}
+            onChange={e=>setNewItem({...newItem,expiryDate:e.target.value})}
+            className="flex-1 min-w-0 p-2.5 bg-gray-50 rounded-xl font-bold text-xs outline-none"
+          />
+          <button
+            onClick={addItem}
+            disabled={isLoading}
+            className="px-4 py-2.5 bg-black text-white rounded-2xl font-bold hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1"
+          >
+            {isLoading ? <Loader2 size={15} className="animate-spin"/> : <Plus size={15}/>}
+            <span className="text-xs">Ajouter</span>
+          </button>
         </div>
 
-        {/* SCAN CODE-BARRE + IA PHOTO (sélecteur de médias) */}
+        {/* Ligne 3 : Scan barcode */}
         <div className="flex gap-2 pt-2 border-t border-gray-100">
-          <div className="flex-1 flex gap-2">
-            <input value={barcodeInput} onChange={e=>setBarcodeInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&fetchProductByBarcode(barcodeInput)} placeholder="Saisir ou photographier un code-barre..." className="flex-1 p-3 bg-gray-50 rounded-xl font-mono text-sm outline-none border-2 border-transparent focus:border-blue-400"/>
-            {/* Si champ vide → ouvre l'appareil photo pour lire le code-barre par IA */}
-            {/* Si champ rempli → soumet le code directement */}
-            <input ref={barcodePhotoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleBarcodePhoto}/>
-            <button
-              onClick={()=>{ barcodeInput.trim() ? fetchProductByBarcode(barcodeInput) : barcodePhotoRef.current?.click(); }}
-              disabled={isLoading}
-              className="px-4 py-3 bg-blue-500 text-white rounded-xl hover:scale-105 transition-transform flex items-center gap-2 disabled:opacity-50"
-              title={barcodeInput.trim() ? "Rechercher ce code-barre" : "Photographier un code-barre"}
-            >
-              {isLoading?<Loader2 size={16} className="animate-spin"/>: barcodeInput.trim() ? <Barcode size={16}/> : <Camera size={16}/>}
-            </button>
-          </div>
-          {/* Bouton IA Photo produit (reconnaissance visuelle du produit) */}
+          <input
+            value={barcodeInput}
+            onChange={e=>setBarcodeInput(e.target.value)}
+            onKeyDown={e=>e.key==='Enter'&&fetchProductByBarcode(barcodeInput)}
+            placeholder="Code-barre..."
+            className="flex-1 min-w-0 p-2.5 bg-gray-50 rounded-xl font-mono text-xs outline-none border-2 border-transparent focus:border-blue-400"
+          />
+          <input ref={barcodePhotoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleBarcodePhoto}/>
+          <button
+            onClick={()=>{ barcodeInput.trim() ? fetchProductByBarcode(barcodeInput) : barcodePhotoRef.current?.click(); }}
+            disabled={isLoading}
+            className="p-2.5 bg-blue-500 text-white rounded-xl hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1"
+            title={barcodeInput.trim() ? "Rechercher" : "Photo code-barre"}
+          >
+            {isLoading ? <Loader2 size={14} className="animate-spin"/> : barcodeInput.trim() ? <Barcode size={14}/> : <Camera size={14}/>}
+            <span className="text-[10px] font-bold hidden sm:block">{barcodeInput.trim() ? 'Valider' : 'Scanner'}</span>
+          </button>
+          {/* IA Photo produit */}
           <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoFile}/>
           <button
             onClick={()=>photoInputRef.current?.click()}
             disabled={isLoading}
-            className="px-4 py-3 bg-purple-500 text-white rounded-xl hover:scale-105 transition-transform flex items-center gap-2 disabled:opacity-50"
-            title="Identifier un produit par photo (IA)"
+            className="p-2.5 bg-purple-500 text-white rounded-xl hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1"
+            title="Identifier par photo IA"
           >
-            {isLoading ? <Loader2 size={16} className="animate-spin"/> : <Brain size={16}/>}
-            <span className="text-xs font-bold hidden sm:block">IA Photo</span>
+            {isLoading ? <Loader2 size={14} className="animate-spin"/> : <Brain size={14}/>}
+            <span className="text-[10px] font-bold hidden sm:block">IA Photo</span>
           </button>
         </div>
-        {scanMsg&&<div className={`text-center text-sm font-bold py-2 px-4 rounded-xl ${scanMsg.startsWith('✅')?'bg-green-50 text-green-700':scanMsg.startsWith('⏳')?'bg-blue-50 text-blue-700':'bg-red-50 text-red-700'}`}>{scanMsg}</div>}
+
+        {scanMsg && (
+          <div className={`text-center text-xs font-bold py-2 px-3 rounded-xl leading-tight ${
+            scanMsg.startsWith('✅') ? 'bg-green-50 text-green-700' :
+            scanMsg.startsWith('⏳') ? 'bg-blue-50 text-blue-700' :
+            'bg-red-50 text-red-700'
+          }`}>{scanMsg}</div>
+        )}
       </div>
 
       {/* INVENTAIRE */}
@@ -964,7 +1004,7 @@ const HomeCard = ({ icon, title, label, onClick, color }: any) => (
 // ==========================================
 // ADMIN PANEL (RÉORGANISÉ)
 // ==========================================
-const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users }: any) => {
+const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, choreStatus }: any) => {
   const [tab, setTab] = useState('users');
   const [newUser, setNewUser] = useState({email:'',letter:'',name:''});
   const [localC, setLocalC] = useState(config);
