@@ -9,8 +9,16 @@ const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL
 const cleanJSON = (text: string | null) => {
   if (!text) return null;
   try {
-    return JSON.parse(text.replace(/```json|```/g, "").trim());
+    // Retire les blocs markdown et espaces
+    const stripped = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+    // Tente parse direct
+    return JSON.parse(stripped);
   } catch {
+    try {
+      // Extrait le premier objet JSON {} ou tableau [] trouvé dans le texte
+      const match = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+      if (match) return JSON.parse(match[0]);
+    } catch {}
     return null;
   }
 };
@@ -97,11 +105,12 @@ export const callGeminiDirect = async (history: { role: string; text: string }[]
 export const readBarcodeFromImage = async (file: File): Promise<string | null> => {
   try {
     const b64 = await fileToBase64(file);
+    const mimeType = file.type || "image/jpeg";
     const text = await callGemini({
       contents: [{
         parts: [
           { text: "Lis UNIQUEMENT les chiffres du code barre visible sur cette image. Renvoie seulement la suite de chiffres, rien d'autre. Si illisible, renvoie NULL." },
-          { inline_data: { mime_type: file.type, data: b64 } },
+          { inline_data: { mime_type: mimeType, data: b64 } },
         ],
       }],
     });
@@ -142,33 +151,27 @@ Règles pour expiryDate à partir du ${today} :
 export const scanProductImage = async (file: File) => {
   try {
     const b64 = await fileToBase64(file);
+    // Sur mobile, file.type peut être vide — fallback sur image/jpeg
+    const mimeType = file.type || "image/jpeg";
     const today = new Date().toISOString().split('T')[0];
     const res = await callGemini({
       contents: [{
         parts: [
           {
-            text: `Tu es un assistant de gestion de frigo familial. Identifie ce produit alimentaire sur la photo.
-Réponds UNIQUEMENT avec un JSON strict sans markdown ni explication :
-{
-  "name": "Nom précis du produit en français",
-  "category": "UNE de ces catégories exactes : Boucherie/Poisson | Boulangerie | Plat préparé | Primeur | Frais & Crèmerie | Épicerie Salée | Épicerie Sucrée | Boissons | Surgelés | Divers",
-  "expiryDate": "YYYY-MM-DD"
-}
-Règles pour expiryDate (à partir du ${today}) :
-- Boucherie/Poisson → +3 jours
-- Boulangerie → +3 jours
-- Plat préparé → +4 jours
-- Primeur (légumes, fruits) → +7 jours
-- Frais & Crèmerie (lait, yaourt, fromage) → +10 jours
-- Épicerie / Boissons / Surgelés → +90 jours
-Si une date est visible sur l'emballage, utilise-la en priorité.`,
+            text: `Identifie ce produit alimentaire sur la photo. Réponds UNIQUEMENT avec ce JSON (sans markdown, sans texte avant ou après) :
+{"name":"Nom en français","category":"Boucherie/Poisson ou Boulangerie ou Plat préparé ou Primeur ou Frais & Crèmerie ou Épicerie Salée ou Épicerie Sucrée ou Boissons ou Surgelés ou Divers","expiryDate":"YYYY-MM-DD"}
+Calcule expiryDate à partir du ${today} : Boucherie/Poisson +3j, Boulangerie +3j, Plat préparé +4j, Primeur +7j, Frais & Crèmerie +10j, Épicerie/Boissons +90j, Surgelés +180j. Si une date limite est lisible sur l'emballage, utilise-la.`,
           },
-          { inline_data: { mime_type: file.type, data: b64 } },
+          { inline_data: { mime_type: mimeType, data: b64 } },
         ],
       }],
     });
-    return cleanJSON(res);
-  } catch {
+    console.log("[scanProductImage] raw:", res);
+    const parsed = cleanJSON(res);
+    console.log("[scanProductImage] parsed:", parsed);
+    return parsed;
+  } catch(err) {
+    console.error("[scanProductImage] error:", err);
     return null;
   }
 };
