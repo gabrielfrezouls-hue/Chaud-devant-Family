@@ -29,11 +29,10 @@ const fileToBase64 = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-// Modèles à essayer dans l'ordre (du plus économique au plus capable)
+// Modèle fonctionnel sur free tier EU
 const MODELS = [
-  "gemini-1.5-flash-8b",
-  "gemini-1.5-flash",
   "gemini-2.5-flash-lite",
+  "gemini-2.5-flash-lite-preview-06-17", // alias alternatif
 ];
 
 const callGeminiModel = async (model: string, payload: any): Promise<string | null> => {
