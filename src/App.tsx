@@ -1137,17 +1137,21 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       const checkPrompt = `${siteContext}
 
 DÉCLENCHEUR CONFIGURÉ : "${aiNotif.trigger}"
+CONSIGNES : "${aiNotif.prompt}"
 
-Ta mission : analyser les données ci-dessus et répondre UNIQUEMENT par ce JSON :
-{"shouldSend": true/false, "reason": "explication courte en français", "usersToNotify": ["G","P","V","tous"] }
+Ta mission : analyser le déclencheur et les données, puis répondre UNIQUEMENT avec ce JSON (sans markdown) :
+{"shouldSend": true, "reason": "explication", "triggerType": "event|condition"}
 
-Règles :
-- shouldSend = true SEULEMENT si le déclencheur est réellement rempli RIGHT NOW dans les données
-- Si le déclencheur parle de corvées : vérifie les corvées dans les données
-- Si le déclencheur parle de péremption : vérifie le frigo
-- Si le déclencheur est temporel (ex: "chaque samedi") : today est ${dayName}, vérifie si c'est le bon jour
-- usersToNotify = liste des lettres des membres concernés parmi G, P, V (ou "tous")
-- Sois strict : si la condition n'est pas remplie, shouldSend = false`;
+RÈGLES IMPORTANTES :
+1. Il existe deux types de déclencheurs :
+   - TYPE "event" = action manuelle/administrative (ex: "quand un article est ajouté", "manuellement", "pour tester", "maintenant", "à la demande"). → shouldSend = TOUJOURS true, l'admin déclenche volontairement.
+   - TYPE "condition" = état vérifiable dans les données (ex: "si le frigo a des périmés", "si G n'a pas fait ses corvées", "si c'est samedi"). → vérifier dans les données, shouldSend = true seulement si la condition est remplie.
+
+2. Pour un déclencheur de type "event" : shouldSend = true TOUJOURS. Ne pas chercher à vérifier l'état du site.
+3. Pour un déclencheur de type "condition" : analyser les données et décider.
+4. En cas de doute sur le type → traiter comme "event" et envoyer (shouldSend = true).
+
+Réponds UNIQUEMENT avec le JSON, rien d'autre.`;
 
       const checkRes = await callGeminiDirect([{role:'user', text:checkPrompt}]);
       console.log('[AI Notif] check result:', checkRes);
@@ -1377,13 +1381,16 @@ Cite des éléments réels des données. Réponds UNIQUEMENT avec le texte final
           <input
             ref={versionImgRef}
             type="file" accept="image/*" className="hidden"
-            onChange={e=>{
+            onChange={async e=>{
               const f=e.target.files?.[0];
               e.target.value='';
               if(!f||!editingVersionImg) return;
               const r=new FileReader();
-              r.onload=()=>{
-                upd('site_versions', editingVersionImg, {'config.welcomeImage': r.result as string});
+              r.onload=async()=>{
+                try {
+                  // updateDoc avec notation point Firestore pour champ imbriqué
+                  await updateDoc(doc(db,'site_versions',editingVersionImg),{'config.welcomeImage': r.result as string});
+                } catch(e){ console.error('update version img error',e); }
                 setEditingVersionImg(null);
               };
               r.readAsDataURL(f);
@@ -1429,7 +1436,10 @@ Cite des éléments réels des données. Réponds UNIQUEMENT avec le texte final
                           <span className="text-[10px] text-gray-400 truncate max-w-[160px]">{v.config.welcomeTitle||''}</span>
                           {v.config.welcomeImage&&(
                             <button
-                              onClick={()=>upd('site_versions', v.id, {'config.welcomeImage': ''})}
+                              onClick={async()=>{
+                                try{ await updateDoc(doc(db,'site_versions',v.id),{'config.welcomeImage':''}); }
+                                catch(e){ console.error(e); }
+                              }}
                               className="text-[9px] text-red-400 hover:text-red-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                               title="Supprimer la photo de cette version"
                             >✕ photo</button>
