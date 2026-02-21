@@ -2,8 +2,6 @@ import { SiteConfig } from "../types";
 
 // --- CONFIGURATION ---
 const getApiKey = () => import.meta.env.VITE_GEMINI_KEY || "";
-const MODEL_NAME = "gemini-2.0-flash";
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent`;
 
 // --- UTILITAIRES ---
 const cleanJSON = (text: string | null) => {
@@ -31,29 +29,48 @@ const fileToBase64 = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-const callGemini = async (payload: any): Promise<string | null> => {
+// Modèles à essayer dans l'ordre (du plus économique au plus capable)
+const MODELS = [
+  "gemini-1.5-flash-8b",
+  "gemini-1.5-flash",
+  "gemini-2.5-flash-lite",
+];
+
+const callGeminiModel = async (model: string, payload: any): Promise<string | null> => {
   const apiKey = getApiKey();
-  if (!apiKey) {
-    console.error("⛔ VITE_GEMINI_KEY manquante dans .env");
-    return null;
-  }
+  if (!apiKey) { console.error("⛔ VITE_GEMINI_KEY manquante"); return null; }
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   try {
-    const res = await fetch(`${API_URL}?key=${apiKey}`, {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    if (res.status === 429) return "__QUOTA__"; // signal quota dépassé
     if (!res.ok) {
       const body = await res.text();
-      console.error(`Erreur Gemini ${res.status}:`, body);
+      console.error(`Erreur Gemini ${model} ${res.status}:`, body);
       return null;
     }
     const data = await res.json();
     return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
   } catch (err) {
-    console.error("Erreur réseau Gemini:", err);
+    console.error(`Erreur réseau Gemini ${model}:`, err);
     return null;
   }
+};
+
+const callGemini = async (payload: any): Promise<string | null> => {
+  for (const model of MODELS) {
+    const result = await callGeminiModel(model, payload);
+    if (result === "__QUOTA__") {
+      console.warn(`⚠️ Quota dépassé sur ${model}, essai du modèle suivant...`);
+      continue;
+    }
+    if (result !== null) return result;
+  }
+  console.error("⛔ Tous les modèles Gemini sont en quota ou indisponibles.");
+  return null;
 };
 
 // ============================================================================
