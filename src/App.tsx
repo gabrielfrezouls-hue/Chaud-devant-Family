@@ -1083,25 +1083,11 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   };
 
   const sendAiNotification = async () => {
-    if(!aiNotif.trigger||!aiNotif.prompt) return alert("Veuillez remplir le déclencheur et la description.");
+    if(!aiNotif.trigger||!aiNotif.prompt) return alert("Choisissez un déclencheur et ajoutez des instructions.");
     setAiNotifLoading(true);
     try {
       const { callGeminiDirect } = await import('./services/geminiService');
 
-      // ── 1. Collecte des données du site ────────────────────────────────────
-      const [frigoSnap, semainierSnap, hubSnap, eventSnap] = await Promise.all([
-        getDocs(collection(db, 'frigo_items')),
-        getDocs(collection(db, 'semainier_meals')),
-        getDocs(collection(db, 'hub_items')),
-        getDocs(collection(db, 'family_events')),
-      ]);
-
-      const frigoItems    = frigoSnap.docs.map(d => ({id:d.id, ...d.data()} as any));
-      const semainierData = Object.fromEntries(semainierSnap.docs.map(d => [d.id, d.data()]));
-      const hubData       = hubSnap.docs.map(d => ({id:d.id, ...d.data()} as any));
-      const eventsData    = eventSnap.docs.map(d => ({id:d.id, ...d.data()} as any));
-
-      // ── 2. Résumés ─────────────────────────────────────────────────────────
       const today    = new Date();
       const todayStr = today.toISOString().split('T')[0];
       const dayName  = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][today.getDay()];
@@ -1109,139 +1095,188 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       const weekKey  = `${today.getFullYear()}_W${String(getWN(today)).padStart(2,'0')}`;
 
       const SHELF:Record<string,number> = {'Boucherie/Poisson':3,'Boulangerie':3,'Plat préparé':4,'Restes':4,'Primeur':7,'Frais & Crèmerie':10,'Épicerie Salée':90,'Épicerie Sucrée':90,'Boissons':90,'Surgelés':180,'Divers':14};
-      const frigoLines = frigoItems.map((i:any) => {
-        let expStr = i.expiryDate;
-        if(!expStr && i.addedAt) { const d=new Date(i.addedAt); d.setDate(d.getDate()+(SHELF[i.category]??14)); expStr=d.toISOString().split('T')[0]; }
-        const diff = expStr ? Math.ceil((new Date(expStr).getTime()-today.getTime())/(86400000)) : null;
-        const etat = diff===null?'?': diff<0?'PÉRIMÉ': diff<=3?`⚠️ J-${diff}`:`J-${diff}`;
-        return `${i.name} (${i.category}, ${etat})`;
-      });
 
-      const frigoResume   = frigoLines.length ? frigoLines.join(' | ') : 'VIDE';
-      const courses       = hubData.filter((i:any)=>i.type==='shop').map((i:any)=>i.content).join(', ') || 'VIDE';
-      const semResume     = Object.entries(semainierData).filter(([k])=>k.includes(weekKey)).map(([k,v]:any)=>`${k.split('_')[0]}: ${v.platName}`).join(', ') || 'VIDE';
-      const eventsResume  = eventsData.filter((e:any)=>e.date>=todayStr).slice(0,5).map((e:any)=>`${e.title} le ${e.date?.split('T')[0]}`).join(', ') || 'VIDE';
-      const choresDetail  = Object.entries(choreStatus as Record<string,any>).slice(-2).map(([wid,c]:any)=>`${wid}: G=${c.G?'✅':'❌'} P=${c.P?'✅':'❌'} V=${c.V?'✅':'❌'}`).join(' | ') || 'VIDE';
-      const recipesResume = (recipes||[]).slice(0,10).map((r:any)=>r.title).join(', ') || 'VIDE';
+      // ── Fetch données ciblées selon le déclencheur ─────────────────────────
+      let focusData   = '';  // La donnée principale analysée
+      let contextData = '';  // Données de support
+      let shouldSend  = true;
+      let noSendReason = '';
 
-      // Corvées par membre pour personnalisation
-      const choresPerMember: Record<string,string> = {};
-      for(const u of users as any[]) {
-        const letter = u.letter;
-        if(['G','P','V'].includes(letter)) {
-          const pending = Object.entries(choreStatus as Record<string,any>).map(([wid,c]:any)=>c[letter]?null:wid).filter(Boolean);
-          choresPerMember[letter] = pending.length ? `corvées non faites: ${pending.slice(0,2).join(', ')}` : 'à jour';
+      const [trigger_domain, trigger_type] = aiNotif.trigger.split(':');
+
+      if(trigger_domain === 'frigo') {
+        const q = query(collection(db,'frigo_items'), orderBy('addedAt','desc'));
+        const snap = await getDocs(q);
+        const all = snap.docs.map(d=>({id:d.id,...d.data()} as any));
+
+        if(trigger_type === 'last_added') {
+          const last = all[0];
+          if(!last) { shouldSend=false; noSendReason='Le frigo est vide, aucun article récent.'; }
+          else {
+            const addedDate = last.addedAt ? new Date(last.addedAt).toLocaleDateString('fr-FR') : '?';
+            focusData = `Dernier article ajouté : "${last.name}" (catégorie: ${last.category||'?'}, ajouté le ${addedDate})`;
+            // Articles du frigo pour contexte recettes
+            contextData = `Autres articles au frigo : ${all.slice(1,8).map((i:any)=>i.name).join(', ')||'aucun'}`;
+          }
+        } else if(trigger_type === 'expiring') {
+          const expiring = all.filter((i:any)=>{
+            let expStr = i.expiryDate;
+            if(!expStr && i.addedAt) { const d=new Date(i.addedAt); d.setDate(d.getDate()+(SHELF[i.category]??14)); expStr=d.toISOString().split('T')[0]; }
+            if(!expStr) return false;
+            const diff = Math.ceil((new Date(expStr).getTime()-today.getTime())/(86400000));
+            return diff>=0 && diff<=3;
+          });
+          if(!expiring.length) { shouldSend=false; noSendReason='Aucun produit proche de péremption (≤3 jours).'; }
+          else focusData = `Produits bientôt périmés (≤3j) : ${expiring.map((i:any)=>i.name).join(', ')}`;
+        } else if(trigger_type === 'expired') {
+          const expired = all.filter((i:any)=>{
+            let expStr = i.expiryDate;
+            if(!expStr && i.addedAt) { const d=new Date(i.addedAt); d.setDate(d.getDate()+(SHELF[i.category]??14)); expStr=d.toISOString().split('T')[0]; }
+            if(!expStr) return false;
+            return Math.ceil((new Date(expStr).getTime()-today.getTime())/(86400000)) < 0;
+          });
+          if(!expired.length) { shouldSend=false; noSendReason='Aucun produit périmé dans le frigo.'; }
+          else focusData = `Produits périmés à jeter : ${expired.map((i:any)=>i.name).join(', ')}`;
         }
+        // Recettes disponibles en contexte pour suggestions
+        contextData += `\nRecettes disponibles : ${(recipes||[]).slice(0,12).map((r:any)=>r.title).join(', ')||'aucune'}`;
+
+      } else if(trigger_domain === 'hub') {
+        const q = query(collection(db,'hub_items'), orderBy('createdAt','desc'), where('type','==','shop'));
+        const snap = await getDocs(q);
+        const all = snap.docs.map(d=>({id:d.id,...d.data()} as any));
+        if(trigger_type === 'last_added') {
+          const last = all[0];
+          if(!last) { shouldSend=false; noSendReason='La liste de courses est vide.'; }
+          else focusData = `Dernier article ajouté à la liste : "${last.content}" (${new Date(last.createdAt).toLocaleDateString('fr-FR')})`;
+          contextData = `Liste complète : ${all.slice(0,10).map((i:any)=>i.content).join(', ')}`;
+        } else {
+          const list = all.slice(0,15).map((i:any)=>i.content).join(', ');
+          if(!list) { shouldSend=false; noSendReason='La liste de courses est vide.'; }
+          else focusData = `Liste de courses complète (${all.length} articles) : ${list}`;
+        }
+
+      } else if(trigger_domain === 'chores') {
+        const letter = trigger_type.replace('pending_','');
+        const memberUser = users.find((u:any)=>u.letter===letter);
+        const memberName = memberUser?.name || letter;
+
+        if(trigger_type === 'summary') {
+          focusData = `État des corvées : ${Object.entries(choreStatus as Record<string,any>).slice(-2).map(([wid,c]:any)=>`${wid} → G:${c.G?'✅':'❌'} P:${c.P?'✅':'❌'} V:${c.V?'✅':'❌'}`).join(' | ')||'aucune info'}`;
+        } else {
+          const pending = Object.entries(choreStatus as Record<string,any>).map(([wid,c]:any)=>c[letter]?null:wid).filter(Boolean);
+          if(!pending.length) { shouldSend=false; noSendReason=`${memberName} est à jour dans ses corvées.`; }
+          else focusData = `Corvées non faites de ${memberName} (${letter}) : semaines ${pending.slice(0,3).join(', ')}`;
+        }
+
+      } else if(trigger_domain === 'semainier') {
+        const snap = await getDocs(collection(db,'semainier_meals'));
+        const all  = Object.fromEntries(snap.docs.map(d=>[d.id,d.data()]));
+        const todayDay = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][today.getDay()];
+        if(trigger_type === 'today') {
+          const midi = all[`${todayDay}_Midi_${weekKey}`];
+          const soir = all[`${todayDay}_Soir_${weekKey}`];
+          if(!midi&&!soir) { shouldSend=false; noSendReason=`Aucun repas planifié pour ${todayDay}.`; }
+          else focusData = `Repas de ${todayDay} : Midi=${midi?.platName||'non planifié'} | Soir=${soir?.platName||'non planifié'}`;
+        } else {
+          const week = Object.entries(all).filter(([k])=>k.includes(weekKey)).map(([k,v]:any)=>`${k.split('_')[0]} ${k.split('_')[1]}: ${v.platName}`).join(', ');
+          if(!week) { shouldSend=false; noSendReason='Aucun repas planifié cette semaine.'; }
+          else focusData = `Repas de la semaine ${weekKey} : ${week}`;
+        }
+
+      } else if(trigger_domain === 'events') {
+        const snap = await getDocs(collection(db,'family_events'));
+        const upcoming = snap.docs.map(d=>({...d.data()} as any))
+          .filter(e=>{ const d=e.date?.split('T')[0]||''; return d>=todayStr && d<=new Date(today.getTime()+7*86400000).toISOString().split('T')[0]; })
+          .sort((a:any,b:any)=>a.date.localeCompare(b.date));
+        if(!upcoming.length) { shouldSend=false; noSendReason='Aucun événement dans les 7 prochains jours.'; }
+        else focusData = `Événements à venir : ${upcoming.map((e:any)=>`${e.title} le ${e.date?.split('T')[0]}`).join(', ')}`;
+
+      } else if(trigger_domain === 'recipes') {
+        const q = query(collection(db,'family_recipes'), orderBy('timestamp','desc'));
+        const snap = await getDocs(q);
+        const last = snap.docs[0];
+        if(!last) { shouldSend=false; noSendReason='Aucune recette enregistrée.'; }
+        else {
+          const r = last.data() as any;
+          focusData = `Dernière recette ajoutée : "${r.title}" (${r.category||'?'}) par ${r.chef||'?'}`;
+          const ing = Array.isArray(r.ingredients) ? r.ingredients.slice(0,5).join(', ') : (r.ingredients||'').split('\n').slice(0,5).join(', ');
+          contextData = `Ingrédients principaux : ${ing}`;
+        }
+
+      } else {
+        // general:custom — toutes les données
+        const [fSnap, hSnap] = await Promise.all([getDocs(collection(db,'frigo_items')), getDocs(collection(db,'hub_items'))]);
+        const fAll = fSnap.docs.map(d=>d.data() as any);
+        const hAll = hSnap.docs.map(d=>d.data() as any).filter((i:any)=>i.type==='shop');
+        focusData = `Frigo (${fAll.length}) : ${fAll.slice(0,8).map((i:any)=>i.name).join(', ')||'vide'} | Courses : ${hAll.slice(0,8).map((i:any)=>i.content).join(', ')||'vide'}`;
+        contextData = `Recettes : ${(recipes||[]).slice(0,8).map((r:any)=>r.title).join(', ')||'aucune'}`;
       }
 
-      // ── 3. Destinataires ──────────────────────────────────────────────────
+      if(!shouldSend) {
+        setAiNotifLoading(false);
+        return alert(`⏸️ Notification non envoyée.\n\n${noSendReason}`);
+      }
+
+      // ── Destinataires ─────────────────────────────────────────────────────
       const targetedUsers: any[] = aiNotif.targets.includes('all')
         ? users
-        : users.filter((u:any) => aiNotif.targets.includes(u.id));
+        : users.filter((u:any)=>aiNotif.targets.includes(u.id));
 
-      const membersJson = targetedUsers.map((u:any)=>({
-        name: u.name||u.id,
-        letter: u.letter||'',
-        id: u.id,
-        chores: choresPerMember[u.letter] || 'non applicable',
-      }));
+      const membersStr = targetedUsers.map((u:any)=>`${u.name||u.id} (${u.letter||''})`).join(', ') || 'toute la famille';
 
-      // ── 4. UN SEUL appel Gemini : évaluation + génération ─────────────────
-      const megaPrompt = `Tu es le Majordome de la famille Frézouls sur "Chaud Devant". ${dayName} ${todayStr}.
+      // ── UN seul appel Gemini ──────────────────────────────────────────────
+      const prompt = `Tu es le Majordome de la famille Frézouls sur "Chaud Devant". ${dayName} ${todayStr}.
 
-╔══════════ DONNÉES RÉELLES DU SITE ══════════╗
-FRIGO (${frigoItems.length} articles) : ${frigoResume}
-COURSES : ${courses}
-SEMAINIER : ${semResume}
-ÉVÉNEMENTS : ${eventsResume}
-CORVÉES : ${choresDetail}
-RECETTES : ${recipesResume}
-╚═════════════════════════════════════════════╝
+DONNÉE PRINCIPALE (issue de Firebase) :
+${focusData}
+${contextData ? `\nDONNÉES COMPLÉMENTAIRES :\n${contextData}` : ''}
 
-DÉCLENCHEUR : "${aiNotif.trigger}"
-CONSIGNES : "${aiNotif.prompt}"
-DESTINATAIRES : ${JSON.stringify(membersJson)}
+DESTINATAIRES : ${membersStr}
+INSTRUCTIONS DE L'ADMIN : ${aiNotif.prompt}
 
-MISSION EN 2 ÉTAPES :
+RÈGLES ABSOLUES :
+⛔ N'invente AUCUN article, recette, nom ou chiffre qui n'est pas dans les données ci-dessus
+⛔ Si une donnée est absente, dis-le honnêtement sans inventer
+✅ Utilise le prénom du/des destinataire(s) si possible
+✅ Ton chaleureux, familial, max 2 phrases par notification
 
-ÉTAPE 1 — Est-ce que le déclencheur justifie d'envoyer une notification MAINTENANT ?
-- Si c'est une ACTION (ajout d'article, test, demande manuelle) → OUI
-- Si c'est une CONDITION (périmés présents, corvées non faites, jour précis) → vérifie dans les données ci-dessus
-- Si les données nécessaires sont VIDES et le déclencheur les requiert → NON, signale-le
+Génère UNE notification par destinataire. Réponds UNIQUEMENT avec ce JSON (sans markdown) :
+{"notifications": [{"userId": "${targetedUsers[0]?.id||'all'}", "name": "Prénom", "message": "texte"}, ...]}
+Si un seul message pour tous : [{"userId": "all", "name": "famille", "message": "texte"}]`;
 
-ÉTAPE 2 — Si OUI, génère UNE notification par destinataire.
-RÈGLES ABSOLUES pour la génération :
-⛔ NE JAMAIS inventer d'articles, recettes, noms ou données qui ne sont PAS dans les données ci-dessus
-⛔ Si le frigo est VIDE, ne pas mentionner d'articles de frigo
-⛔ Si les courses sont VIDES, ne pas mentionner de courses
-⛔ Utiliser UNIQUEMENT ce qui est écrit dans les données réelles
-✅ Si les données utiles sont vides, la notification doit le refléter honnêtement
-
-Réponds UNIQUEMENT avec ce JSON (sans markdown) :
-{
-  "shouldSend": true,
-  "reason": "explication courte pourquoi on envoie ou pas",
-  "notifications": [
-    {"userId": "email@...", "message": "texte notification max 2 phrases"}
-  ]
-}
-Si shouldSend=false, notifications=[]`;
-
-      const raw = await callGeminiDirect([{role:'user', text:megaPrompt}]);
+      const raw = await callGeminiDirect([{role:'user', text:prompt}]);
       console.log('[AI Notif] raw:', raw);
 
       let result: any = null;
-      try {
-        const match = raw?.match(/\{[\s\S]*\}/);
-        if(match) result = JSON.parse(match[0]);
-      } catch { console.error('[AI Notif] parse error', raw); }
+      try { const m=raw?.match(/\{[\s\S]*\}/); if(m) result=JSON.parse(m[0]); } catch {}
 
-      if(!result) {
+      if(!result?.notifications?.length) {
         setAiNotifLoading(false);
-        return alert('❌ L\'IA n\'a pas pu analyser la situation. Réessayez.');
+        return alert('❌ L\'IA n\'a pas pu générer le message. Réessayez.');
       }
 
-      if(!result.shouldSend) {
-        setAiNotifLoading(false);
-        return alert(`⏸️ Notification non envoyée.\n\n${result.reason}`);
-      }
-
-      // ── 5. Sauvegarde les notifications générées ──────────────────────────
       let sentCount = 0;
-      for(const n of (result.notifications||[])) {
+      for(const n of result.notifications) {
         if(!n.message?.trim()) continue;
-        const targetUser = targetedUsers.find((u:any)=>u.id===n.userId);
+        const target = n.userId==='all' ? null : targetedUsers.find((u:any)=>u.id===n.userId||u.name===n.name);
         await addDoc(collection(db,'notifications'), {
           message: n.message.trim(),
-          type: 'info',
-          repeat: 'once',
-          targets: targetUser ? [targetUser.id] : ['all'],
+          type: 'info', repeat: 'once',
+          targets: target ? [target.id] : (aiNotif.targets.includes('all')?['all']:aiNotif.targets),
           createdAt: new Date().toISOString(),
-          readBy: {},
-          generatedByAI: true,
+          readBy: {}, generatedByAI: true,
           trigger: aiNotif.trigger,
         });
         sentCount++;
       }
 
-      // Si l'IA a renvoyé shouldSend=true mais pas de notifications détaillées
-      if(sentCount===0 && result.shouldSend) {
-        await addDoc(collection(db,'notifications'), {
-          message: result.reason || 'Notification déclenchée.',
-          type: 'info', repeat: 'once',
-          targets: aiNotif.targets,
-          createdAt: new Date().toISOString(),
-          readBy: {}, generatedByAI: true, trigger: aiNotif.trigger,
-        });
-        sentCount=1;
-      }
-
       setAiNotif({trigger:'',prompt:'',targets:['all']});
-      alert(`✅ ${sentCount} notification(s) envoyée(s).\n\n${result.reason}`);
+      alert(`✅ ${sentCount} notification(s) envoyée(s) basée(s) sur : ${focusData.slice(0,80)}...`);
 
     } catch(e:any) {
       console.error('sendAiNotification error:', e);
-      alert('❌ Erreur : ' + (e.message || e));
+      alert('❌ Erreur : ' + (e.message||e));
     }
     setAiNotifLoading(false);
   };
@@ -1346,13 +1381,67 @@ Si shouldSend=false, notifications=[]`;
           {notifMode==='ai'&&(
             <div className="space-y-4 animate-in fade-in">
               <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-5">
+
+                {/* DÉCLENCHEUR PRÉDÉFINI */}
                 <div>
                   <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-2">Déclencheur</label>
-                  <input value={aiNotif.trigger} onChange={e=>setAiNotif(a=>({...a,trigger:e.target.value}))} placeholder="Ex : Toutes les semaines le lundi, Quand un produit est périmé..." className="w-full p-4 rounded-xl border border-gray-200 font-bold outline-none focus:border-black"/>
+                  <select
+                    value={aiNotif.trigger}
+                    onChange={e=>setAiNotif(a=>({...a,trigger:e.target.value}))}
+                    className="w-full p-4 rounded-xl border-2 border-gray-200 font-bold outline-none focus:border-black bg-white"
+                  >
+                    <option value="">-- Choisir un déclencheur --</option>
+                    <optgroup label="🧊 Frigo">
+                      <option value="frigo:last_added">Article ajouté au frigo (dernier ajout)</option>
+                      <option value="frigo:expiring">Produits bientôt périmés (≤ 3 jours)</option>
+                      <option value="frigo:expired">Produits périmés à jeter</option>
+                    </optgroup>
+                    <optgroup label="🛒 Courses">
+                      <option value="hub:last_added">Article ajouté à la liste de courses</option>
+                      <option value="hub:full_list">Rappel liste de courses complète</option>
+                    </optgroup>
+                    <optgroup label="🧹 Corvées">
+                      <option value="chores:pending_G">Corvées non faites — Gabriel</option>
+                      <option value="chores:pending_P">Corvées non faites — Pauline</option>
+                      <option value="chores:pending_V">Corvées non faites — Valentin</option>
+                      <option value="chores:summary">Résumé corvées de la semaine</option>
+                    </optgroup>
+                    <optgroup label="🗓️ Semainier">
+                      <option value="semainier:today">Repas du jour</option>
+                      <option value="semainier:week">Récap repas de la semaine</option>
+                    </optgroup>
+                    <optgroup label="📅 Événements">
+                      <option value="events:upcoming">Événement à venir (dans 7 jours)</option>
+                    </optgroup>
+                    <optgroup label="📚 Recettes">
+                      <option value="recipes:last_added">Recette ajoutée récemment</option>
+                    </optgroup>
+                    <optgroup label="⚙️ Général">
+                      <option value="general:custom">Message général (données complètes)</option>
+                    </optgroup>
+                  </select>
+                  {/* Description du déclencheur sélectionné */}
+                  {aiNotif.trigger&&(
+                    <p className="text-[10px] text-gray-400 italic mt-1.5 pl-1">
+                      {aiNotif.trigger==='frigo:last_added'&&'L\'IA récupère le dernier article ajouté au frigo et adapte le message.'}
+                      {aiNotif.trigger==='frigo:expiring'&&'L\'IA liste les produits proches de péremption et suggère des recettes.'}
+                      {aiNotif.trigger==='frigo:expired'&&'L\'IA signale les produits périmés à éliminer.'}
+                      {aiNotif.trigger==='hub:last_added'&&'L\'IA prend le dernier article de la liste de courses.'}
+                      {aiNotif.trigger==='hub:full_list'&&'L\'IA résume toute la liste de courses actuelle.'}
+                      {(aiNotif.trigger==='chores:pending_G'||aiNotif.trigger==='chores:pending_P'||aiNotif.trigger==='chores:pending_V')&&'L\'IA vérifie les corvées non faites du membre et envoie un rappel.'}
+                      {aiNotif.trigger==='chores:summary'&&'L\'IA résume l\'état des corvées pour G, P et V cette semaine.'}
+                      {aiNotif.trigger==='semainier:today'&&'L\'IA donne le repas prévu aujourd\'hui.'}
+                      {aiNotif.trigger==='semainier:week'&&'L\'IA fait un récap des repas de la semaine.'}
+                      {aiNotif.trigger==='events:upcoming'&&'L\'IA signale les événements dans les 7 prochains jours.'}
+                      {aiNotif.trigger==='recipes:last_added'&&'L\'IA met en avant la dernière recette enregistrée.'}
+                      {aiNotif.trigger==='general:custom'&&'L\'IA a accès à toutes les données du site pour générer un message libre.'}
+                    </p>
+                  )}
                 </div>
+
                 <div>
-                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-2">Description du message</label>
-                  <textarea value={aiNotif.prompt} onChange={e=>setAiNotif(a=>({...a,prompt:e.target.value}))} placeholder="Ex : Ton chaleureux et bienveillant, rappel des corvées du weekend, encourage et félicite..." className="w-full p-4 rounded-xl border border-gray-200 outline-none h-28 resize-none"/>
+                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-2">Instructions pour l'IA</label>
+                  <textarea value={aiNotif.prompt} onChange={e=>setAiNotif(a=>({...a,prompt:e.target.value}))} placeholder="Ex : Proposer une recette avec l'article, ton chaleureux, encourage..." className="w-full p-4 rounded-xl border border-gray-200 outline-none h-24 resize-none"/>
                 </div>
                 <div>
                   <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-2">Destinataires</label>
@@ -1363,11 +1452,11 @@ Si shouldSend=false, notifications=[]`;
                     ))}
                   </div>
                 </div>
-                <button onClick={sendAiNotification} disabled={aiNotifLoading} className="w-full py-4 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg flex items-center justify-center gap-3 disabled:opacity-50 transition-all hover:scale-[1.01]" style={{backgroundColor:config.primaryColor}}>
-                  {aiNotifLoading?<><Loader2 size={18} className="animate-spin"/>Génération en cours...</>:<><Sparkles size={18}/>Générer & Envoyer</>}
+                <button onClick={sendAiNotification} disabled={aiNotifLoading||!aiNotif.trigger||!aiNotif.prompt} className="w-full py-4 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg flex items-center justify-center gap-3 disabled:opacity-50 transition-all hover:scale-[1.01]" style={{backgroundColor:config.primaryColor}}>
+                  {aiNotifLoading?<><Loader2 size={18} className="animate-spin"/>Analyse en cours...</>:<><Sparkles size={18}/>Analyser & Envoyer</>}
                 </button>
               </div>
-              <p className="text-xs text-gray-400 italic text-center">L'IA génère le message selon vos instructions et l'envoie directement aux destinataires.</p>
+              <p className="text-xs text-gray-400 italic text-center">L'IA analyse les données réelles du site selon le déclencheur avant d'envoyer.</p>
             </div>
           )}
 
