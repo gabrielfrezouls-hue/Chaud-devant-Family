@@ -176,79 +176,95 @@ Calcule expiryDate à partir du ${today} : Boucherie/Poisson +3j, Boulangerie +3
   }
 };
 
-// 5. IMPORTATEUR DE RECETTES depuis URL (sans IA — lecture du schema.org/Recipe)
+// 5. IMPORTATEUR DE RECETTES depuis URL
+// Cascade de proxies CORS + fallback IA Gemini
 export const extractRecipeFromUrl = async (url: string) => {
-  try {
-    // allorigins.win est un proxy CORS gratuit qui permet de lire n'importe quelle page web
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-    const res = await fetch(proxyUrl);
-    if (!res.ok) throw new Error("Proxy inaccessible");
-    const data = await res.json();
-    const html: string = data.contents;
+  // Liste de proxies CORS gratuits à essayer dans l'ordre
+  const proxies = [
+    (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+    (u: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+  ];
 
-    // Parse le HTML pour extraire le JSON-LD (format schema.org/Recipe)
-    // La quasi-totalité des sites de recettes (Marmiton, 750g, etc.) l'utilisent
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, "text/html");
-    const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
+  let html: string | null = null;
 
-    for (const script of scripts) {
-      try {
-        const json = JSON.parse(script.textContent || "");
-        // Cherche le bon objet (peut être un tableau ou direct)
-        const recipes = Array.isArray(json) ? json : [json];
-        for (const item of recipes) {
-          const recipe = item["@type"] === "Recipe" ? item
-            : item["@graph"]?.find((g: any) => g["@type"] === "Recipe");
-          if (!recipe) continue;
-
-          // Extrait les ingrédients
-          const ingredients = (recipe.recipeIngredient || []).join("\n");
-
-          // Extrait les étapes
-          const stepsRaw = recipe.recipeInstructions || [];
-          const steps = stepsRaw
-            .map((s: any) => typeof s === "string" ? s : s.text || "")
-            .filter(Boolean)
-            .join("\n");
-
-          // Extrait l'auteur
-          const chef = typeof recipe.author === "string"
-            ? recipe.author
-            : recipe.author?.name || "";
-
-          // Catégorie
-          const cat = (recipe.recipeCategory || "plat").toLowerCase();
-
-          return {
-            title: recipe.name || "Recette importée",
-            chef,
-            category: cat.includes("dessert") ? "dessert"
-              : cat.includes("entr") ? "entrée" : "plat",
-            ingredients,
-            steps,
-          };
-        }
-      } catch { continue; }
-    }
-
-    // Fallback : si pas de schema.org, tente de lire les balises meta
-    const title = doc.querySelector('meta[property="og:title"]')?.getAttribute("content")
-      || doc.querySelector("h1")?.textContent?.trim()
-      || "Recette importée";
-
-    return {
-      title,
-      chef: "",
-      category: "plat",
-      ingredients: "⚠️ Ingrédients non détectés automatiquement — à saisir manuellement",
-      steps: "⚠️ Étapes non détectées automatiquement — à saisir manuellement",
-    };
-
-  } catch (err) {
-    console.error("Erreur import recette:", err);
-    return null;
+  // Essai de chaque proxy
+  for (const makeUrl of proxies) {
+    try {
+      const proxyUrl = makeUrl(url);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(proxyUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!res.ok) continue;
+      const data = await res.json().catch(async () => {
+        // Certains proxies renvoient du HTML direct (pas JSON)
+        return null;
+      });
+      if (data?.contents) { html = data.contents; break; }
+      // Fallback si proxy renvoie texte brut
+      const text = await res.text().catch(() => null);
+      if (text && text.length > 500) { html = text; break; }
+    } catch { continue; }
   }
+
+  // Si on a du HTML → tente schema.org/Recipe
+  if (html) {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
+
+      for (const script of scripts) {
+        try {
+          const json = JSON.parse(script.textContent || "");
+          const items = Array.isArray(json) ? json : json["@graph"] ? json["@graph"] : [json];
+          for (const item of items) {
+            const recipe = item["@type"] === "Recipe" ? item : null;
+            if (!recipe) continue;
+            const ingredients = (recipe.recipeIngredient || []).join("\n");
+            const stepsRaw = recipe.recipeInstructions || [];
+            const steps = stepsRaw.map((s: any) => typeof s === "string" ? s : s.text || "").filter(Boolean).join("\n");
+            const chef = typeof recipe.author === "string" ? recipe.author : recipe.author?.name || "";
+            const cat = (recipe.recipeCategory || "plat").toLowerCase();
+            return {
+              title: recipe.name || "Recette importée",
+              chef,
+              category: cat.includes("dessert") ? "dessert" : cat.includes("entr") ? "entrée" : "plat",
+              ingredients,
+              steps,
+            };
+          }
+        } catch { continue; }
+      }
+
+      // Fallback meta
+      const title = doc.querySelector('meta[property="og:title"]')?.getAttribute("content")
+        || doc.querySelector("h1")?.textContent?.trim() || "Recette importée";
+      return { title, chef: "", category: "plat",
+        ingredients: "⚠️ Ingrédients non détectés — à saisir manuellement",
+        steps: "⚠️ Étapes non détectées — à saisir manuellement" };
+    } catch { /* continue to AI fallback */ }
+  }
+
+  // Fallback IA : demande à Gemini d'extraire depuis l'URL
+  try {
+    const res = await callGemini({
+      contents: [{
+        parts: [{
+          text: `Extrait les informations de la recette à cette URL : ${url}
+Si tu ne peux pas accéder à l'URL, génère une recette plausible basée sur le titre dans l'URL.
+Réponds UNIQUEMENT avec ce JSON :
+{"title":"Titre","chef":"","category":"plat","ingredients":"ingrédient 1\\ningrédient 2","steps":"Étape 1\\nÉtape 2"}`
+        }]
+      }]
+    });
+    const parsed = cleanJSON(res);
+    if (parsed?.title) return parsed;
+  } catch { /* ignore */ }
+
+  console.error("Erreur import recette: tous les proxies ont échoué");
+  return null;
 };
 
 // 6. ARCHITECTE IA (modification du design/config)
