@@ -849,31 +849,59 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
 
   if(!isOpen)return null;
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
-        <button onClick={()=>onClose(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
-        <div className="text-center"><div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4"><ChefHat size={32} style={{color:config.primaryColor}}/></div><h3 className="text-2xl font-cinzel font-bold">{currentRecipe.id?'Modifier la Recette':'Nouvelle Recette'}</h3></div>
-        
-        {/* IMPORT URL */}
-        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200">
-          <h4 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-3 flex items-center gap-2"><Link size={12}/> Import Intelligent depuis URL</h4>
-          <div className="flex gap-2">
-            <input value={recipeUrl} onChange={e=>setRecipeUrl(e.target.value)} placeholder="https://www.marmiton.org/recettes/..." className="flex-1 p-3 rounded-xl border border-gray-200 bg-white text-sm font-bold outline-none"/>
-            <button onClick={importFromUrl} disabled={isImporting||!recipeUrl} className="px-4 py-3 bg-purple-500 text-white rounded-xl hover:scale-105 transition-transform flex items-center gap-2 disabled:opacity-50">
-              {isImporting?<Loader2 size={16} className="animate-spin"/>:<Brain size={16}/>}
-              <span className="text-xs font-bold hidden sm:block">{isImporting?'Import...':'Importer'}</span>
-            </button>
+    <div className="fixed inset-0 z-[500] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in">
+      <div
+        className="bg-white w-full md:max-w-2xl rounded-t-[2.5rem] md:rounded-[2.5rem] shadow-2xl relative animate-in slide-in-from-bottom md:zoom-in-95 duration-300 overflow-y-auto"
+        style={{maxHeight:'calc(100vh - 1rem)', paddingBottom:'calc(1.5rem + env(safe-area-inset-bottom, 0px))'}}
+      >
+        <div className="sticky top-0 bg-white z-10 px-8 pt-5 pb-3 border-b border-gray-100 flex items-center justify-between">
+          <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto md:hidden absolute top-3 left-1/2 -translate-x-1/2"/>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center hidden md:flex"><ChefHat size={22} style={{color:config.primaryColor}}/></div>
+            <h3 className="text-xl font-cinzel font-bold">{currentRecipe.id?'Modifier la Recette':'Nouvelle Recette'}</h3>
           </div>
+          <button onClick={()=>onClose(false)} className="text-gray-400 hover:text-black p-2 rounded-full hover:bg-gray-100"><X size={22}/></button>
         </div>
 
-        <div className="space-y-4">
-          <input value={currentRecipe.title} onChange={e=>setCurrentRecipe({...currentRecipe,title:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-xl font-bold outline-none focus:ring-2" placeholder="Nom du plat..." autoFocus style={{'--tw-ring-color':config.primaryColor} as any}/>
-          <div className="flex gap-4"><input value={currentRecipe.chef} onChange={e=>setCurrentRecipe({...currentRecipe,chef:e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" placeholder="Chef (ex: Papa)"/><select value={currentRecipe.category} onChange={e=>setCurrentRecipe({...currentRecipe,category:e.target.value})} className="flex-1 p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"><option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option></select></div>
-          <div onClick={()=>!isCompressing&&fileRef.current?.click()} className="p-6 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex flex-col items-center text-gray-400 gap-2">{isCompressing?<div className="flex items-center gap-2 text-blue-500 font-bold"><Loader2 className="animate-spin"/>Compression...</div>:currentRecipe.image?<div className="flex items-center gap-2 text-green-600 font-bold"><CheckCircle2/>Photo ajoutée !</div>:<><Upload size={24}/><span>Ajouter une photo</span></>}</div>
+        <div className="px-6 md:px-8 pt-5 space-y-4">
+          {/* IMPORT URL */}
+          <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200">
+            <h4 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-3 flex items-center gap-2"><Link size={12}/> Import depuis URL</h4>
+            <div className="flex gap-2">
+              <input value={recipeUrl} onChange={e=>setRecipeUrl(e.target.value)} placeholder="https://www.marmiton.org/recettes/..." className="flex-1 min-w-0 p-3 rounded-xl border border-gray-200 bg-white text-sm font-bold outline-none"/>
+              <button onClick={importFromUrl} disabled={isImporting||!recipeUrl} className="px-4 py-3 bg-purple-500 text-white rounded-xl hover:scale-105 transition-transform flex items-center gap-2 disabled:opacity-50 shrink-0">
+                {isImporting?<Loader2 size={16} className="animate-spin"/>:<Brain size={16}/>}
+                <span className="text-xs font-bold hidden sm:block">{isImporting?'Import...':'Importer'}</span>
+              </button>
+            </div>
+          </div>
+
+          <input value={currentRecipe.title} onChange={e=>setCurrentRecipe({...currentRecipe,title:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none" placeholder="Nom du plat..." autoFocus/>
+          <div className="flex gap-3">
+            <input value={currentRecipe.chef} onChange={e=>setCurrentRecipe({...currentRecipe,chef:e.target.value})} className="flex-1 p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="Chef (ex: Papa)"/>
+            <select value={currentRecipe.category} onChange={e=>setCurrentRecipe({...currentRecipe,category:e.target.value})} className="flex-1 p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm">
+              <option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option>
+            </select>
+          </div>
+          <div onClick={()=>!isCompressing&&fileRef.current?.click()} className="p-5 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex items-center justify-center gap-3 text-gray-400">
+            {isCompressing?<><Loader2 className="animate-spin" size={18}/><span className="text-sm font-bold text-blue-500">Compression...</span></>
+            :currentRecipe.image?<><CheckCircle2 size={18} className="text-green-500"/><span className="text-sm font-bold text-green-600">Photo ajoutée !</span></>
+            :<><Upload size={18}/><span className="text-sm">Ajouter une photo</span></>}
+          </div>
           <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e=>handleFile(e,(b:string)=>setCurrentRecipe({...currentRecipe,image:b}))}/>
-          <div className="grid md:grid-cols-2 gap-4"><textarea value={currentRecipe.ingredients} onChange={e=>setCurrentRecipe({...currentRecipe,ingredients:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Ingrédients (un par ligne)..."/><textarea value={currentRecipe.steps} onChange={e=>setCurrentRecipe({...currentRecipe,steps:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-40" placeholder="Étapes de préparation..."/></div>
+          <div className="grid md:grid-cols-2 gap-4">
+            <textarea value={currentRecipe.ingredients} onChange={e=>setCurrentRecipe({...currentRecipe,ingredients:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-36 text-sm resize-none" placeholder="Ingrédients (un par ligne)..."/>
+            <textarea value={currentRecipe.steps} onChange={e=>setCurrentRecipe({...currentRecipe,steps:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-36 text-sm resize-none" placeholder="Étapes de préparation..."/>
+          </div>
+          <button
+            disabled={isSubmitting||isCompressing}
+            onClick={async()=>{if(currentRecipe.title){setIsSubmitting(true);const r={...currentRecipe};try{if(r.id){await updateEntry('family_recipes',r.id,r);}else{await addEntry('family_recipes',r);}setIsSubmitting(false);onClose(false);}catch(e){alert("Image trop lourde ou erreur.");setIsSubmitting(false);}}else{alert("Il faut au moins un titre !");}}}
+            className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transition-all mb-2 ${isSubmitting||isCompressing?'opacity-50 cursor-not-allowed':''}`}
+            style={{backgroundColor:config.primaryColor}}
+          >
+            {isSubmitting?"Enregistrement...":(isCompressing?"Traitement image...":"Enregistrer la recette")}
+          </button>
         </div>
-        <button disabled={isSubmitting||isCompressing} onClick={async()=>{if(currentRecipe.title){setIsSubmitting(true);const recipeToSave={...currentRecipe};try{if(recipeToSave.id){await updateEntry('family_recipes',recipeToSave.id,recipeToSave);}else{await addEntry('family_recipes',recipeToSave);}setIsSubmitting(false);onClose(false);}catch(e){alert("Image trop lourde ou erreur.");setIsSubmitting(false);}}else{alert("Il faut au moins un titre !");}}} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting||isCompressing?'opacity-50 cursor-not-allowed':''}`} style={{backgroundColor:config.primaryColor}}>{isSubmitting?"Enregistrement...":(isCompressing?"Traitement image...":"Enregistrer la recette")}</button>
       </div>
     </div>
   );
@@ -1565,6 +1593,7 @@ const SemainierView = ({config, recipes}:{config:SiteConfig, recipes:Recipe[]}) 
       recetteLink: existing?.recetteLink||'',
       notes: existing?.notes||'',
     });
+    setFavSelectVal('');
     setModal({day,meal});
   };
 
@@ -1583,8 +1612,18 @@ const SemainierView = ({config, recipes}:{config:SiteConfig, recipes:Recipe[]}) 
     showToast('🗑️ Repas supprimé');
   };
 
+  const [favSelectVal, setFavSelectVal] = useState('');
+
   const loadFav = (fav:any) => {
     setForm(f=>({...f,platName:fav.platName,recetteLink:fav.recetteLink||'',notes:fav.notes||''}));
+  };
+
+  // Sur mobile : sélection d'un favori → pré-remplit le formulaire
+  const onFavSelect = (idx:string) => {
+    if(idx==='') return;
+    setFavSelectVal(idx);
+    const fav = favs[parseInt(idx)];
+    if(fav) loadFav(fav);
   };
 
   const toggleParticipant = (p:string) => {
@@ -1691,35 +1730,47 @@ const SemainierView = ({config, recipes}:{config:SiteConfig, recipes:Recipe[]}) 
 
       {/* Modal ajout repas */}
       {modal&&(
-        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={()=>setModal(null)}>
-          <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-md shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+        <div className="fixed inset-0 z-[500] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setModal(null)}>
+          <div
+            className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-md shadow-2xl space-y-4 overflow-y-auto"
+            style={{maxHeight:'calc(100vh - 1rem)', paddingBottom:'calc(1.5rem + env(safe-area-inset-bottom, 0px))'}}
+            onClick={e=>e.stopPropagation()}
+          >
+            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
             <div className="flex justify-between items-center">
-              <h3 className="text-xl font-cinzel font-black" style={{color:config.primaryColor}}>{modal.meal} — {modal.day}</h3>
-              <button onClick={()=>setModal(null)} className="text-gray-400 hover:text-black"><X/></button>
+              <h3 className="text-lg font-cinzel font-black" style={{color:config.primaryColor}}>{modal.meal} — {modal.day}</h3>
+              <button onClick={()=>setModal(null)} className="text-gray-400 hover:text-black p-1"><X size={20}/></button>
             </div>
 
             {/* Sélecteur recettes/favoris */}
             {favs.length>0&&(
-              <select onChange={e=>{if(e.target.value!=='')loadFav(favs[parseInt(e.target.value)]);}} className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 text-sm font-bold outline-none" defaultValue="">
-                <option value="">⭐ Choisir une recette...</option>
-                {favs.map((f,i)=><option key={i} value={i}>{f.platName}</option>)}
-              </select>
+              <div className="space-y-1">
+                <select
+                  value={favSelectVal}
+                  onChange={e=>onFavSelect(e.target.value)}
+                  className="w-full p-3 rounded-xl border-2 border-gray-200 bg-gray-50 text-sm font-bold outline-none focus:border-black"
+                >
+                  <option value="">⭐ Choisir une recette...</option>
+                  {favs.map((f,i)=><option key={i} value={i}>{f.platName}</option>)}
+                </select>
+                {favSelectVal!==''&&<p className="text-[10px] text-gray-400 italic pl-1">Recette chargée — sélectionnez les participants puis Enregistrer</p>}
+              </div>
             )}
 
-            <input value={form.platName} onChange={e=>setForm(f=>({...f,platName:e.target.value}))} placeholder="Nom du plat *" className="w-full p-4 rounded-xl border-2 border-gray-200 font-bold outline-none focus:border-black" autoFocus/>
+            <input value={form.platName} onChange={e=>setForm(f=>({...f,platName:e.target.value}))} placeholder="Nom du plat *" className="w-full p-3 rounded-xl border-2 border-gray-200 font-bold outline-none focus:border-black text-sm"/>
             <input value={form.recetteLink} onChange={e=>setForm(f=>({...f,recetteLink:e.target.value}))} placeholder="Lien recette (optionnel)" className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none"/>
-            <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Notes (optionnel)" className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none h-20"/>
+            <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Notes (optionnel)" className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none h-16 resize-none"/>
 
             <div>
               <p className="font-black text-xs uppercase text-gray-400 mb-2">Participants *</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {PARTICIPANTS.map(p=>(
-                  <button key={p} type="button" onClick={()=>toggleParticipant(p)} className={`p-3 rounded-xl font-bold text-sm transition-all border-2 ${form.participants.includes(p)?'text-white border-transparent':'bg-gray-50 text-gray-600 border-gray-200'}`} style={form.participants.includes(p)?{backgroundColor:config.primaryColor,borderColor:config.primaryColor}:{}}>{p}</button>
+                  <button key={p} type="button" onClick={()=>toggleParticipant(p)} className={`p-2.5 rounded-xl font-bold text-xs transition-all border-2 ${form.participants.includes(p)?'text-white border-transparent':'bg-gray-50 text-gray-600 border-gray-200'}`} style={form.participants.includes(p)?{backgroundColor:config.primaryColor,borderColor:config.primaryColor}:{}}>{p}</button>
                 ))}
               </div>
             </div>
 
-            <button onClick={saveModal} className="w-full py-4 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg hover:scale-[1.02] transition-transform" style={{backgroundColor:config.primaryColor}}>Enregistrer</button>
+            <button onClick={saveModal} className="w-full py-4 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg" style={{backgroundColor:config.primaryColor}}>Enregistrer</button>
           </div>
         </div>
       )}
