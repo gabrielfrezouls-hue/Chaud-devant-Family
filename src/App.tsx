@@ -1038,6 +1038,8 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   const [localC, setLocalC] = useState(config);
   const [editingVersionId, setEditingVersionId] = useState<string|null>(null);
   const [tempVersionName, setTempVersionName] = useState('');
+  const [editingVersionImg, setEditingVersionImg] = useState<string|null>(null); // id version dont on édite l'image
+  const versionImgRef = useRef<HTMLInputElement>(null);
   const [currentXSite, setCurrentXSite] = useState({id:'',name:'',html:''});
   const [qrCodeUrl, setQrCodeUrl] = useState<string|null>(null);
   const [notif, setNotif] = useState<Partial<AppNotification>>({message:'',type:'info',repeat:'once',linkView:'',linkId:'',targets:['all']});
@@ -1086,13 +1088,12 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
     try {
       const { callGeminiDirect } = await import('./services/geminiService');
 
-      // ── 1. Collecte TOUTES les données du site ──────────────────────────────
-      const [frigoSnap, semainierSnap, hubSnap, eventSnap, walletSnap] = await Promise.all([
+      // ── 1. Collecte TOUTES les données du site ─────────────────────────────
+      const [frigoSnap, semainierSnap, hubSnap, eventSnap] = await Promise.all([
         getDocs(collection(db, 'frigo_items')),
         getDocs(collection(db, 'semainier_meals')),
         getDocs(collection(db, 'hub_items')),
         getDocs(collection(db, 'family_events')),
-        getDocs(collection(db, 'wallet_entries')),
       ]);
 
       const frigoItems    = frigoSnap.docs.map(d => ({id:d.id, ...d.data()} as any));
@@ -1100,15 +1101,14 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       const hubData       = hubSnap.docs.map(d => ({id:d.id, ...d.data()} as any));
       const eventsData    = eventSnap.docs.map(d => ({id:d.id, ...d.data()} as any));
 
-      // ── 2. Calcule les dates/semaine ───────────────────────────────────────
-      const today     = new Date();
-      const todayStr  = today.toISOString().split('T')[0];
-      const dayName   = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][today.getDay()];
-      const getWN = (d:Date) => { const t=new Date(d.valueOf());const dn=(d.getDay()+6)%7;t.setDate(t.getDate()-dn+3);const ft=t.valueOf();t.setMonth(0,1);if(t.getDay()!==4)t.setMonth(0,1+((4-t.getDay())+7)%7);return 1+Math.ceil((ft-t.valueOf())/604800000); };
-      const weekKey   = `${today.getFullYear()}_W${String(getWN(today)).padStart(2,'0')}`;
+      // ── 2. Dates & semaine ─────────────────────────────────────────────────
+      const today    = new Date();
+      const todayStr = today.toISOString().split('T')[0];
+      const dayName  = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][today.getDay()];
+      const getWN    = (d:Date) => { const t=new Date(d.valueOf());const dn=(d.getDay()+6)%7;t.setDate(t.getDate()-dn+3);const ft=t.valueOf();t.setMonth(0,1);if(t.getDay()!==4)t.setMonth(0,1+((4-t.getDay())+7)%7);return 1+Math.ceil((ft-t.valueOf())/604800000); };
+      const weekKey  = `${today.getFullYear()}_W${String(getWN(today)).padStart(2,'0')}`;
 
-      // ── 3. Résumés par domaine ─────────────────────────────────────────────
-      // Frigo — avec état péremption
+      // ── 3. Résumés ─────────────────────────────────────────────────────────
       const SHELF:Record<string,number> = {'Boucherie/Poisson':3,'Boulangerie':3,'Plat préparé':4,'Restes':4,'Primeur':7,'Frais & Crèmerie':10,'Épicerie Salée':90,'Épicerie Sucrée':90,'Boissons':90,'Surgelés':180,'Divers':14};
       const frigoLines = frigoItems.map((i:any) => {
         let expStr = i.expiryDate;
@@ -1117,39 +1117,58 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
         const etat = diff===null?'?': diff<0?'PÉRIMÉ': diff<=3?`⚠️ J-${diff}`:`J-${diff}`;
         return `${i.name} (${i.category}, ${etat})`;
       });
-      const frigoResume = frigoLines.length ? frigoLines.join(', ') : 'frigo vide';
-
-      // Courses
-      const courses = hubData.filter((i:any)=>i.type==='shop').map((i:any)=>i.content).join(', ') || 'liste vide';
-
-      // Semainier semaine courante
-      const semResume = Object.entries(semainierData)
-        .filter(([k]) => k.includes(weekKey))
-        .map(([k,v]:any) => `${k.split('_')[0]} ${k.split('_')[1]}: ${v.platName}`)
-        .join(', ') || 'aucun repas planifié';
-
-      // Événements à venir
-      const eventsResume = eventsData
-        .filter((e:any) => e.date >= todayStr)
-        .slice(0,5)
-        .map((e:any) => `${e.title} le ${e.date?.split('T')[0]||'?'}`)
-        .join(', ') || 'aucun événement';
-
-      // Corvées — état détaillé par membre G/P/V
-      const choresDetail = Object.entries(choreStatus as Record<string,any>)
-        .slice(-3)
-        .map(([wid, c]:any) => `${wid}: G=${c.G?'✅':'❌'} P=${c.P?'✅':'❌'} V=${c.V?'✅':'❌'}`)
-        .join(' | ') || 'aucune info';
-
-      // Recettes
+      const frigoResume   = frigoLines.length ? frigoLines.join(', ') : 'frigo vide';
+      const courses       = hubData.filter((i:any)=>i.type==='shop').map((i:any)=>i.content).join(', ') || 'liste vide';
+      const semResume     = Object.entries(semainierData).filter(([k])=>k.includes(weekKey)).map(([k,v]:any)=>`${k.split('_')[0]} ${k.split('_')[1]}: ${v.platName}`).join(', ') || 'aucun repas planifié';
+      const eventsResume  = eventsData.filter((e:any)=>e.date>=todayStr).slice(0,5).map((e:any)=>`${e.title} le ${e.date?.split('T')[0]||'?'}`).join(', ') || 'aucun événement';
+      const choresDetail  = Object.entries(choreStatus as Record<string,any>).slice(-3).map(([wid,c]:any)=>`${wid}: G=${c.G?'✅':'❌'} P=${c.P?'✅':'❌'} V=${c.V?'✅':'❌'}`).join(' | ') || 'aucune info';
       const recipesResume = (recipes||[]).slice(0,15).map((r:any)=>r.title).join(', ') || 'aucune';
 
-      // ── 4. Construction de la liste des destinataires ciblés ───────────────
+      const siteContext = `══════════ DONNÉES RÉELLES DU SITE (${dayName} ${todayStr}) ══════════
+📦 FRIGO (${frigoItems.length} produits) : ${frigoResume}
+🛒 COURSES : ${courses}
+🗓️  SEMAINIER semaine ${weekKey} : ${semResume}
+📅 ÉVÉNEMENTS À VENIR : ${eventsResume}
+🧹 CORVÉES : ${choresDetail}
+📚 RECETTES : ${recipesResume}
+═══════════════════════════════════════════════════════`;
+
+      // ── 4. L'IA évalue si le déclencheur est ACTUELLEMENT rempli ──────────
+      const checkPrompt = `${siteContext}
+
+DÉCLENCHEUR CONFIGURÉ : "${aiNotif.trigger}"
+
+Ta mission : analyser les données ci-dessus et répondre UNIQUEMENT par ce JSON :
+{"shouldSend": true/false, "reason": "explication courte en français", "usersToNotify": ["G","P","V","tous"] }
+
+Règles :
+- shouldSend = true SEULEMENT si le déclencheur est réellement rempli RIGHT NOW dans les données
+- Si le déclencheur parle de corvées : vérifie les corvées dans les données
+- Si le déclencheur parle de péremption : vérifie le frigo
+- Si le déclencheur est temporel (ex: "chaque samedi") : today est ${dayName}, vérifie si c'est le bon jour
+- usersToNotify = liste des lettres des membres concernés parmi G, P, V (ou "tous")
+- Sois strict : si la condition n'est pas remplie, shouldSend = false`;
+
+      const checkRes = await callGeminiDirect([{role:'user', text:checkPrompt}]);
+      console.log('[AI Notif] check result:', checkRes);
+
+      let checkData: any = null;
+      try {
+        const match = checkRes?.match(/\{[\s\S]*\}/);
+        if(match) checkData = JSON.parse(match[0]);
+      } catch {}
+
+      if(!checkData?.shouldSend) {
+        const reason = checkData?.reason || 'Le déclencheur n\'est pas rempli selon les données actuelles.';
+        setAiNotifLoading(false);
+        return alert(`⏸️ Notification non envoyée.\n\nRaison : ${reason}\n\nL'IA vérifie les données réelles du site avant d'envoyer.`);
+      }
+
+      // ── 5. Déclencheur rempli → génération personnalisée par membre ───────
       const targetedUsers: any[] = aiNotif.targets.includes('all')
         ? users
         : users.filter((u:any) => aiNotif.targets.includes(u.id));
 
-      // ── 5. Génération personnalisée par utilisateur ────────────────────────
       let sentCount = 0;
 
       const generateFor = async (targetUser: any | null) => {
@@ -1157,38 +1176,24 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
         const uLetter = targetUser?.letter || '';
         const isGPV   = ['G','P','V'].includes(uLetter);
 
-        // Détail corvées spécifique à ce membre
         let userChores = '';
         if(isGPV) {
-          const pending = Object.entries(choreStatus as Record<string,any>)
-            .map(([wid, c]:any) => c[uLetter] ? null : wid)
-            .filter(Boolean);
-          userChores = pending.length
-            ? `${uName} a des corvées NON FAITES pour : ${pending.slice(0,3).join(', ')}`
-            : `${uName} est à JOUR dans ses corvées.`;
+          const pending = Object.entries(choreStatus as Record<string,any>).map(([wid,c]:any)=>c[uLetter]?null:wid).filter(Boolean);
+          userChores = pending.length ? `${uName} a des corvées NON FAITES : ${pending.slice(0,3).join(', ')}` : `${uName} est à jour dans ses corvées.`;
         }
 
-        const prompt = `Tu es le Majordome de la famille Frézouls sur l'application familiale "Chaud Devant".
-Aujourd'hui : ${dayName} ${todayStr}.
-Destinataire : ${uName}${uLetter ? ` (lettre=${uLetter}, membre actif G/P/V=${isGPV})` : ''}
+        const notifPrompt = `Tu es le Majordome de la famille Frézouls sur "Chaud Devant".
+${siteContext}
+CORVÉES DE ${uName} : ${userChores || choresDetail}
 
-══════════ DONNÉES RÉELLES DU SITE ══════════
-📦 FRIGO (${frigoItems.length} produits) : ${frigoResume}
-🛒 COURSES : ${courses}
-🗓️  SEMAINIER (semaine ${weekKey}) : ${semResume}
-📅 ÉVÉNEMENTS À VENIR : ${eventsResume}
-🧹 CORVÉES : ${userChores || choresDetail}
-📚 RECETTES : ${recipesResume}
-═════════════════════════════════════════════
+DÉCLENCHEUR (condition confirmée remplie) : "${aiNotif.trigger}"
+CONSIGNES : "${aiNotif.prompt}"
+RAISON DÉCLENCHEMENT : "${checkData.reason}"
 
-DÉCLENCHEUR ADMIN : "${aiNotif.trigger}"
-CONSIGNES ADMIN : "${aiNotif.prompt}"
+Génère UNE notification push PERSONNALISÉE pour ${uName}, courte (2 phrases max), en français, ton chaleureux et direct.
+Cite des éléments réels des données. Réponds UNIQUEMENT avec le texte final.`;
 
-En te basant STRICTEMENT sur les données ci-dessus (cite des éléments réels !), génère UNE notification push courte (2-3 phrases max) pour ${uName}, en français, ton chaleureux et familier.
-${isGPV ? `IMPORTANT : ${uName} est un membre actif (${uLetter}). Personnalise en mentionnant SES corvées spécifiques ou ses repas du semainier si pertinent.` : ''}
-Réponds UNIQUEMENT avec le texte final de la notification, rien d'autre.`;
-
-        const text = await callGeminiDirect([{role:'user', text:prompt}]);
+        const text = await callGeminiDirect([{role:'user', text:notifPrompt}]);
         if(text?.trim()) {
           await addDoc(collection(db,'notifications'), {
             message: text.trim(),
@@ -1205,16 +1210,13 @@ Réponds UNIQUEMENT avec le texte final de la notification, rien d'autre.`;
       };
 
       if(aiNotif.targets.includes('all') && targetedUsers.length === 0) {
-        await generateFor(null); // Notif globale si aucun user ciblé
-      } else if(aiNotif.targets.includes('all')) {
-        // Personnalisée pour chaque membre
-        for(const u of targetedUsers) await generateFor(u);
+        await generateFor(null);
       } else {
         for(const u of targetedUsers) await generateFor(u);
       }
 
       setAiNotif({trigger:'',prompt:'',targets:['all']});
-      alert(`✅ ${sentCount} notification(s) IA personnalisée(s) avec les données réelles du site !`);
+      alert(`✅ ${sentCount} notification(s) envoyée(s) — déclencheur confirmé : ${checkData.reason}`);
 
     } catch(e:any) {
       console.error('sendAiNotification error:', e);
@@ -1371,16 +1373,41 @@ Réponds UNIQUEMENT avec le texte final de la notification, rien d'autre.`;
       {tab==='history'&&(
         <div className="space-y-6 animate-in fade-in">
           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>HISTORIQUE</h3>
+          {/* Input caché pour changer la photo d'une version */}
+          <input
+            ref={versionImgRef}
+            type="file" accept="image/*" className="hidden"
+            onChange={e=>{
+              const f=e.target.files?.[0];
+              e.target.value='';
+              if(!f||!editingVersionImg) return;
+              const r=new FileReader();
+              r.onload=()=>{
+                upd('site_versions', editingVersionImg, {'config.welcomeImage': r.result as string});
+                setEditingVersionImg(null);
+              };
+              r.readAsDataURL(f);
+            }}
+          />
           <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
             {versions.length===0&&<div className="text-center text-gray-400 italic py-8">Aucune version sauvegardée</div>}
             {versions.map((v:SiteVersion)=>(
               <div key={v.id} className="flex gap-4 items-center p-4 bg-gray-50 rounded-2xl border border-gray-100 group hover:border-gray-300 transition-all">
-                {/* Aperçu image d'accueil */}
-                {v.config?.welcomeImage&&(
-                  <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 border border-gray-200 shadow-sm">
-                    <img src={v.config.welcomeImage} alt="aperçu" className="w-full h-full object-cover"/>
+                {/* Miniature cliquable */}
+                <div className="relative w-16 h-16 rounded-xl overflow-hidden shrink-0 border border-gray-200 shadow-sm cursor-pointer group/img"
+                  onClick={()=>{setEditingVersionImg(v.id);versionImgRef.current?.click();}}
+                  title="Cliquer pour changer la photo"
+                >
+                  {v.config?.welcomeImage
+                    ? <img src={v.config.welcomeImage} alt="aperçu" className="w-full h-full object-cover"/>
+                    : <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400"><ImageIcon size={20}/></div>
+                  }
+                  {/* Overlay au survol */}
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1">
+                    <ImageIcon size={14} className="text-white"/>
+                    <span className="text-[9px] text-white font-bold">Changer</span>
                   </div>
-                )}
+                </div>
                 {/* Infos version */}
                 <div className="flex-1 min-w-0">
                   {editingVersionId===v.id?(
@@ -1396,11 +1423,17 @@ Réponds UNIQUEMENT avec le texte final de la notification, rien d'autre.`;
                         <button onClick={()=>startEditVersion(v)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 transition-opacity shrink-0"><Pencil size={11}/></button>
                       </div>
                       <div className="text-xs text-gray-400 mt-0.5">{new Date(v.date).toLocaleString('fr-FR')}</div>
-                      {/* Aperçu couleur et titre */}
                       {v.config&&(
                         <div className="flex items-center gap-2 mt-1">
                           <div className="w-3 h-3 rounded-full border border-white shadow-sm" style={{backgroundColor:v.config.primaryColor||'#888'}}/>
                           <span className="text-[10px] text-gray-400 truncate max-w-[160px]">{v.config.welcomeTitle||''}</span>
+                          {v.config.welcomeImage&&(
+                            <button
+                              onClick={()=>upd('site_versions', v.id, {'config.welcomeImage': ''})}
+                              className="text-[9px] text-red-400 hover:text-red-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                              title="Supprimer la photo de cette version"
+                            >✕ photo</button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1541,13 +1574,6 @@ Réponds UNIQUEMENT avec le texte final de la notification, rien d'autre.`;
             <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e=>handleFile(e,(b:string)=>setLocalC({...localC,welcomeImage:b}))}/>
             <div onClick={()=>fileRef.current?.click()} className="p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer text-xs uppercase font-bold text-gray-400">Changer la photo</div>
             <textarea value={localC.homeHtml} onChange={e=>setLocalC({...localC,homeHtml:e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-32 font-mono text-xs" placeholder="Code HTML/Widget pour l'accueil (Optionnel)"/>
-          </div>
-
-          {/* SEMAINIER */}
-          <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
-            <h4 className="font-black text-gray-600 uppercase tracking-widest text-sm flex items-center gap-2"><Code size={16}/> CODE SEMAINIER</h4>
-            <textarea value={localC.cookingHtml} onChange={e=>setLocalC({...localC,cookingHtml:e.target.value})} className="w-full p-6 rounded-3xl border border-gray-200 h-48 font-mono text-xs text-gray-600" placeholder="Code HTML iframe..."/>
-            <button onClick={copyCookingLink} className="flex items-center gap-2 px-6 py-3 bg-black text-white rounded-xl font-bold hover:scale-105 transition-transform"><Copy size={16}/> Copier le lien Semainier</button>
           </div>
 
           <button onClick={()=>save(localC,true)} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{backgroundColor:config.primaryColor}}>Sauvegarder tous les paramètres</button>
@@ -1916,7 +1942,22 @@ const App: React.FC = () => {
   // ACTIONS
   const handleLogin=async()=>{try{await signInWithPopup(auth,googleProvider);}catch(e){alert("Erreur Auth");}};
   const handleLogout=()=>{signOut(auth);setCurrentView('home');};
-  const saveConfig=async(c:SiteConfig,saveHistory=false)=>{try{await setDoc(doc(db,'site_config','main'),c);setConfig(c);if(saveHistory)await addDoc(collection(db,'site_versions'),{name:'Sauvegarde',date:new Date().toISOString(),config:c});}catch(e){console.error(e);}};
+  const saveConfig=async(c:SiteConfig,saveHistory=false)=>{
+    try{
+      await setDoc(doc(db,'site_config','main'),c);
+      setConfig(c);
+      if(saveHistory){
+        // On sauvegarde une copie légère sans les gros champs base64/HTML
+        const {welcomeImage, cookingHtml, homeHtml, ...lightConfig} = c as any;
+        // On garde quand même welcomeImage s'il commence par https:// (URL externe légère)
+        const versionConfig = {
+          ...lightConfig,
+          welcomeImage: (welcomeImage && !welcomeImage.startsWith('data:')) ? welcomeImage : '',
+        };
+        await addDoc(collection(db,'site_versions'),{name:'Sauvegarde',date:new Date().toISOString(),config:versionConfig});
+      }
+    }catch(e){console.error(e);}
+  };
   const restoreVersion=(v:SiteVersion)=>{if(confirm(`Restaurer la version "${v.name}" ?`))saveConfig(v.config,false);};
   const addEntry=async(col:string,data:any)=>{try{const{id,...cleanData}=data;await addDoc(collection(db,col),{...cleanData,timestamp:serverTimestamp()});}catch(e){alert("Erreur ajout");}};
   const updateEntry=async(col:string,id:string,data:any)=>{try{const{id:_,...c}=data;await setDoc(doc(db,col,id),{...c,timestamp:serverTimestamp()},{merge:true});alert("Sauvegardé");}catch(e){alert("Erreur");}};
