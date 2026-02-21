@@ -1371,26 +1371,45 @@ Réponds UNIQUEMENT avec le texte final de la notification, rien d'autre.`;
       {tab==='history'&&(
         <div className="space-y-6 animate-in fade-in">
           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>HISTORIQUE</h3>
-          <div className="space-y-3 h-96 overflow-y-auto">
+          <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+            {versions.length===0&&<div className="text-center text-gray-400 italic py-8">Aucune version sauvegardée</div>}
             {versions.map((v:SiteVersion)=>(
-              <div key={v.id} className="flex justify-between items-center p-5 bg-gray-50 rounded-2xl border border-gray-100 group">
-                <div className="flex-1">
+              <div key={v.id} className="flex gap-4 items-center p-4 bg-gray-50 rounded-2xl border border-gray-100 group hover:border-gray-300 transition-all">
+                {/* Aperçu image d'accueil */}
+                {v.config?.welcomeImage&&(
+                  <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 border border-gray-200 shadow-sm">
+                    <img src={v.config.welcomeImage} alt="aperçu" className="w-full h-full object-cover"/>
+                  </div>
+                )}
+                {/* Infos version */}
+                <div className="flex-1 min-w-0">
                   {editingVersionId===v.id?(
-                    <div className="flex gap-2 mr-4">
+                    <div className="flex gap-2">
                       <input value={tempVersionName} onChange={e=>setTempVersionName(e.target.value)} className="flex-1 p-2 rounded-lg border border-gray-300 text-sm" autoFocus/>
-                      <button onClick={()=>saveVersionName(v.id)} className="p-2 bg-green-100 text-green-600 rounded-lg"><Save size={16}/></button>
-                      <button onClick={()=>setEditingVersionId(null)} className="p-2 bg-red-100 text-red-600 rounded-lg"><X size={16}/></button>
+                      <button onClick={()=>saveVersionName(v.id)} className="p-2 bg-green-100 text-green-600 rounded-lg"><Save size={14}/></button>
+                      <button onClick={()=>setEditingVersionId(null)} className="p-2 bg-red-100 text-red-600 rounded-lg"><X size={14}/></button>
                     </div>
                   ):(
                     <div>
-                      <div className="font-bold flex items-center gap-2">{v.name}<button onClick={()=>startEditVersion(v)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 transition-opacity"><Pencil size={12}/></button></div>
-                      <div className="text-xs opacity-50">{new Date(v.date).toLocaleString()}</div>
+                      <div className="font-bold text-sm flex items-center gap-2 truncate">
+                        {v.name}
+                        <button onClick={()=>startEditVersion(v)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 transition-opacity shrink-0"><Pencil size={11}/></button>
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">{new Date(v.date).toLocaleString('fr-FR')}</div>
+                      {/* Aperçu couleur et titre */}
+                      {v.config&&(
+                        <div className="flex items-center gap-2 mt-1">
+                          <div className="w-3 h-3 rounded-full border border-white shadow-sm" style={{backgroundColor:v.config.primaryColor||'#888'}}/>
+                          <span className="text-[10px] text-gray-400 truncate max-w-[160px]">{v.config.welcomeTitle||''}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-                <div className="flex gap-2">
-                  <button onClick={()=>del('site_versions',v.id)} className="p-3 bg-white border border-red-100 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-colors"><Trash2 size={18}/></button>
-                  <button onClick={()=>restore(v)} className="p-3 bg-white border border-gray-200 rounded-xl hover:bg-black hover:text-white transition-colors"><RotateCcw size={18}/></button>
+                {/* Actions */}
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={()=>del('site_versions',v.id)} className="p-2.5 bg-white border border-red-100 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-colors"><Trash2 size={15}/></button>
+                  <button onClick={()=>restore(v)} className="p-2.5 bg-white border border-gray-200 rounded-xl hover:bg-black hover:text-white transition-colors" title="Restaurer cette version"><RotateCcw size={15}/></button>
                 </div>
               </div>
             ))}
