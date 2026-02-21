@@ -1032,7 +1032,7 @@ const HomeCard = ({ icon, title, label, onClick, color }: any) => (
 // ==========================================
 // ADMIN PANEL (RÉORGANISÉ)
 // ==========================================
-const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, choreStatus }: any) => {
+const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, choreStatus, fireRule }: any) => {
   const [tab, setTab] = useState('users');
   const [newUser, setNewUser] = useState({email:'',letter:'',name:''});
   const [localC, setLocalC] = useState(config);
@@ -1044,8 +1044,9 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   const [qrCodeUrl, setQrCodeUrl] = useState<string|null>(null);
   const [notif, setNotif] = useState<Partial<AppNotification>>({message:'',type:'info',repeat:'once',linkView:'',linkId:'',targets:['all']});
   const [notifMode, setNotifMode] = useState<'manual'|'ai'>('manual');
-  const [aiNotif, setAiNotif] = useState({trigger:'',prompt:'',targets:['all'] as string[]});
+  const [aiNotif, setAiNotif] = useState<any>({trigger:'',prompt:'',targets:['all'],condition:'',cooldownHours:24});
   const [aiNotifLoading, setAiNotifLoading] = useState(false);
+  const [aiRules, setAiRules] = useState<any[]>([]);
   const [schedDate, setSchedDate] = useState('');
   const [schedTime, setSchedTime] = useState('');
   const [activeNotifs, setActiveNotifs] = useState<AppNotification[]>([]);
@@ -1057,7 +1058,41 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
     return()=>unsub();
   },[]);
 
+  // Écoute les règles IA
+  useEffect(()=>{
+    const unsub=onSnapshot(collection(db,'ai_notif_rules'),s=>setAiRules(s.docs.map(d=>({id:d.id,...d.data()}))));
+    return()=>unsub();
+  },[]);
+
   useEffect(()=>{setLocalC(config);},[config]);
+
+  const saveAiRule = async () => {
+    if(!aiNotif.trigger||!aiNotif.prompt) return;
+    await addDoc(collection(db,'ai_notif_rules'),{
+      trigger: aiNotif.trigger,
+      condition: aiNotif.condition||'',
+      instructions: aiNotif.prompt,
+      targets: aiNotif.targets,
+      cooldownHours: aiNotif.cooldownHours||24,
+      enabled: true,
+      lastFiredAt: null,
+      createdAt: new Date().toISOString(),
+    });
+    setAiNotif({trigger:'',prompt:'',targets:['all'],condition:'',cooldownHours:24});
+    alert('✅ Règle enregistrée ! Elle s\'évalue automatiquement toutes les 5 minutes.');
+  };
+
+  const [toast, setToast] = useState<{msg:string,ok:boolean}|null>(null);
+  const showToast = (msg:string, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),4000); };
+
+  const fireRuleNow = async (rule: any) => {
+    setAiNotifLoading(true);
+    try {
+      const result = await fireRule(rule);
+      showToast(`✅ Règle testée — condition vérifiée dans Firebase.`);
+    } catch(e:any) { showToast('❌ Erreur : '+(e.message||e), false); }
+    setAiNotifLoading(false);
+  };
 
   const handleFile=(e:any,cb:any)=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=()=>cb(r.result);r.readAsDataURL(f);}};
   const startEditVersion=(v:any)=>{setEditingVersionId(v.id);setTempVersionName(v.name);};
@@ -1080,205 +1115,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
     setNotif({message:'',type:'info',repeat:'once',linkView:'',linkId:'',targets:['all']});
     setSchedDate('');setSchedTime('');
     alert("Notification envoyée/programmée !");
-  };
-
-  const sendAiNotification = async () => {
-    if(!aiNotif.trigger||!aiNotif.prompt) return alert("Choisissez un déclencheur et ajoutez des instructions.");
-    setAiNotifLoading(true);
-    try {
-      const { callGeminiDirect } = await import('./services/geminiService');
-
-      const today    = new Date();
-      const todayStr = today.toISOString().split('T')[0];
-      const dayName  = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][today.getDay()];
-      const getWN    = (d:Date) => { const t=new Date(d.valueOf());const dn=(d.getDay()+6)%7;t.setDate(t.getDate()-dn+3);const ft=t.valueOf();t.setMonth(0,1);if(t.getDay()!==4)t.setMonth(0,1+((4-t.getDay())+7)%7);return 1+Math.ceil((ft-t.valueOf())/604800000); };
-      const weekKey  = `${today.getFullYear()}_W${String(getWN(today)).padStart(2,'0')}`;
-
-      const SHELF:Record<string,number> = {'Boucherie/Poisson':3,'Boulangerie':3,'Plat préparé':4,'Restes':4,'Primeur':7,'Frais & Crèmerie':10,'Épicerie Salée':90,'Épicerie Sucrée':90,'Boissons':90,'Surgelés':180,'Divers':14};
-
-      // ── Fetch données ciblées selon le déclencheur ─────────────────────────
-      let focusData   = '';  // La donnée principale analysée
-      let contextData = '';  // Données de support
-      let shouldSend  = true;
-      let noSendReason = '';
-
-      const [trigger_domain, trigger_type] = aiNotif.trigger.split(':');
-
-      if(trigger_domain === 'frigo') {
-        const q = query(collection(db,'frigo_items'), orderBy('addedAt','desc'));
-        const snap = await getDocs(q);
-        const all = snap.docs.map(d=>({id:d.id,...d.data()} as any));
-
-        if(trigger_type === 'last_added') {
-          const last = all[0];
-          if(!last) { shouldSend=false; noSendReason='Le frigo est vide, aucun article récent.'; }
-          else {
-            const addedDate = last.addedAt ? new Date(last.addedAt).toLocaleDateString('fr-FR') : '?';
-            focusData = `Dernier article ajouté : "${last.name}" (catégorie: ${last.category||'?'}, ajouté le ${addedDate})`;
-            // Articles du frigo pour contexte recettes
-            contextData = `Autres articles au frigo : ${all.slice(1,8).map((i:any)=>i.name).join(', ')||'aucun'}`;
-          }
-        } else if(trigger_type === 'expiring') {
-          const expiring = all.filter((i:any)=>{
-            let expStr = i.expiryDate;
-            if(!expStr && i.addedAt) { const d=new Date(i.addedAt); d.setDate(d.getDate()+(SHELF[i.category]??14)); expStr=d.toISOString().split('T')[0]; }
-            if(!expStr) return false;
-            const diff = Math.ceil((new Date(expStr).getTime()-today.getTime())/(86400000));
-            return diff>=0 && diff<=3;
-          });
-          if(!expiring.length) { shouldSend=false; noSendReason='Aucun produit proche de péremption (≤3 jours).'; }
-          else focusData = `Produits bientôt périmés (≤3j) : ${expiring.map((i:any)=>i.name).join(', ')}`;
-        } else if(trigger_type === 'expired') {
-          const expired = all.filter((i:any)=>{
-            let expStr = i.expiryDate;
-            if(!expStr && i.addedAt) { const d=new Date(i.addedAt); d.setDate(d.getDate()+(SHELF[i.category]??14)); expStr=d.toISOString().split('T')[0]; }
-            if(!expStr) return false;
-            return Math.ceil((new Date(expStr).getTime()-today.getTime())/(86400000)) < 0;
-          });
-          if(!expired.length) { shouldSend=false; noSendReason='Aucun produit périmé dans le frigo.'; }
-          else focusData = `Produits périmés à jeter : ${expired.map((i:any)=>i.name).join(', ')}`;
-        }
-        // Recettes disponibles en contexte pour suggestions
-        contextData += `\nRecettes disponibles : ${(recipes||[]).slice(0,12).map((r:any)=>r.title).join(', ')||'aucune'}`;
-
-      } else if(trigger_domain === 'hub') {
-        const q = query(collection(db,'hub_items'), orderBy('createdAt','desc'), where('type','==','shop'));
-        const snap = await getDocs(q);
-        const all = snap.docs.map(d=>({id:d.id,...d.data()} as any));
-        if(trigger_type === 'last_added') {
-          const last = all[0];
-          if(!last) { shouldSend=false; noSendReason='La liste de courses est vide.'; }
-          else focusData = `Dernier article ajouté à la liste : "${last.content}" (${new Date(last.createdAt).toLocaleDateString('fr-FR')})`;
-          contextData = `Liste complète : ${all.slice(0,10).map((i:any)=>i.content).join(', ')}`;
-        } else {
-          const list = all.slice(0,15).map((i:any)=>i.content).join(', ');
-          if(!list) { shouldSend=false; noSendReason='La liste de courses est vide.'; }
-          else focusData = `Liste de courses complète (${all.length} articles) : ${list}`;
-        }
-
-      } else if(trigger_domain === 'chores') {
-        const letter = trigger_type.replace('pending_','');
-        const memberUser = users.find((u:any)=>u.letter===letter);
-        const memberName = memberUser?.name || letter;
-
-        if(trigger_type === 'summary') {
-          focusData = `État des corvées : ${Object.entries(choreStatus as Record<string,any>).slice(-2).map(([wid,c]:any)=>`${wid} → G:${c.G?'✅':'❌'} P:${c.P?'✅':'❌'} V:${c.V?'✅':'❌'}`).join(' | ')||'aucune info'}`;
-        } else {
-          const pending = Object.entries(choreStatus as Record<string,any>).map(([wid,c]:any)=>c[letter]?null:wid).filter(Boolean);
-          if(!pending.length) { shouldSend=false; noSendReason=`${memberName} est à jour dans ses corvées.`; }
-          else focusData = `Corvées non faites de ${memberName} (${letter}) : semaines ${pending.slice(0,3).join(', ')}`;
-        }
-
-      } else if(trigger_domain === 'semainier') {
-        const snap = await getDocs(collection(db,'semainier_meals'));
-        const all  = Object.fromEntries(snap.docs.map(d=>[d.id,d.data()]));
-        const todayDay = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][today.getDay()];
-        if(trigger_type === 'today') {
-          const midi = all[`${todayDay}_Midi_${weekKey}`];
-          const soir = all[`${todayDay}_Soir_${weekKey}`];
-          if(!midi&&!soir) { shouldSend=false; noSendReason=`Aucun repas planifié pour ${todayDay}.`; }
-          else focusData = `Repas de ${todayDay} : Midi=${midi?.platName||'non planifié'} | Soir=${soir?.platName||'non planifié'}`;
-        } else {
-          const week = Object.entries(all).filter(([k])=>k.includes(weekKey)).map(([k,v]:any)=>`${k.split('_')[0]} ${k.split('_')[1]}: ${v.platName}`).join(', ');
-          if(!week) { shouldSend=false; noSendReason='Aucun repas planifié cette semaine.'; }
-          else focusData = `Repas de la semaine ${weekKey} : ${week}`;
-        }
-
-      } else if(trigger_domain === 'events') {
-        const snap = await getDocs(collection(db,'family_events'));
-        const upcoming = snap.docs.map(d=>({...d.data()} as any))
-          .filter(e=>{ const d=e.date?.split('T')[0]||''; return d>=todayStr && d<=new Date(today.getTime()+7*86400000).toISOString().split('T')[0]; })
-          .sort((a:any,b:any)=>a.date.localeCompare(b.date));
-        if(!upcoming.length) { shouldSend=false; noSendReason='Aucun événement dans les 7 prochains jours.'; }
-        else focusData = `Événements à venir : ${upcoming.map((e:any)=>`${e.title} le ${e.date?.split('T')[0]}`).join(', ')}`;
-
-      } else if(trigger_domain === 'recipes') {
-        const q = query(collection(db,'family_recipes'), orderBy('timestamp','desc'));
-        const snap = await getDocs(q);
-        const last = snap.docs[0];
-        if(!last) { shouldSend=false; noSendReason='Aucune recette enregistrée.'; }
-        else {
-          const r = last.data() as any;
-          focusData = `Dernière recette ajoutée : "${r.title}" (${r.category||'?'}) par ${r.chef||'?'}`;
-          const ing = Array.isArray(r.ingredients) ? r.ingredients.slice(0,5).join(', ') : (r.ingredients||'').split('\n').slice(0,5).join(', ');
-          contextData = `Ingrédients principaux : ${ing}`;
-        }
-
-      } else {
-        // general:custom — toutes les données
-        const [fSnap, hSnap] = await Promise.all([getDocs(collection(db,'frigo_items')), getDocs(collection(db,'hub_items'))]);
-        const fAll = fSnap.docs.map(d=>d.data() as any);
-        const hAll = hSnap.docs.map(d=>d.data() as any).filter((i:any)=>i.type==='shop');
-        focusData = `Frigo (${fAll.length}) : ${fAll.slice(0,8).map((i:any)=>i.name).join(', ')||'vide'} | Courses : ${hAll.slice(0,8).map((i:any)=>i.content).join(', ')||'vide'}`;
-        contextData = `Recettes : ${(recipes||[]).slice(0,8).map((r:any)=>r.title).join(', ')||'aucune'}`;
-      }
-
-      if(!shouldSend) {
-        setAiNotifLoading(false);
-        return alert(`⏸️ Notification non envoyée.\n\n${noSendReason}`);
-      }
-
-      // ── Destinataires ─────────────────────────────────────────────────────
-      const targetedUsers: any[] = aiNotif.targets.includes('all')
-        ? users
-        : users.filter((u:any)=>aiNotif.targets.includes(u.id));
-
-      const membersStr = targetedUsers.map((u:any)=>`${u.name||u.id} (${u.letter||''})`).join(', ') || 'toute la famille';
-
-      // ── UN seul appel Gemini ──────────────────────────────────────────────
-      const prompt = `Tu es le Majordome de la famille Frézouls sur "Chaud Devant". ${dayName} ${todayStr}.
-
-DONNÉE PRINCIPALE (issue de Firebase) :
-${focusData}
-${contextData ? `\nDONNÉES COMPLÉMENTAIRES :\n${contextData}` : ''}
-
-DESTINATAIRES : ${membersStr}
-INSTRUCTIONS DE L'ADMIN : ${aiNotif.prompt}
-
-RÈGLES ABSOLUES :
-⛔ N'invente AUCUN article, recette, nom ou chiffre qui n'est pas dans les données ci-dessus
-⛔ Si une donnée est absente, dis-le honnêtement sans inventer
-✅ Utilise le prénom du/des destinataire(s) si possible
-✅ Ton chaleureux, familial, max 2 phrases par notification
-
-Génère UNE notification par destinataire. Réponds UNIQUEMENT avec ce JSON (sans markdown) :
-{"notifications": [{"userId": "${targetedUsers[0]?.id||'all'}", "name": "Prénom", "message": "texte"}, ...]}
-Si un seul message pour tous : [{"userId": "all", "name": "famille", "message": "texte"}]`;
-
-      const raw = await callGeminiDirect([{role:'user', text:prompt}]);
-      console.log('[AI Notif] raw:', raw);
-
-      let result: any = null;
-      try { const m=raw?.match(/\{[\s\S]*\}/); if(m) result=JSON.parse(m[0]); } catch {}
-
-      if(!result?.notifications?.length) {
-        setAiNotifLoading(false);
-        return alert('❌ L\'IA n\'a pas pu générer le message. Réessayez.');
-      }
-
-      let sentCount = 0;
-      for(const n of result.notifications) {
-        if(!n.message?.trim()) continue;
-        const target = n.userId==='all' ? null : targetedUsers.find((u:any)=>u.id===n.userId||u.name===n.name);
-        await addDoc(collection(db,'notifications'), {
-          message: n.message.trim(),
-          type: 'info', repeat: 'once',
-          targets: target ? [target.id] : (aiNotif.targets.includes('all')?['all']:aiNotif.targets),
-          createdAt: new Date().toISOString(),
-          readBy: {}, generatedByAI: true,
-          trigger: aiNotif.trigger,
-        });
-        sentCount++;
-      }
-
-      setAiNotif({trigger:'',prompt:'',targets:['all']});
-      alert(`✅ ${sentCount} notification(s) envoyée(s) basée(s) sur : ${focusData.slice(0,80)}...`);
-
-    } catch(e:any) {
-      console.error('sendAiNotification error:', e);
-      alert('❌ Erreur : ' + (e.message||e));
-    }
-    setAiNotifLoading(false);
   };
 
   const sendEmailToAll=()=>{
@@ -1377,74 +1213,131 @@ Si un seul message pour tous : [{"userId": "all", "name": "famille", "message": 
             </div>
           )}
 
-          {/* MODE IA */}
+          {/* MODE IA — RÈGLES PERSISTANTES */}
           {notifMode==='ai'&&(
-            <div className="space-y-4 animate-in fade-in">
-              <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-5">
+            <div className="space-y-5 animate-in fade-in">
 
-                {/* DÉCLENCHEUR PRÉDÉFINI */}
+              {/* TOAST FEEDBACK (fixed overlay) */}
+              {toast&&(
+                <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[600] px-5 py-3 rounded-2xl shadow-xl text-white font-bold text-sm whitespace-nowrap ${toast.ok?'bg-green-600':'bg-red-600'}`}>
+                  {toast.msg}
+                </div>
+              )}
+
+              {/* FORMULAIRE CRÉATION DE RÈGLE */}
+              <div className="bg-gray-50 p-5 rounded-3xl border border-gray-100 space-y-4">
+                <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 flex items-center gap-2"><Plus size={13}/>Nouvelle règle automatique</h4>
+
+                {/* DÉCLENCHEUR */}
                 <div>
-                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-2">Déclencheur</label>
-                  <select
-                    value={aiNotif.trigger}
-                    onChange={e=>setAiNotif(a=>({...a,trigger:e.target.value}))}
-                    className="w-full p-4 rounded-xl border-2 border-gray-200 font-bold outline-none focus:border-black bg-white"
-                  >
+                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-1.5">Déclencheur *</label>
+                  <select value={aiNotif.trigger} onChange={e=>setAiNotif((a:any)=>({...a,trigger:e.target.value}))} className="w-full p-3 rounded-xl border-2 border-gray-200 font-bold text-sm outline-none focus:border-black bg-white">
                     <option value="">-- Choisir un déclencheur --</option>
-                    <optgroup label="🧊 Frigo">
-                      <option value="frigo:last_added">Article ajouté au frigo (dernier ajout)</option>
-                      <option value="frigo:expiring">Produits bientôt périmés (≤ 3 jours)</option>
+
+                    <optgroup label="🧊 Frigo — Contenu">
+                      <option value="frigo:last_added">Dernier article ajouté au frigo</option>
+                      <option value="frigo:all">Inventaire complet du frigo</option>
+                      <option value="frigo:low_stock">Frigo presque vide (≤ 5 articles)</option>
+                      <option value="frigo:full">Frigo bien rempli (≥ 15 articles)</option>
+                    </optgroup>
+                    <optgroup label="🧊 Frigo — Péremption">
+                      <option value="frigo:expiring_3">Produits expirant dans ≤ 3 jours</option>
+                      <option value="frigo:expiring_7">Produits expirant dans ≤ 7 jours</option>
                       <option value="frigo:expired">Produits périmés à jeter</option>
                     </optgroup>
+
                     <optgroup label="🛒 Courses">
-                      <option value="hub:last_added">Article ajouté à la liste de courses</option>
-                      <option value="hub:full_list">Rappel liste de courses complète</option>
+                      <option value="hub:last_added">Dernier article ajouté aux courses</option>
+                      <option value="hub:full_list">Liste de courses complète</option>
+                      <option value="hub:long_list">Longue liste (≥ 10 articles)</option>
+                      <option value="hub:empty">Liste de courses vide</option>
                     </optgroup>
-                    <optgroup label="🧹 Corvées">
-                      <option value="chores:pending_G">Corvées non faites — Gabriel</option>
-                      <option value="chores:pending_P">Corvées non faites — Pauline</option>
-                      <option value="chores:pending_V">Corvées non faites — Valentin</option>
-                      <option value="chores:summary">Résumé corvées de la semaine</option>
+
+                    <optgroup label="🧹 Corvées — Par membre">
+                      <option value="chores:pending_G">Corvées en retard — Gabriel (G)</option>
+                      <option value="chores:pending_P">Corvées en retard — Pauline (P)</option>
+                      <option value="chores:pending_V">Corvées en retard — Valentin (V)</option>
                     </optgroup>
-                    <optgroup label="🗓️ Semainier">
-                      <option value="semainier:today">Repas du jour</option>
+                    <optgroup label="🧹 Corvées — Général">
+                      <option value="chores:summary">Résumé état corvées G+P+V</option>
+                      <option value="chores:all_done">Toutes les corvées faites cette semaine</option>
+                    </optgroup>
+
+                    <optgroup label="🗓️ Semainier — Repas">
+                      <option value="semainier:today">Repas planifiés aujourd'hui</option>
+                      <option value="semainier:tomorrow">Repas planifiés demain</option>
                       <option value="semainier:week">Récap repas de la semaine</option>
+                      <option value="semainier:missing">Jours sans repas planifié cette semaine</option>
                     </optgroup>
+
                     <optgroup label="📅 Événements">
-                      <option value="events:upcoming">Événement à venir (dans 7 jours)</option>
+                      <option value="events:today">Événement aujourd'hui</option>
+                      <option value="events:tomorrow">Événement demain</option>
+                      <option value="events:week">Événements dans les 7 prochains jours</option>
+                      <option value="events:month">Événements dans les 30 prochains jours</option>
                     </optgroup>
+
                     <optgroup label="📚 Recettes">
-                      <option value="recipes:last_added">Recette ajoutée récemment</option>
+                      <option value="recipes:last_added">Dernière recette ajoutée</option>
+                      <option value="recipes:suggest">Suggestion recette selon le frigo actuel</option>
                     </optgroup>
+
+                    <optgroup label="💰 Budget">
+                      <option value="wallet:low_balance">Solde bas (proche de 0)</option>
+                      <option value="wallet:goal_reached">Objectif d'épargne atteint</option>
+                    </optgroup>
+
+                    <optgroup label="⏰ Temporel — Récurrent">
+                      <option value="time:daily">Tous les jours (contexte du jour)</option>
+                      <option value="time:monday_morning">Lundi matin (début de semaine)</option>
+                      <option value="time:friday_evening">Vendredi soir (fin de semaine)</option>
+                      <option value="time:weekend">Week-end (samedi & dimanche)</option>
+                      <option value="time:tuesday">Mardi</option>
+                      <option value="time:wednesday">Mercredi</option>
+                      <option value="time:thursday">Jeudi</option>
+                    </optgroup>
+
                     <optgroup label="⚙️ Général">
-                      <option value="general:custom">Message général (données complètes)</option>
+                      <option value="general:custom">Message libre (toutes les données)</option>
                     </optgroup>
                   </select>
-                  {/* Description du déclencheur sélectionné */}
-                  {aiNotif.trigger&&(
-                    <p className="text-[10px] text-gray-400 italic mt-1.5 pl-1">
-                      {aiNotif.trigger==='frigo:last_added'&&'L\'IA récupère le dernier article ajouté au frigo et adapte le message.'}
-                      {aiNotif.trigger==='frigo:expiring'&&'L\'IA liste les produits proches de péremption et suggère des recettes.'}
-                      {aiNotif.trigger==='frigo:expired'&&'L\'IA signale les produits périmés à éliminer.'}
-                      {aiNotif.trigger==='hub:last_added'&&'L\'IA prend le dernier article de la liste de courses.'}
-                      {aiNotif.trigger==='hub:full_list'&&'L\'IA résume toute la liste de courses actuelle.'}
-                      {(aiNotif.trigger==='chores:pending_G'||aiNotif.trigger==='chores:pending_P'||aiNotif.trigger==='chores:pending_V')&&'L\'IA vérifie les corvées non faites du membre et envoie un rappel.'}
-                      {aiNotif.trigger==='chores:summary'&&'L\'IA résume l\'état des corvées pour G, P et V cette semaine.'}
-                      {aiNotif.trigger==='semainier:today'&&'L\'IA donne le repas prévu aujourd\'hui.'}
-                      {aiNotif.trigger==='semainier:week'&&'L\'IA fait un récap des repas de la semaine.'}
-                      {aiNotif.trigger==='events:upcoming'&&'L\'IA signale les événements dans les 7 prochains jours.'}
-                      {aiNotif.trigger==='recipes:last_added'&&'L\'IA met en avant la dernière recette enregistrée.'}
-                      {aiNotif.trigger==='general:custom'&&'L\'IA a accès à toutes les données du site pour générer un message libre.'}
-                    </p>
-                  )}
                 </div>
 
+                {/* CONDITION OPTIONNELLE */}
                 <div>
-                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-2">Instructions pour l'IA</label>
-                  <textarea value={aiNotif.prompt} onChange={e=>setAiNotif(a=>({...a,prompt:e.target.value}))} placeholder="Ex : Proposer une recette avec l'article, ton chaleureux, encourage..." className="w-full p-4 rounded-xl border border-gray-200 outline-none h-24 resize-none"/>
+                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-1.5">
+                    Condition <span className="text-gray-300 font-normal normal-case tracking-normal">(facultatif — ex: "seulement si Gabriel est concerné")</span>
+                  </label>
+                  <input
+                    value={(aiNotif as any).condition||''}
+                    onChange={e=>setAiNotif(a=>({...a, condition:e.target.value}))}
+                    placeholder="Ex: seulement le week-end, si plus de 3 produits concernés, uniquement pour G..."
+                    className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-black"
+                  />
                 </div>
+
+                {/* INSTRUCTIONS IA */}
                 <div>
-                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-2">Destinataires</label>
+                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-1.5">Instructions pour l'IA *</label>
+                  <textarea value={aiNotif.prompt} onChange={e=>setAiNotif(a=>({...a,prompt:e.target.value}))} placeholder="Ex: Proposer une recette avec l'article, ton chaleureux, rappeler les corvées avec bienveillance..." className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none h-20 resize-none"/>
+                </div>
+
+                {/* COOLDOWN */}
+                <div className="flex gap-3 items-center">
+                  <label className="font-black text-xs uppercase tracking-widest text-gray-400 shrink-0">Répéter max 1× par</label>
+                  <select value={(aiNotif as any).cooldownHours||24} onChange={e=>setAiNotif(a=>({...a,cooldownHours:parseInt(e.target.value)}))} className="flex-1 p-2.5 rounded-xl border border-gray-200 text-sm font-bold outline-none bg-white">
+                    <option value={1}>heure</option>
+                    <option value={6}>6 heures</option>
+                    <option value={12}>12 heures</option>
+                    <option value={24}>jour</option>
+                    <option value={168}>semaine</option>
+                    <option value={720}>mois</option>
+                  </select>
+                </div>
+
+                {/* DESTINATAIRES */}
+                <div>
+                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-1.5">Destinataires</label>
                   <div className="flex flex-wrap gap-2">
                     <button onClick={()=>setAiNotif(a=>({...a,targets:['all']}))} className={`px-3 py-1 rounded-full text-xs font-bold ${aiNotif.targets.includes('all')?'bg-black text-white':'bg-gray-200 text-gray-500'}`}>TOUS</button>
                     {users.map((u:any)=>(
@@ -1452,11 +1345,56 @@ Si un seul message pour tous : [{"userId": "all", "name": "famille", "message": 
                     ))}
                   </div>
                 </div>
-                <button onClick={sendAiNotification} disabled={aiNotifLoading||!aiNotif.trigger||!aiNotif.prompt} className="w-full py-4 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg flex items-center justify-center gap-3 disabled:opacity-50 transition-all hover:scale-[1.01]" style={{backgroundColor:config.primaryColor}}>
-                  {aiNotifLoading?<><Loader2 size={18} className="animate-spin"/>Analyse en cours...</>:<><Sparkles size={18}/>Analyser & Envoyer</>}
+
+                <button
+                  onClick={saveAiRule}
+                  disabled={!aiNotif.trigger||!aiNotif.prompt}
+                  className="w-full py-3 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg flex items-center justify-center gap-2 disabled:opacity-40"
+                  style={{backgroundColor:config.primaryColor}}
+                >
+                  <Plus size={16}/>Enregistrer la règle
                 </button>
               </div>
-              <p className="text-xs text-gray-400 italic text-center">L'IA analyse les données réelles du site selon le déclencheur avant d'envoyer.</p>
+
+              {/* LISTE DES RÈGLES ACTIVES */}
+              {aiRules.length>0&&(
+                <div className="space-y-2">
+                  <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 flex items-center gap-2"><Sparkles size={13}/>Règles automatiques ({aiRules.length})</h4>
+                  {aiRules.map((rule:any)=>(
+                    <div key={rule.id} className={`p-4 rounded-2xl border transition-all ${rule.enabled?'bg-white border-gray-200':'bg-gray-50 border-gray-100 opacity-60'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className="text-xs font-black bg-purple-100 text-purple-700 px-2 py-0.5 rounded">{rule.trigger}</span>
+                            {rule.condition&&<span className="text-xs text-gray-500 italic">si: {rule.condition}</span>}
+                          </div>
+                          <p className="text-sm font-bold text-gray-700 truncate">{rule.instructions}</p>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="text-[10px] text-gray-400">↻ 1×/{rule.cooldownHours>=168?'semaine':rule.cooldownHours>=24?'jour':'heure'}</span>
+                            {rule.lastFiredAt&&<span className="text-[10px] text-gray-400">Dernier envoi : {new Date(rule.lastFiredAt).toLocaleString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            onClick={()=>fireRuleNow(rule)}
+                            disabled={aiNotifLoading}
+                            className="p-2 bg-purple-50 text-purple-600 rounded-xl hover:bg-purple-100 transition-colors"
+                            title="Tester maintenant"
+                          ><Sparkles size={14}/></button>
+                          <button
+                            onClick={()=>updateDoc(doc(db,'ai_notif_rules',rule.id),{enabled:!rule.enabled})}
+                            className={`p-2 rounded-xl transition-colors ${rule.enabled?'bg-green-50 text-green-600 hover:bg-red-50 hover:text-red-500':'bg-gray-100 text-gray-400 hover:bg-green-50 hover:text-green-600'}`}
+                            title={rule.enabled?'Désactiver':'Activer'}
+                          >{rule.enabled?<CheckCircle2 size={14}/>:<X size={14}/>}</button>
+                          <button onClick={()=>deleteDoc(doc(db,'ai_notif_rules',rule.id))} className="p-2 bg-red-50 text-red-400 rounded-xl hover:bg-red-100 transition-colors"><Trash2 size={14}/></button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="text-[10px] text-gray-400 italic text-center">Les règles sont évaluées automatiquement toutes les 5 min. L'IA n'envoie que si les données réelles remplissent la condition.</p>
             </div>
           )}
 
@@ -1993,6 +1931,7 @@ const App: React.FC = () => {
   const [aiPrompt, setAiPrompt] = useState('');
   const [chatHistory, setChatHistory] = useState<{role:string,text:string}[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiRulesApp, setAiRulesApp] = useState<any[]>([]);
 
   // AUTH
   useEffect(()=>{
@@ -2042,6 +1981,29 @@ const App: React.FC = () => {
     return()=>{unsubC();unsubX();unsubR();unsubE();unsubV();unsubT();unsubU();unsubN();};
   },[user]);
 
+  // ÉVALUATEUR AUTO DES RÈGLES IA (toutes les 5 min + au chargement)
+  useEffect(()=>{
+    if(!user||!siteUsers.length) return;
+    const evaluate = async () => {
+      const snap = await getDocs(collection(db,'ai_notif_rules'));
+      const rules = snap.docs.map(d=>({id:d.id,...d.data()})) as any[];
+      const active = rules.filter((r:any)=>r.enabled);
+      for(const rule of active) {
+        // Vérifie le cooldown
+        if(rule.lastFiredAt) {
+          const lastFired = new Date(rule.lastFiredAt).getTime();
+          const cooldownMs = (rule.cooldownHours||24) * 3600 * 1000;
+          if(Date.now() - lastFired < cooldownMs) continue;
+        }
+        // Passe la règle à l'évaluateur silencieux (rule=true → pas d'alert)
+        try { await evaluateAiRule(rule); } catch(e) { console.warn('Rule eval error:', rule.trigger, e); }
+      }
+    };
+    evaluate();
+    const interval = setInterval(evaluate, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [user, siteUsers]);
+
   // DEEP LINKING
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
@@ -2058,6 +2020,101 @@ const App: React.FC = () => {
   // ACTIONS
   const handleLogin=async()=>{try{await signInWithPopup(auth,googleProvider);}catch(e){alert("Erreur Auth");}};
   const handleLogout=()=>{signOut(auth);setCurrentView('home');};
+
+  // Évalue une règle IA et envoie si condition remplie (utilisé par l'évaluateur auto + AdminPanel)
+  const evaluateAiRule = async (rule: any) => {
+    const { callGeminiDirect } = await import('./services/geminiService');
+    const today    = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const dayName  = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][today.getDay()];
+    const dayNum   = today.getDay();
+    const getWN    = (d:Date) => { const t=new Date(d.valueOf());const dn=(d.getDay()+6)%7;t.setDate(t.getDate()-dn+3);const ft=t.valueOf();t.setMonth(0,1);if(t.getDay()!==4)t.setMonth(0,1+((4-t.getDay())+7)%7);return 1+Math.ceil((ft-t.valueOf())/604800000); };
+    const weekKey  = `${today.getFullYear()}_W${String(getWN(today)).padStart(2,'0')}`;
+    const SHELF:Record<string,number> = {'Boucherie/Poisson':3,'Boulangerie':3,'Plat préparé':4,'Restes':4,'Primeur':7,'Frais & Crèmerie':10,'Épicerie Salée':90,'Épicerie Sucrée':90,'Boissons':90,'Surgelés':180,'Divers':14};
+    const [domain,type] = rule.trigger.split(':');
+    let focusData='', contextData='', shouldSend=true;
+
+    if(domain==='time') {
+      if(type==='monday_morning'&&dayNum!==1) return;
+      if(type==='friday_evening'&&dayNum!==5) return;
+      if(type==='weekend'&&dayNum!==0&&dayNum!==6) return;
+      if(type==='tuesday'&&dayNum!==2) return;
+      if(type==='wednesday'&&dayNum!==3) return;
+      if(type==='thursday'&&dayNum!==4) return;
+      focusData=`${dayName} ${todayStr}`;
+    } else if(domain==='frigo') {
+      const snap=await getDocs(query(collection(db,'frigo_items'),orderBy('addedAt','desc')));
+      const all=snap.docs.map(d=>({id:d.id,...d.data()} as any));
+      contextData=`Recettes : ${recipes.slice(0,10).map(r=>r.title).join(', ')||'aucune'}`;
+      if(type==='last_added'){const l=all[0];if(!l)return;focusData=`Dernier ajout : "${l.name}" (${l.category||'?'})`; contextData+=` | Autres : ${all.slice(1,5).map((i:any)=>i.name).join(', ')||'aucun'}`;}
+      else if(type==='expiring_3'||type==='expiring_7'){const d=type==='expiring_3'?3:7;const l=all.filter((i:any)=>{let e=i.expiryDate;if(!e&&i.addedAt){const x=new Date(i.addedAt);x.setDate(x.getDate()+(SHELF[i.category]??14));e=x.toISOString().split('T')[0];}if(!e)return false;return Math.ceil((new Date(e).getTime()-today.getTime())/86400000)>=0&&Math.ceil((new Date(e).getTime()-today.getTime())/86400000)<=d;});if(!l.length)return;focusData=`Expirant ≤${d}j : ${l.map((i:any)=>i.name).join(', ')}`;}
+      else if(type==='expired'){const l=all.filter((i:any)=>{let e=i.expiryDate;if(!e&&i.addedAt){const x=new Date(i.addedAt);x.setDate(x.getDate()+(SHELF[i.category]??14));e=x.toISOString().split('T')[0];}if(!e)return false;return Math.ceil((new Date(e).getTime()-today.getTime())/86400000)<0;});if(!l.length)return;focusData=`Périmés : ${l.map((i:any)=>i.name).join(', ')}`;}
+      else if(type==='low_stock'){if(all.length>5)return;focusData=`Frigo presque vide (${all.length} articles)`;}
+      else if(type==='full'){if(all.length<15)return;focusData=`Frigo plein : ${all.length} articles`;}
+      else focusData=`Frigo (${all.length}) : ${all.slice(0,8).map((i:any)=>i.name).join(', ')||'vide'}`;
+    } else if(domain==='hub') {
+      const snap=await getDocs(query(collection(db,'hub_items'),orderBy('createdAt','desc'),where('type','==','shop')));
+      const all=snap.docs.map(d=>({id:d.id,...d.data()} as any));
+      if(type==='last_added'){const l=all[0];if(!l)return;focusData=`Dernier course : "${l.content}"`;}
+      else if(type==='long_list'){if(all.length<10)return;focusData=`Longue liste (${all.length}) : ${all.slice(0,12).map((i:any)=>i.content).join(', ')}`;}
+      else if(type==='empty'){if(all.length>0)return;focusData='Liste vide';}
+      else{if(!all.length)return;focusData=`Courses (${all.length}) : ${all.slice(0,12).map((i:any)=>i.content).join(', ')}`;}
+    } else if(domain==='chores') {
+      if(type==='summary')focusData=`Corvées : ${Object.entries(choreStatus).slice(-2).map(([w,c]:any)=>`${w} G:${c.G?'✅':'❌'} P:${c.P?'✅':'❌'} V:${c.V?'✅':'❌'}`).join(' | ')||'aucune'}`;
+      else if(type==='all_done'){const w=choreStatus[weekKey]||{};if(!w.G||!w.P||!w.V)return;focusData='Toutes corvées faites ✅';}
+      else{const l=type.replace('pending_','');const p=Object.entries(choreStatus).map(([wid,c]:any)=>c[l]?null:wid).filter(Boolean);if(!p.length)return;focusData=`Corvées non faites ${l} : ${p.slice(0,3).join(', ')}`;}
+    } else if(domain==='semainier') {
+      const snap=await getDocs(collection(db,'semainier_meals'));
+      const all=Object.fromEntries(snap.docs.map(d=>[d.id,d.data()]));
+      const tmrDay=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][(today.getDay()+1)%7];
+      if(type==='today'){const m=all[`${dayName}_Midi_${weekKey}`],s=all[`${dayName}_Soir_${weekKey}`];if(!m&&!s)return;focusData=`Repas ${dayName} : ${m?.platName||'?'} / ${s?.platName||'?'}`;}
+      else if(type==='tomorrow'){const m=all[`${tmrDay}_Midi_${weekKey}`],s=all[`${tmrDay}_Soir_${weekKey}`];if(!m&&!s)return;focusData=`Repas demain ${tmrDay} : ${m?.platName||'?'} / ${s?.platName||'?'}`;}
+      else if(type==='missing'){const JOURS=['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];const miss=JOURS.filter(j=>!all[`${j}_Midi_${weekKey}`]&&!all[`${j}_Soir_${weekKey}`]);if(!miss.length)return;focusData=`Jours sans repas : ${miss.join(', ')}`;}
+      else{const w=Object.entries(all).filter(([k])=>k.includes(weekKey)).map(([k,v]:any)=>`${k.split('_')[0]}: ${v.platName}`).join(', ');if(!w)return;focusData=`Semaine : ${w}`;}
+    } else if(domain==='events') {
+      const snap=await getDocs(collection(db,'family_events'));
+      const all=snap.docs.map(d=>d.data() as any);
+      const tmr=new Date(today.getTime()+86400000).toISOString().split('T')[0];
+      const in7=new Date(today.getTime()+7*86400000).toISOString().split('T')[0];
+      const in30=new Date(today.getTime()+30*86400000).toISOString().split('T')[0];
+      if(type==='today'){const l=all.filter((e:any)=>e.date?.split('T')[0]===todayStr);if(!l.length)return;focusData=`Événement aujourd'hui : ${l.map((e:any)=>e.title).join(', ')}`;}
+      else if(type==='tomorrow'){const l=all.filter((e:any)=>e.date?.split('T')[0]===tmr);if(!l.length)return;focusData=`Événement demain : ${l.map((e:any)=>e.title).join(', ')}`;}
+      else if(type==='week'){const l=all.filter((e:any)=>{const d=e.date?.split('T')[0];return d>=todayStr&&d<=in7;});if(!l.length)return;focusData=`Événements 7j : ${l.map((e:any)=>e.title).join(', ')}`;}
+      else{const l=all.filter((e:any)=>{const d=e.date?.split('T')[0];return d>=todayStr&&d<=in30;});if(!l.length)return;focusData=`Événements 30j : ${l.map((e:any)=>e.title).join(', ')}`;}
+    } else if(domain==='recipes') {
+      if(type==='suggest'){const snap=await getDocs(collection(db,'frigo_items'));const all=snap.docs.map(d=>d.data() as any);if(!all.length)return;focusData=`Frigo : ${all.slice(0,8).map((i:any)=>i.name).join(', ')}`;contextData=`Recettes : ${recipes.slice(0,12).map(r=>r.title).join(', ')||'aucune'}`;}
+      else{const snap=await getDocs(query(collection(db,'family_recipes'),orderBy('timestamp','desc')));const l=snap.docs[0];if(!l)return;const r=l.data() as any;focusData=`Recette : "${r.title}" par ${r.chef||'?'}`;}
+    } else {
+      const [fS,hS]=await Promise.all([getDocs(collection(db,'frigo_items')),getDocs(collection(db,'hub_items'))]);
+      focusData=`Frigo : ${fS.docs.map(d=>(d.data() as any).name).slice(0,6).join(', ')||'vide'} | Courses : ${hS.docs.map(d=>d.data() as any).filter((i:any)=>i.type==='shop').slice(0,6).map((i:any)=>i.content).join(', ')||'vide'}`;
+    }
+
+    if(!focusData) return;
+
+    // Condition optionnelle
+    if(rule.condition?.trim()) {
+      const check=await callGeminiDirect([{role:'user',text:`Données : ${focusData}\nCondition : "${rule.condition}"\nRéponds UNIQUEMENT "OUI" ou "NON".`}]);
+      if(!check?.toUpperCase().includes('OUI')) return;
+    }
+
+    const targetedUsers = rule.targets?.includes('all') ? siteUsers : siteUsers.filter((u:any)=>rule.targets?.includes(u.id));
+    const membersStr = targetedUsers.map((u:any)=>u.name||u.id).join(', ')||'famille';
+
+    const res = await callGeminiDirect([{role:'user',text:`Majordome "Chaud Devant". ${dayName} ${todayStr}.\nDONNÉE : ${focusData}\n${contextData?`CONTEXTE : ${contextData}\n`:''}\nDESTINATAIRES : ${membersStr}\nINSTRUCTIONS : ${rule.instructions}\n⛔ N'invente rien. ✅ Max 2 phrases. JSON : {"notifications":[{"userId":"${targetedUsers[0]?.id||'all'}","name":"prénom","message":"texte"}]}`}]);
+    const result:any=(() => { try { const m=res?.match(/\{[\s\S]*\}/);return m?JSON.parse(m[0]):null; } catch { return null; } })();
+    if(!result?.notifications?.length) return;
+
+    for(const n of result.notifications) {
+      if(!n.message?.trim()) continue;
+      const target=n.userId==='all'?null:siteUsers.find((u:any)=>u.id===n.userId||u.name===n.name);
+      await addDoc(collection(db,'notifications'),{
+        message:n.message.trim(), type:'info', repeat:'once',
+        targets:target?[target.id]:(rule.targets?.includes('all')?['all']:rule.targets||['all']),
+        createdAt:new Date().toISOString(), readBy:{}, generatedByAI:true, trigger:rule.trigger,
+      });
+    }
+    await updateDoc(doc(db,'ai_notif_rules',rule.id),{lastFiredAt:new Date().toISOString()});
+  };
   const saveConfig=async(c:SiteConfig,saveHistory=false)=>{
     try{
       await setDoc(doc(db,'site_config','main'),c);
@@ -2382,6 +2439,7 @@ const App: React.FC = () => {
               arch={handleArchitect} chat={handleChat}
               prompt={aiPrompt} setP={setAiPrompt} load={isAiLoading} hist={chatHistory}
               users={siteUsers} choreStatus={choreStatus}
+              fireRule={evaluateAiRule}
             />
           ):(
             <div className="max-w-md mx-auto bg-white/80 p-10 rounded-[3rem] text-center space-y-8 shadow-xl mt-20">
