@@ -1088,7 +1088,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
     try {
       const { callGeminiDirect } = await import('./services/geminiService');
 
-      // ── 1. Collecte TOUTES les données du site ─────────────────────────────
+      // ── 1. Collecte des données du site ────────────────────────────────────
       const [frigoSnap, semainierSnap, hubSnap, eventSnap] = await Promise.all([
         getDocs(collection(db, 'frigo_items')),
         getDocs(collection(db, 'semainier_meals')),
@@ -1101,14 +1101,13 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       const hubData       = hubSnap.docs.map(d => ({id:d.id, ...d.data()} as any));
       const eventsData    = eventSnap.docs.map(d => ({id:d.id, ...d.data()} as any));
 
-      // ── 2. Dates & semaine ─────────────────────────────────────────────────
+      // ── 2. Résumés ─────────────────────────────────────────────────────────
       const today    = new Date();
       const todayStr = today.toISOString().split('T')[0];
       const dayName  = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][today.getDay()];
       const getWN    = (d:Date) => { const t=new Date(d.valueOf());const dn=(d.getDay()+6)%7;t.setDate(t.getDate()-dn+3);const ft=t.valueOf();t.setMonth(0,1);if(t.getDay()!==4)t.setMonth(0,1+((4-t.getDay())+7)%7);return 1+Math.ceil((ft-t.valueOf())/604800000); };
       const weekKey  = `${today.getFullYear()}_W${String(getWN(today)).padStart(2,'0')}`;
 
-      // ── 3. Résumés ─────────────────────────────────────────────────────────
       const SHELF:Record<string,number> = {'Boucherie/Poisson':3,'Boulangerie':3,'Plat préparé':4,'Restes':4,'Primeur':7,'Frais & Crèmerie':10,'Épicerie Salée':90,'Épicerie Sucrée':90,'Boissons':90,'Surgelés':180,'Divers':14};
       const frigoLines = frigoItems.map((i:any) => {
         let expStr = i.expiryDate;
@@ -1117,110 +1116,128 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
         const etat = diff===null?'?': diff<0?'PÉRIMÉ': diff<=3?`⚠️ J-${diff}`:`J-${diff}`;
         return `${i.name} (${i.category}, ${etat})`;
       });
-      const frigoResume   = frigoLines.length ? frigoLines.join(', ') : 'frigo vide';
-      const courses       = hubData.filter((i:any)=>i.type==='shop').map((i:any)=>i.content).join(', ') || 'liste vide';
-      const semResume     = Object.entries(semainierData).filter(([k])=>k.includes(weekKey)).map(([k,v]:any)=>`${k.split('_')[0]} ${k.split('_')[1]}: ${v.platName}`).join(', ') || 'aucun repas planifié';
-      const eventsResume  = eventsData.filter((e:any)=>e.date>=todayStr).slice(0,5).map((e:any)=>`${e.title} le ${e.date?.split('T')[0]||'?'}`).join(', ') || 'aucun événement';
-      const choresDetail  = Object.entries(choreStatus as Record<string,any>).slice(-3).map(([wid,c]:any)=>`${wid}: G=${c.G?'✅':'❌'} P=${c.P?'✅':'❌'} V=${c.V?'✅':'❌'}`).join(' | ') || 'aucune info';
-      const recipesResume = (recipes||[]).slice(0,15).map((r:any)=>r.title).join(', ') || 'aucune';
 
-      const siteContext = `══════════ DONNÉES RÉELLES DU SITE (${dayName} ${todayStr}) ══════════
-📦 FRIGO (${frigoItems.length} produits) : ${frigoResume}
-🛒 COURSES : ${courses}
-🗓️  SEMAINIER semaine ${weekKey} : ${semResume}
-📅 ÉVÉNEMENTS À VENIR : ${eventsResume}
-🧹 CORVÉES : ${choresDetail}
-📚 RECETTES : ${recipesResume}
-═══════════════════════════════════════════════════════`;
+      const frigoResume   = frigoLines.length ? frigoLines.join(' | ') : 'VIDE';
+      const courses       = hubData.filter((i:any)=>i.type==='shop').map((i:any)=>i.content).join(', ') || 'VIDE';
+      const semResume     = Object.entries(semainierData).filter(([k])=>k.includes(weekKey)).map(([k,v]:any)=>`${k.split('_')[0]}: ${v.platName}`).join(', ') || 'VIDE';
+      const eventsResume  = eventsData.filter((e:any)=>e.date>=todayStr).slice(0,5).map((e:any)=>`${e.title} le ${e.date?.split('T')[0]}`).join(', ') || 'VIDE';
+      const choresDetail  = Object.entries(choreStatus as Record<string,any>).slice(-2).map(([wid,c]:any)=>`${wid}: G=${c.G?'✅':'❌'} P=${c.P?'✅':'❌'} V=${c.V?'✅':'❌'}`).join(' | ') || 'VIDE';
+      const recipesResume = (recipes||[]).slice(0,10).map((r:any)=>r.title).join(', ') || 'VIDE';
 
-      // ── 4. L'IA évalue si le déclencheur est ACTUELLEMENT rempli ──────────
-      const checkPrompt = `${siteContext}
-
-DÉCLENCHEUR CONFIGURÉ : "${aiNotif.trigger}"
-CONSIGNES : "${aiNotif.prompt}"
-
-Ta mission : analyser le déclencheur et les données, puis répondre UNIQUEMENT avec ce JSON (sans markdown) :
-{"shouldSend": true, "reason": "explication", "triggerType": "event|condition"}
-
-RÈGLES IMPORTANTES :
-1. Il existe deux types de déclencheurs :
-   - TYPE "event" = action manuelle/administrative (ex: "quand un article est ajouté", "manuellement", "pour tester", "maintenant", "à la demande"). → shouldSend = TOUJOURS true, l'admin déclenche volontairement.
-   - TYPE "condition" = état vérifiable dans les données (ex: "si le frigo a des périmés", "si G n'a pas fait ses corvées", "si c'est samedi"). → vérifier dans les données, shouldSend = true seulement si la condition est remplie.
-
-2. Pour un déclencheur de type "event" : shouldSend = true TOUJOURS. Ne pas chercher à vérifier l'état du site.
-3. Pour un déclencheur de type "condition" : analyser les données et décider.
-4. En cas de doute sur le type → traiter comme "event" et envoyer (shouldSend = true).
-
-Réponds UNIQUEMENT avec le JSON, rien d'autre.`;
-
-      const checkRes = await callGeminiDirect([{role:'user', text:checkPrompt}]);
-      console.log('[AI Notif] check result:', checkRes);
-
-      let checkData: any = null;
-      try {
-        const match = checkRes?.match(/\{[\s\S]*\}/);
-        if(match) checkData = JSON.parse(match[0]);
-      } catch {}
-
-      if(!checkData?.shouldSend) {
-        const reason = checkData?.reason || 'Le déclencheur n\'est pas rempli selon les données actuelles.';
-        setAiNotifLoading(false);
-        return alert(`⏸️ Notification non envoyée.\n\nRaison : ${reason}\n\nL'IA vérifie les données réelles du site avant d'envoyer.`);
+      // Corvées par membre pour personnalisation
+      const choresPerMember: Record<string,string> = {};
+      for(const u of users as any[]) {
+        const letter = u.letter;
+        if(['G','P','V'].includes(letter)) {
+          const pending = Object.entries(choreStatus as Record<string,any>).map(([wid,c]:any)=>c[letter]?null:wid).filter(Boolean);
+          choresPerMember[letter] = pending.length ? `corvées non faites: ${pending.slice(0,2).join(', ')}` : 'à jour';
+        }
       }
 
-      // ── 5. Déclencheur rempli → génération personnalisée par membre ───────
+      // ── 3. Destinataires ──────────────────────────────────────────────────
       const targetedUsers: any[] = aiNotif.targets.includes('all')
         ? users
         : users.filter((u:any) => aiNotif.targets.includes(u.id));
 
-      let sentCount = 0;
+      const membersJson = targetedUsers.map((u:any)=>({
+        name: u.name||u.id,
+        letter: u.letter||'',
+        id: u.id,
+        chores: choresPerMember[u.letter] || 'non applicable',
+      }));
 
-      const generateFor = async (targetUser: any | null) => {
-        const uName   = targetUser?.name   || 'la famille';
-        const uLetter = targetUser?.letter || '';
-        const isGPV   = ['G','P','V'].includes(uLetter);
+      // ── 4. UN SEUL appel Gemini : évaluation + génération ─────────────────
+      const megaPrompt = `Tu es le Majordome de la famille Frézouls sur "Chaud Devant". ${dayName} ${todayStr}.
 
-        let userChores = '';
-        if(isGPV) {
-          const pending = Object.entries(choreStatus as Record<string,any>).map(([wid,c]:any)=>c[uLetter]?null:wid).filter(Boolean);
-          userChores = pending.length ? `${uName} a des corvées NON FAITES : ${pending.slice(0,3).join(', ')}` : `${uName} est à jour dans ses corvées.`;
-        }
+╔══════════ DONNÉES RÉELLES DU SITE ══════════╗
+FRIGO (${frigoItems.length} articles) : ${frigoResume}
+COURSES : ${courses}
+SEMAINIER : ${semResume}
+ÉVÉNEMENTS : ${eventsResume}
+CORVÉES : ${choresDetail}
+RECETTES : ${recipesResume}
+╚═════════════════════════════════════════════╝
 
-        const notifPrompt = `Tu es le Majordome de la famille Frézouls sur "Chaud Devant".
-${siteContext}
-CORVÉES DE ${uName} : ${userChores || choresDetail}
-
-DÉCLENCHEUR (condition confirmée remplie) : "${aiNotif.trigger}"
+DÉCLENCHEUR : "${aiNotif.trigger}"
 CONSIGNES : "${aiNotif.prompt}"
-RAISON DÉCLENCHEMENT : "${checkData.reason}"
+DESTINATAIRES : ${JSON.stringify(membersJson)}
 
-Génère UNE notification push PERSONNALISÉE pour ${uName}, courte (2 phrases max), en français, ton chaleureux et direct.
-Cite des éléments réels des données. Réponds UNIQUEMENT avec le texte final.`;
+MISSION EN 2 ÉTAPES :
 
-        const text = await callGeminiDirect([{role:'user', text:notifPrompt}]);
-        if(text?.trim()) {
-          await addDoc(collection(db,'notifications'), {
-            message: text.trim(),
-            type: 'info',
-            repeat: 'once',
-            targets: targetUser ? [targetUser.id] : ['all'],
-            createdAt: new Date().toISOString(),
-            readBy: {},
-            generatedByAI: true,
-            trigger: aiNotif.trigger,
-          });
-          sentCount++;
-        }
-      };
+ÉTAPE 1 — Est-ce que le déclencheur justifie d'envoyer une notification MAINTENANT ?
+- Si c'est une ACTION (ajout d'article, test, demande manuelle) → OUI
+- Si c'est une CONDITION (périmés présents, corvées non faites, jour précis) → vérifie dans les données ci-dessus
+- Si les données nécessaires sont VIDES et le déclencheur les requiert → NON, signale-le
 
-      if(aiNotif.targets.includes('all') && targetedUsers.length === 0) {
-        await generateFor(null);
-      } else {
-        for(const u of targetedUsers) await generateFor(u);
+ÉTAPE 2 — Si OUI, génère UNE notification par destinataire.
+RÈGLES ABSOLUES pour la génération :
+⛔ NE JAMAIS inventer d'articles, recettes, noms ou données qui ne sont PAS dans les données ci-dessus
+⛔ Si le frigo est VIDE, ne pas mentionner d'articles de frigo
+⛔ Si les courses sont VIDES, ne pas mentionner de courses
+⛔ Utiliser UNIQUEMENT ce qui est écrit dans les données réelles
+✅ Si les données utiles sont vides, la notification doit le refléter honnêtement
+
+Réponds UNIQUEMENT avec ce JSON (sans markdown) :
+{
+  "shouldSend": true,
+  "reason": "explication courte pourquoi on envoie ou pas",
+  "notifications": [
+    {"userId": "email@...", "message": "texte notification max 2 phrases"}
+  ]
+}
+Si shouldSend=false, notifications=[]`;
+
+      const raw = await callGeminiDirect([{role:'user', text:megaPrompt}]);
+      console.log('[AI Notif] raw:', raw);
+
+      let result: any = null;
+      try {
+        const match = raw?.match(/\{[\s\S]*\}/);
+        if(match) result = JSON.parse(match[0]);
+      } catch { console.error('[AI Notif] parse error', raw); }
+
+      if(!result) {
+        setAiNotifLoading(false);
+        return alert('❌ L\'IA n\'a pas pu analyser la situation. Réessayez.');
+      }
+
+      if(!result.shouldSend) {
+        setAiNotifLoading(false);
+        return alert(`⏸️ Notification non envoyée.\n\n${result.reason}`);
+      }
+
+      // ── 5. Sauvegarde les notifications générées ──────────────────────────
+      let sentCount = 0;
+      for(const n of (result.notifications||[])) {
+        if(!n.message?.trim()) continue;
+        const targetUser = targetedUsers.find((u:any)=>u.id===n.userId);
+        await addDoc(collection(db,'notifications'), {
+          message: n.message.trim(),
+          type: 'info',
+          repeat: 'once',
+          targets: targetUser ? [targetUser.id] : ['all'],
+          createdAt: new Date().toISOString(),
+          readBy: {},
+          generatedByAI: true,
+          trigger: aiNotif.trigger,
+        });
+        sentCount++;
+      }
+
+      // Si l'IA a renvoyé shouldSend=true mais pas de notifications détaillées
+      if(sentCount===0 && result.shouldSend) {
+        await addDoc(collection(db,'notifications'), {
+          message: result.reason || 'Notification déclenchée.',
+          type: 'info', repeat: 'once',
+          targets: aiNotif.targets,
+          createdAt: new Date().toISOString(),
+          readBy: {}, generatedByAI: true, trigger: aiNotif.trigger,
+        });
+        sentCount=1;
       }
 
       setAiNotif({trigger:'',prompt:'',targets:['all']});
-      alert(`✅ ${sentCount} notification(s) envoyée(s) — déclencheur confirmé : ${checkData.reason}`);
+      alert(`✅ ${sentCount} notification(s) envoyée(s).\n\n${result.reason}`);
 
     } catch(e:any) {
       console.error('sendAiNotification error:', e);
