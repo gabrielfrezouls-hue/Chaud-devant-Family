@@ -283,7 +283,82 @@ Réponds UNIQUEMENT avec ce JSON :
   return null;
 };
 
-// 6. ARCHITECTE IA (modification du design/config)
+// 7. EXTRACTION PRODUIT DEPUIS URL (pour WishList)
+export const extractProductFromUrl = async (url: string): Promise<{name: string, imageUrl: string} | null> => {
+  // Étape 1 : essayer un proxy CORS rapide
+  const proxies = [
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+  ];
+
+  for (const proxyUrl of proxies) {
+    try {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 5000);
+      const res = await fetch(proxyUrl, { signal: ctrl.signal });
+      if (!res.ok) continue;
+      const data = await res.json().catch(() => null);
+      const html: string = data?.contents || await res.text().catch(() => '') || '';
+      if (html.length < 200) continue;
+
+      // Parser le HTML
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const name =
+        doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
+        doc.querySelector('meta[name="twitter:title"]')?.getAttribute('content') ||
+        doc.querySelector('h1')?.textContent?.trim() ||
+        doc.querySelector('title')?.textContent?.trim() || '';
+      const imageUrl =
+        doc.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
+        doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') || '';
+
+      // Nettoyer le nom (retirer suffixe site " - Amazon.fr" etc.)
+      const cleanName = name.replace(/\s*[|–\-]\s*(Amazon|Cdiscount|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc).*$/i, '').trim();
+      if (cleanName.length > 3) return { name: cleanName, imageUrl };
+    } catch { continue; }
+  }
+
+  // Étape 2 : fallback IA — Gemini déduit le nom depuis l'URL seule
+  try {
+    const res = await callGemini({
+      contents: [{
+        parts: [{
+          text: `Analyse cette URL de boutique en ligne et déduis UNIQUEMENT le nom commercial du produit à partir du chemin URL, des mots-clés et du domaine.
+URL : ${url}
+
+Règles :
+- Utilise les segments du chemin (après le domaine) pour identifier le produit
+- Pour Amazon, utilise la partie avant "/dp/" ou entre les tirets du chemin
+- Traduis les tirets/underscores en espaces
+- Mets en majuscule la première lettre de chaque mot
+- Ne génère PAS d'informations inventées sur le produit
+- Si vraiment impossible, retourne le dernier segment propre de l'URL
+
+Réponds UNIQUEMENT avec ce JSON (pas de markdown) :
+{"name":"Nom du produit","imageUrl":""}`
+        }]
+      }]
+    });
+    const parsed = cleanJSON(res);
+    if (parsed?.name && parsed.name.length > 2) {
+      return { name: parsed.name, imageUrl: '' };
+    }
+  } catch { /* ignore */ }
+
+  // Étape 3 : extraction brute depuis l'URL
+  try {
+    const urlObj = new URL(url);
+    const segments = urlObj.pathname.split('/').filter(s => s.length > 3 && !/^(dp|ref|sr|B0|p|s)/.test(s));
+    const raw = segments[0] || '';
+    const name = decodeURIComponent(raw).replace(/[-_+]/g, ' ').replace(/\s+/g, ' ').trim();
+    // Mettre en Title Case
+    const titled = name.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    if (titled.length > 3) return { name: titled, imageUrl: '' };
+  } catch { /* ignore */ }
+
+  return null;
+};
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
   const res = await callGemini({
     contents: [{
