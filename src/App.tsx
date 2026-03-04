@@ -11,7 +11,7 @@ import {
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
   Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail, CornerDownRight, Store, CalendarClock,
-  Refrigerator, Scan, Camera, AlertTriangle, Bot, Flame, Info, Package, Barcode, Brain
+  Refrigerator, Scan, Camera, AlertTriangle, Bot, Flame, Info, Package, Barcode, Brain, Cloud
 } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat, askButlerAgent, scanProductImage, extractRecipeFromUrl } from './services/geminiService';
@@ -1198,6 +1198,124 @@ const HomeCard = ({ icon, title, label, onClick, color }: any) => (
 );
 
 // ==========================================
+// AUTO-SAVE SETTINGS (paramètres silencieux)
+// ==========================================
+const AutoSaveSettings = ({ localC, save, config, setLocalC, fileRef, handleFile }: any) => {
+  const [saveStatus, setSaveStatus] = useState<'idle'|'saving'|'saved'>('idle');
+  const timerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const isFirstRender = useRef(true);
+
+  // Auto-save avec debounce 800ms à chaque modification de localC
+  useEffect(() => {
+    if(isFirstRender.current) { isFirstRender.current = false; return; }
+    setSaveStatus('saving');
+    if(timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      await save(localC, false); // false = pas de création d'historique
+      setSaveStatus('saved');
+      setTimeout(()=>setSaveStatus('idle'), 2500);
+    }, 800);
+    return () => { if(timerRef.current) clearTimeout(timerRef.current); };
+  }, [localC]);
+
+  return (
+    <div className="space-y-8 animate-in fade-in">
+      {/* Header avec indicateur de sauvegarde */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>PARAMÈTRES</h3>
+        <div className={`flex items-center gap-1.5 text-xs font-bold transition-all duration-300 ${
+          saveStatus==='saving' ? 'text-amber-500' :
+          saveStatus==='saved'  ? 'text-green-500' :
+          'text-gray-300'
+        }`}>
+          {saveStatus==='saving' && <><Loader2 size={12} className="animate-spin"/>Sauvegarde…</>}
+          {saveStatus==='saved'  && <><CheckCircle2 size={12}/>Sauvegardé</>}
+          {saveStatus==='idle'   && <><Cloud size={12}/>Auto-sauvegarde</>}
+        </div>
+      </div>
+
+      {/* MAINTENANCE / FUTUR — Sélection par page */}
+      <div className="bg-black p-6 rounded-3xl space-y-5">
+        <h4 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><Lock size={16}/> MODE MAINTENANCE — PAR PAGE</h4>
+        <p className="text-gray-400 text-sm leading-relaxed">
+          Sélectionnez les pages à verrouiller. Les pages verrouillées affichent
+          <span className="text-white font-bold mx-1">"Ici, débute le futur"</span>
+          pour tous les membres sauf l'admin.
+        </p>
+
+        {/* Switch global rapide */}
+        <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
+          <div>
+            <span className="text-white font-bold text-sm">Tout verrouiller</span>
+            <p className="text-gray-500 text-xs mt-0.5">Verrouille l'intégralité du site</p>
+          </div>
+          <button
+            onClick={()=>{
+              const allLocked = Object.keys(ORIGINAL_CONFIG.navigationLabels).reduce((acc, key) => ({...acc, [key]: true}), {});
+              setLocalC((c:any) => ({...c, lockedPages: allLocked}));
+            }}
+            className="px-4 py-2 bg-red-600 text-white rounded-xl font-bold text-xs hover:bg-red-500 transition-colors"
+          >
+            🔒 Tout fermer
+          </button>
+        </div>
+
+        {/* Sélection granulaire par page */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {Object.entries(ORIGINAL_CONFIG.navigationLabels).map(([key, label]) => {
+            const isPageLocked = !!(localC.lockedPages as any)?.[key];
+            return (
+              <button
+                key={key}
+                onClick={()=>{
+                  const current = (localC.lockedPages as any) || {};
+                  setLocalC((c:any) => ({...c, lockedPages: {...current, [key]: !isPageLocked}}));
+                }}
+                className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
+                  isPageLocked
+                    ? 'bg-red-900/40 border-red-500/50 text-red-300'
+                    : 'bg-white/5 border-white/10 text-gray-400 hover:border-white/20'
+                }`}
+              >
+                <span className="font-bold text-xs uppercase tracking-wide">{label}</span>
+                <span className="text-sm">{isPageLocked ? '🔒' : '🔓'}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Bouton tout déverrouiller */}
+        <button
+          onClick={()=>setLocalC((c:any) => ({...c, lockedPages: {}}))}
+          className="w-full py-3 border border-white/20 text-gray-400 font-bold rounded-xl hover:bg-white/5 transition-colors text-xs uppercase tracking-widest"
+        >
+          🔓 Tout déverrouiller
+        </button>
+      </div>
+
+      {/* PAGE ACCUEIL */}
+      <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
+        <h4 className="font-black text-gray-600 uppercase tracking-widest text-sm flex items-center gap-2"><Home size={16}/> PAGE D'ACCUEIL</h4>
+        <input value={localC.welcomeTitle||''} onChange={e=>setLocalC((c:any)=>({...c,welcomeTitle:e.target.value}))} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Titre principal"/>
+        <textarea value={localC.welcomeText||''} onChange={e=>setLocalC((c:any)=>({...c,welcomeText:e.target.value}))} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Texte de bienvenue"/>
+        <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e=>handleFile(e,(b:string)=>setLocalC((c:any)=>({...c,welcomeImage:b})))}/>
+        <div onClick={()=>fileRef.current?.click()} className="p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer text-xs uppercase font-bold text-gray-400 hover:border-gray-400 transition-colors">Changer la photo d'accueil</div>
+        <div>
+          <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Widget / Code HTML</label>
+          <textarea
+            value={localC.homeHtml||''}
+            onChange={e=>setLocalC((c:any)=>({...c,homeHtml:e.target.value}))}
+            className="w-full p-5 rounded-2xl border border-gray-200 h-32 font-mono text-xs"
+            placeholder="Code HTML/Widget pour l'accueil (Optionnel)"
+          />
+          <p className="text-[10px] text-gray-400 mt-1 ml-1">Ce code s'affiche directement sur la page d'accueil. Utile pour intégrer des widgets météo, compte à rebours, etc.</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
 // ADMIN PANEL (RÉORGANISÉ)
 // ==========================================
 const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, choreStatus }: any) => {
@@ -1547,89 +1665,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
 
       {/* PARAMÈTRES (Regroupement Accueil + Semainier + Maintenance) */}
       {tab==='settings'&&(
-        <div className="space-y-8 animate-in fade-in">
-          <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>PARAMÈTRES</h3>
-
-          {/* MAINTENANCE / FUTUR — Sélection par page */}
-          <div className="bg-black p-6 rounded-3xl space-y-5">
-            <h4 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><Lock size={16}/> MODE MAINTENANCE — PAR PAGE</h4>
-            <p className="text-gray-400 text-sm leading-relaxed">
-              Sélectionnez les pages à verrouiller. Les pages verrouillées affichent
-              <span className="text-white font-bold mx-1">"Ici, débute le futur"</span>
-              pour tous les membres sauf l'admin.
-            </p>
-
-            {/* Switch global rapide */}
-            <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
-              <div>
-                <span className="text-white font-bold text-sm">Tout verrouiller</span>
-                <p className="text-gray-500 text-xs mt-0.5">Verrouille l'intégralité du site</p>
-              </div>
-              <button
-                onClick={()=>{
-                  const allLocked = Object.keys(ORIGINAL_CONFIG.navigationLabels).reduce((acc, key) => ({...acc, [key]: true}), {});
-                  const newVal = {...localC, lockedPages: allLocked};
-                  setLocalC(newVal);
-                  save(newVal, false);
-                }}
-                className="px-4 py-2 bg-red-600 text-white rounded-xl font-bold text-xs hover:bg-red-500 transition-colors"
-              >
-                🔒 Tout fermer
-              </button>
-            </div>
-
-            {/* Sélection granulaire par page */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {Object.entries(ORIGINAL_CONFIG.navigationLabels).map(([key, label]) => {
-                const isPageLocked = !!(localC.lockedPages as any)?.[key];
-                return (
-                  <button
-                    key={key}
-                    onClick={()=>{
-                      const current = (localC.lockedPages as any) || {};
-                      const newLockedPages = {...current, [key]: !isPageLocked};
-                      const newVal = {...localC, lockedPages: newLockedPages};
-                      setLocalC(newVal);
-                      save(newVal, false);
-                    }}
-                    className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
-                      isPageLocked
-                        ? 'bg-red-900/40 border-red-500/50 text-red-300'
-                        : 'bg-white/5 border-white/10 text-gray-400 hover:border-white/20'
-                    }`}
-                  >
-                    <span className="font-bold text-xs uppercase tracking-wide">{label}</span>
-                    <span className="text-sm">{isPageLocked ? '🔒' : '🔓'}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Bouton tout déverrouiller */}
-            <button
-              onClick={()=>{
-                const newVal = {...localC, lockedPages: {}};
-                setLocalC(newVal);
-                save(newVal, false);
-              }}
-              className="w-full py-3 border border-white/20 text-gray-400 font-bold rounded-xl hover:bg-white/5 transition-colors text-xs uppercase tracking-widest"
-            >
-              🔓 Tout déverrouiller
-            </button>
-          </div>
-
-          {/* PAGE ACCUEIL */}
-          <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
-            <h4 className="font-black text-gray-600 uppercase tracking-widest text-sm flex items-center gap-2"><Home size={16}/> PAGE D'ACCUEIL</h4>
-            <input value={localC.welcomeTitle} onChange={e=>setLocalC({...localC,welcomeTitle:e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Titre principal"/>
-            <textarea value={localC.welcomeText} onChange={e=>setLocalC({...localC,welcomeText:e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Texte de bienvenue"/>
-            <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e=>handleFile(e,(b:string)=>setLocalC({...localC,welcomeImage:b}))}/>
-            <div onClick={()=>fileRef.current?.click()} className="p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer text-xs uppercase font-bold text-gray-400">Changer la photo</div>
-            <textarea value={localC.homeHtml} onChange={e=>setLocalC({...localC,homeHtml:e.target.value})} className="w-full p-5 rounded-2xl border border-gray-200 h-32 font-mono text-xs" placeholder="Code HTML/Widget pour l'accueil (Optionnel)"/>
-          </div>
-
-          <button onClick={()=>save(localC,true)} className="w-full py-5 text-white rounded-2xl font-black shadow-xl uppercase" style={{backgroundColor:config.primaryColor}}>Sauvegarder tous les paramètres</button>
-        </div>
+        <AutoSaveSettings localC={localC} save={save} config={config} setLocalC={setLocalC} fileRef={fileRef} handleFile={handleFile}/>
       )}
     </div>
   );
@@ -1999,7 +2035,7 @@ const WishlistView = ({ user, config, siteUsers }: { user:User, config:SiteConfi
   const requestUpgrade = async () => {
     await addDoc(collection(db,'notifications'),{
       message:`🚀 Demande Premium de ${user.displayName||user.email} — souhaite passer en version payante !`,
-      type:'alert', repeat:'once', targets:[import.meta.env?.VITE_ADMIN_EMAIL||'gabriel.frezouls@gmail.com'],
+      type:'alert', repeat:'once', targets:[ADMIN_EMAIL],
       createdAt:new Date().toISOString(), readBy:{},
     });
     setShowFreemium(false);
