@@ -1200,27 +1200,32 @@ const HomeCard = ({ icon, title, label, onClick, color }: any) => (
 // ==========================================
 // AUTO-SAVE SETTINGS (paramètres silencieux)
 // ==========================================
-const AutoSaveSettings = ({ localC, save, config, setLocalC, fileRef, handleFile }: any) => {
+const AutoSaveSettings = ({ localC, save, config, setLocalC, fileRef, handleFile, lockedPagesMap, onSaveMaintenance }: any) => {
   const [saveStatus, setSaveStatus] = useState<'idle'|'saving'|'saved'>('idle');
   const timerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
   const isFirstRender = useRef(true);
 
-  // Auto-save avec debounce 800ms à chaque modification de localC
+  // Auto-save localC (textes, images, html) avec debounce 800ms
   useEffect(() => {
     if(isFirstRender.current) { isFirstRender.current = false; return; }
     setSaveStatus('saving');
     if(timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(async () => {
-      await save(localC, false); // false = pas de création d'historique
+      await save(localC, false);
       setSaveStatus('saved');
       setTimeout(()=>setSaveStatus('idle'), 2500);
     }, 800);
     return () => { if(timerRef.current) clearTimeout(timerRef.current); };
   }, [localC]);
 
+  // Save lockedPages immediately (doc séparé, invisible dans historique)
+  const saveLock = async (pages: Record<string,boolean>) => {
+    if(onSaveMaintenance) await onSaveMaintenance(pages);
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in">
-      {/* Header avec indicateur de sauvegarde */}
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>PARAMÈTRES</h3>
         <div className={`flex items-center gap-1.5 text-xs font-bold transition-all duration-300 ${
@@ -1234,63 +1239,55 @@ const AutoSaveSettings = ({ localC, save, config, setLocalC, fileRef, handleFile
         </div>
       </div>
 
-      {/* MAINTENANCE / FUTUR — Sélection par page */}
+      {/* MAINTENANCE — stockée dans site_config/maintenance (séparé) */}
       <div className="bg-black p-6 rounded-3xl space-y-5">
         <h4 className="font-black text-white uppercase tracking-widest text-sm flex items-center gap-2"><Lock size={16}/> MODE MAINTENANCE — PAR PAGE</h4>
         <p className="text-gray-400 text-sm leading-relaxed">
           Sélectionnez les pages à verrouiller. Les pages verrouillées affichent
           <span className="text-white font-bold mx-1">"Ici, débute le futur"</span>
           pour tous les membres sauf l'admin.
+          <span className="block mt-1 text-gray-500 text-xs">L'administrateur garde toujours accès complet.</span>
         </p>
 
-        {/* Switch global rapide */}
         <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
           <div>
             <span className="text-white font-bold text-sm">Tout verrouiller</span>
-            <p className="text-gray-500 text-xs mt-0.5">Verrouille l'intégralité du site</p>
+            <p className="text-gray-500 text-xs mt-0.5">Verrouille toutes les pages pour les membres</p>
           </div>
           <button
             onClick={()=>{
-              const allLocked = Object.keys(ORIGINAL_CONFIG.navigationLabels).reduce((acc, key) => ({...acc, [key]: true}), {});
-              setLocalC((c:any) => ({...c, lockedPages: allLocked}));
+              const allLocked = Object.keys(ORIGINAL_CONFIG.navigationLabels).reduce((acc, key) => ({...acc, [key]: true}), {} as Record<string,boolean>);
+              saveLock(allLocked);
             }}
             className="px-4 py-2 bg-red-600 text-white rounded-xl font-bold text-xs hover:bg-red-500 transition-colors"
-          >
-            🔒 Tout fermer
-          </button>
+          >🔒 Tout fermer</button>
         </div>
 
-        {/* Sélection granulaire par page */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {Object.entries(ORIGINAL_CONFIG.navigationLabels).map(([key, label]) => {
-            const isPageLocked = !!(localC.lockedPages as any)?.[key];
+            const isLocked = !!(lockedPagesMap as any)[key];
             return (
               <button
                 key={key}
                 onClick={()=>{
-                  const current = (localC.lockedPages as any) || {};
-                  setLocalC((c:any) => ({...c, lockedPages: {...current, [key]: !isPageLocked}}));
+                  const updated = {...(lockedPagesMap as any), [key]: !isLocked};
+                  saveLock(updated);
                 }}
                 className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
-                  isPageLocked
-                    ? 'bg-red-900/40 border-red-500/50 text-red-300'
-                    : 'bg-white/5 border-white/10 text-gray-400 hover:border-white/20'
+                  isLocked ? 'bg-red-900/40 border-red-500/50 text-red-300' : 'bg-white/5 border-white/10 text-gray-400 hover:border-white/20'
                 }`}
               >
-                <span className="font-bold text-xs uppercase tracking-wide">{label}</span>
-                <span className="text-sm">{isPageLocked ? '🔒' : '🔓'}</span>
+                <span className="font-bold text-xs uppercase tracking-wide">{label as string}</span>
+                <span className="text-sm">{isLocked ? '🔒' : '🔓'}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Bouton tout déverrouiller */}
         <button
-          onClick={()=>setLocalC((c:any) => ({...c, lockedPages: {}}))}
+          onClick={()=>saveLock({})}
           className="w-full py-3 border border-white/20 text-gray-400 font-bold rounded-xl hover:bg-white/5 transition-colors text-xs uppercase tracking-widest"
-        >
-          🔓 Tout déverrouiller
-        </button>
+        >🔓 Tout déverrouiller</button>
       </div>
 
       {/* PAGE ACCUEIL */}
@@ -1302,13 +1299,8 @@ const AutoSaveSettings = ({ localC, save, config, setLocalC, fileRef, handleFile
         <div onClick={()=>fileRef.current?.click()} className="p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer text-xs uppercase font-bold text-gray-400 hover:border-gray-400 transition-colors">Changer la photo d'accueil</div>
         <div>
           <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Widget / Code HTML</label>
-          <textarea
-            value={localC.homeHtml||''}
-            onChange={e=>setLocalC((c:any)=>({...c,homeHtml:e.target.value}))}
-            className="w-full p-5 rounded-2xl border border-gray-200 h-32 font-mono text-xs"
-            placeholder="Code HTML/Widget pour l'accueil (Optionnel)"
-          />
-          <p className="text-[10px] text-gray-400 mt-1 ml-1">Ce code s'affiche directement sur la page d'accueil. Utile pour intégrer des widgets météo, compte à rebours, etc.</p>
+          <textarea value={localC.homeHtml||''} onChange={e=>setLocalC((c:any)=>({...c,homeHtml:e.target.value}))} className="w-full p-5 rounded-2xl border border-gray-200 h-32 font-mono text-xs" placeholder="Code HTML/Widget pour l'accueil (Optionnel)"/>
+          <p className="text-[10px] text-gray-400 mt-1 ml-1">Ce code s'affiche directement sur la page d'accueil.</p>
         </div>
       </div>
     </div>
@@ -1318,7 +1310,7 @@ const AutoSaveSettings = ({ localC, save, config, setLocalC, fileRef, handleFile
 // ==========================================
 // ADMIN PANEL (RÉORGANISÉ)
 // ==========================================
-const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, choreStatus }: any) => {
+const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, choreStatus, lockedPagesMap, onSaveMaintenance }: any) => {
   const [tab, setTab] = useState('users');
   const [newUser, setNewUser] = useState({email:'',letter:'',name:''});
   const [localC, setLocalC] = useState(config);
@@ -1665,7 +1657,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
 
       {/* PARAMÈTRES (Regroupement Accueil + Semainier + Maintenance) */}
       {tab==='settings'&&(
-        <AutoSaveSettings localC={localC} save={save} config={config} setLocalC={setLocalC} fileRef={fileRef} handleFile={handleFile}/>
+        <AutoSaveSettings localC={localC} save={save} config={config} setLocalC={setLocalC} fileRef={fileRef} handleFile={handleFile} lockedPagesMap={lockedPagesMap||{}} onSaveMaintenance={onSaveMaintenance}/>
       )}
     </div>
   );
@@ -2463,362 +2455,6 @@ const WishlistView = ({ user, config, siteUsers }: { user:User, config:SiteConfi
     </div>
   );
 };
-  const [lists, setLists]     = useState<any[]>([]);
-  const [activeList, setActiveList] = useState<any|null>(null);
-  const [showCreate, setShowCreate]   = useState(false);
-  const [showAddItem, setShowAddItem] = useState<'manual'|'url'|null>(null);
-  const [showShare, setShowShare]     = useState(false);
-  const [newList, setNewList]  = useState({name:'', icon:'🎁', category:''});
-  const [newItem, setNewItem]  = useState({name:'', imageUrl:'', url:''});
-  const [urlInput, setUrlInput] = useState('');
-  const [urlLoading, setUrlLoading] = useState(false);
-  const [urlError, setUrlError]   = useState('');
-
-  // Charger les wishlists (propres + partagées)
-  useEffect(()=>{
-    if(!user?.email) return;
-    const q = query(collection(db,'wishlists'), orderBy('createdAt','desc'));
-    const unsub = onSnapshot(q, snap=>{
-      const all = snap.docs.map(d=>({id:d.id,...d.data()})) as any[];
-      // Garder : les miennes + celles partagées avec moi
-      const visible = all.filter((l:any)=>
-        l.ownerEmail===user.email ||
-        (l.sharedWith||[]).includes(user.email)
-      );
-      setLists(visible);
-    });
-    return()=>unsub();
-  },[user]);
-
-  // Recharger l'activeList depuis la liste à jour
-  useEffect(()=>{
-    if(!activeList) return;
-    const updated = lists.find(l=>l.id===activeList.id);
-    if(updated) setActiveList(updated);
-  },[lists]);
-
-  const isOwner = (list:any) => list.ownerEmail===user.email;
-
-  const createList = async () => {
-    if(!newList.name.trim()) return;
-    const doc2 = await addDoc(collection(db,'wishlists'),{
-      name:newList.name.trim(), icon:newList.icon, category:newList.category,
-      ownerEmail:user.email, ownerName:user.displayName||user.email,
-      sharedWith:[], items:[], createdAt:new Date().toISOString()
-    });
-    setShowCreate(false); setNewList({name:'',icon:'🎁',category:''});
-    // Ouvrir la liste créée
-    setActiveList({id:doc2.id, name:newList.name.trim(), icon:newList.icon, items:[], ownerEmail:user.email, sharedWith:[]});
-  };
-
-  const deleteList = async (list:any) => {
-    if(!confirm(`Supprimer la liste "${list.name}" ?`)) return;
-    await deleteDoc(doc(db,'wishlists',list.id));
-    if(activeList?.id===list.id) setActiveList(null);
-  };
-
-  const addItemManual = async () => {
-    if(!newItem.name.trim()||!activeList) return;
-    const item = {id:Date.now().toString(), name:newItem.name.trim(), imageUrl:newItem.imageUrl, addedAt:new Date().toISOString()};
-    await updateDoc(doc(db,'wishlists',activeList.id),{items:arrayUnion(item)});
-    setNewItem({name:'',imageUrl:'',url:''}); setShowAddItem(null);
-  };
-
-  const scrapeUrl = async () => {
-    if(!urlInput.trim()) return;
-    setUrlLoading(true); setUrlError('');
-    try {
-      // Use Gemini to extract product info from URL
-      const { callGeminiDirect } = await import('./services/geminiService');
-      const result = await callGeminiDirect([{role:'user', text:
-        `Analyse cette URL de produit : ${urlInput}\nExtrait le nom du produit et l'URL de l'image principale.\nRéponds UNIQUEMENT en JSON : {"name":"nom du produit","imageUrl":"url image ou vide"}`
-      }]);
-      const parsed = JSON.parse(result?.match(/\{[\s\S]*\}/)?.[0]||'{}');
-      if(parsed.name) {
-        setNewItem({name:parsed.name, imageUrl:parsed.imageUrl||'', url:urlInput});
-        setShowAddItem('manual'); // Passe au form manuel pré-rempli
-        setUrlInput('');
-      } else { setUrlError('Impossible d\'extraire le produit. Saisissez manuellement.'); }
-    } catch { setUrlError('Erreur — essayez l\'ajout manuel.'); }
-    setUrlLoading(false);
-  };
-
-  const removeItem = async (list:any, itemId:string) => {
-    const updated = (list.items||[]).filter((i:any)=>i.id!==itemId);
-    await updateDoc(doc(db,'wishlists',list.id),{items:updated});
-  };
-
-  const shareWith = async (list:any, targetEmail:string, targetName:string) => {
-    if((list.sharedWith||[]).includes(targetEmail)) return;
-    await updateDoc(doc(db,'wishlists',list.id),{sharedWith:arrayUnion(targetEmail)});
-    // Notification ciblée
-    await addDoc(collection(db,'notifications'),{
-      message:`${user.displayName||'Quelqu\'un'} a partagé la WishList "${list.name}" ${list.icon} avec toi !`,
-      type:'info', repeat:'once', targets:[targetEmail],
-      linkView:'wishlist', createdAt:new Date().toISOString(), readBy:{},
-    });
-    alert(`✅ WishList partagée avec ${targetName} !`);
-  };
-
-  const unshare = async (list:any, targetEmail:string) => {
-    await updateDoc(doc(db,'wishlists',list.id),{sharedWith:arrayRemove(targetEmail)});
-  };
-
-  const myLists     = lists.filter(l=>l.ownerEmail===user.email);
-  const sharedLists = lists.filter(l=>l.ownerEmail!==user.email);
-
-  return (
-    <div className="space-y-6 pb-32 animate-in fade-in">
-
-      {/* HEADER */}
-      <div className="flex items-center justify-between">
-        {activeList ? (
-          <button onClick={()=>setActiveList(null)} className="flex items-center gap-2 text-gray-500 font-bold hover:text-black transition-colors">
-            <ArrowLeft size={20}/> Mes Listes
-          </button>
-        ) : (
-          <h2 className="text-4xl font-cinzel font-black" style={{color:config.primaryColor}}>WISHLISTS</h2>
-        )}
-        {!activeList&&(
-          <button onClick={()=>setShowCreate(true)} className="flex items-center gap-2 px-4 py-2.5 text-white font-black rounded-2xl shadow-lg hover:scale-105 transition-transform text-sm" style={{backgroundColor:config.primaryColor}}>
-            <Plus size={16}/>Nouvelle liste
-          </button>
-        )}
-      </div>
-
-      {/* MODALE CRÉATION */}
-      {showCreate&&(
-        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowCreate(false)}>
-          <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
-            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
-            <h3 className="font-black text-xl">Nouvelle WishList</h3>
-            {/* Sélecteur icône */}
-            <div>
-              <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Icône</label>
-              <div className="flex flex-wrap gap-2">
-                {WISHLIST_ICONS.map(icon=>(
-                  <button key={icon} onClick={()=>setNewList(l=>({...l,icon}))} className={`text-2xl p-2 rounded-xl transition-all ${newList.icon===icon?'bg-gray-900 scale-110':'bg-gray-100 hover:bg-gray-200'}`}>{icon}</button>
-                ))}
-              </div>
-            </div>
-            <input value={newList.name} onChange={e=>setNewList(l=>({...l,name:e.target.value}))} placeholder="Nom de la liste..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black"/>
-            <input value={newList.category} onChange={e=>setNewList(l=>({...l,category:e.target.value}))} placeholder="Catégorie (facultatif)..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
-            <div className="flex gap-3">
-              <button onClick={()=>setShowCreate(false)} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
-              <button onClick={createList} disabled={!newList.name.trim()} className="flex-1 py-3 text-white font-black rounded-2xl disabled:opacity-40" style={{backgroundColor:config.primaryColor}}>Créer</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* VUE LISTE DES WISHLISTS */}
-      {!activeList&&(
-        <div className="space-y-6">
-          {/* Mes listes */}
-          {myLists.length>0&&(
-            <div className="space-y-3">
-              <h3 className="font-black text-xs uppercase tracking-widest text-gray-400 flex items-center gap-2"><Star size={12}/>Mes listes ({myLists.length})</h3>
-              {myLists.map(list=>(
-                <div key={list.id} onClick={()=>setActiveList(list)} className="flex items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all group">
-                  <div className="text-4xl">{list.icon}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-black text-lg leading-tight">{list.name}</div>
-                    <div className="flex items-center gap-3 mt-1">
-                      {list.category&&<span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">{list.category}</span>}
-                      <span className="text-[10px] text-gray-400">{(list.items||[]).length} article{(list.items||[]).length!==1?'s':''}</span>
-                      {(list.sharedWith||[]).length>0&&<span className="text-[10px] font-bold text-blue-500 flex items-center gap-1"><Users size={9}/>Partagée</span>}
-                    </div>
-                  </div>
-                  <ChevronRight size={18} className="text-gray-300 group-hover:text-gray-600 transition-colors"/>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Listes partagées */}
-          {sharedLists.length>0&&(
-            <div className="space-y-3">
-              <h3 className="font-black text-xs uppercase tracking-widest text-gray-400 flex items-center gap-2"><Users size={12}/>Partagées avec moi ({sharedLists.length})</h3>
-              {sharedLists.map(list=>(
-                <div key={list.id} onClick={()=>setActiveList(list)} className="flex items-center gap-4 p-4 bg-blue-50/70 rounded-2xl border-2 border-blue-200/60 cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all group">
-                  <div className="text-4xl">{list.icon}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-black text-lg leading-tight">{list.name}</div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full flex items-center gap-1"><Eye size={8}/>Lecture seule</span>
-                      <span className="text-[10px] text-gray-500">par {list.ownerName||list.ownerEmail}</span>
-                      <span className="text-[10px] text-gray-400">{(list.items||[]).length} article{(list.items||[]).length!==1?'s':''}</span>
-                    </div>
-                  </div>
-                  <ChevronRight size={18} className="text-blue-300 group-hover:text-blue-600 transition-colors"/>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {lists.length===0&&(
-            <div className="text-center py-20 space-y-4">
-              <div className="text-6xl">🎁</div>
-              <p className="text-gray-400 font-bold">Aucune wishlist pour l'instant</p>
-              <p className="text-sm text-gray-300">Créez votre première liste d'envies !</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* VUE DÉTAIL D'UNE WISHLIST */}
-      {activeList&&(
-        <div className="space-y-4">
-          {/* Titre et actions */}
-          <div className={`p-5 rounded-[2.5rem] shadow-xl ${isOwner(activeList)?'bg-white border border-gray-100':'bg-blue-50 border-2 border-blue-200'}`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-5xl">{activeList.icon}</span>
-                <div>
-                  <h3 className="font-black text-2xl">{activeList.name}</h3>
-                  {activeList.category&&<span className="text-xs text-gray-400 font-bold uppercase tracking-wide">{activeList.category}</span>}
-                  {!isOwner(activeList)&&<div className="flex items-center gap-1 mt-1"><Eye size={10} className="text-blue-500"/><span className="text-[10px] text-blue-600 font-bold">Lecture seule · par {activeList.ownerName||activeList.ownerEmail}</span></div>}
-                </div>
-              </div>
-              <div className="flex gap-2">
-                {isOwner(activeList)&&(
-                  <>
-                    <button onClick={()=>setShowShare(true)} className="p-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors" title="Partager"><Users size={16}/></button>
-                    <button onClick={()=>deleteList(activeList)} className="p-2.5 bg-red-50 text-red-400 rounded-xl hover:bg-red-100 transition-colors" title="Supprimer"><Trash2 size={16}/></button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Partage info */}
-            {isOwner(activeList)&&(activeList.sharedWith||[]).length>0&&(
-              <div className="mt-3 pt-3 border-t border-gray-100">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Partagée avec :</span>
-                  {(activeList.sharedWith||[]).map((email:string)=>{
-                    const u=siteUsers.find(u=>u.id===email);
-                    return (
-                      <span key={email} className="flex items-center gap-1.5 bg-blue-100 text-blue-700 text-xs font-bold px-2.5 py-1 rounded-full">
-                        {u?.name||email}
-                        <button onClick={()=>unshare(activeList,email)} className="hover:text-red-500 transition-colors"><X size={10}/></button>
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Modale partage */}
-          {showShare&&isOwner(activeList)&&(
-            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowShare(false)}>
-              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
-                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
-                <h3 className="font-black text-xl">Partager "{activeList.name}"</h3>
-                <p className="text-sm text-gray-500">Choisissez un membre de la famille :</p>
-                <div className="space-y-2">
-                  {siteUsers.filter(u=>u.id!==user.email).map((u:any)=>{
-                    const alreadyShared=(activeList.sharedWith||[]).includes(u.id);
-                    return (
-                      <button key={u.id} onClick={()=>{if(!alreadyShared){shareWith(activeList,u.id,u.name||u.id);setShowShare(false);}}} className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all ${alreadyShared?'bg-green-50 border border-green-200 cursor-default':'bg-gray-50 hover:bg-gray-100 cursor-pointer'}`}>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-black text-lg">{u.letter||u.name?.[0]||'?'}</div>
-                          <span className="font-bold">{u.name||u.id}</span>
-                        </div>
-                        {alreadyShared?<span className="text-xs text-green-600 font-bold flex items-center gap-1"><CheckCircle2 size={14}/>Partagé</span>:<ChevronRight size={16} className="text-gray-400"/>}
-                      </button>
-                    );
-                  })}
-                </div>
-                <button onClick={()=>setShowShare(false)} className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Fermer</button>
-              </div>
-            </div>
-          )}
-
-          {/* Bouton ajout (propriétaire seulement) */}
-          {isOwner(activeList)&&(
-            <div className="flex gap-3">
-              <button onClick={()=>setShowAddItem('manual')} className="flex-1 flex items-center justify-center gap-2 p-4 bg-white rounded-2xl border-2 border-dashed border-gray-300 text-gray-600 font-bold hover:border-black hover:text-black transition-all text-sm">
-                <Plus size={16}/>Ajout manuel
-              </button>
-              <button onClick={()=>setShowAddItem('url')} className="flex-1 flex items-center justify-center gap-2 p-4 bg-white rounded-2xl border-2 border-dashed border-gray-300 text-gray-600 font-bold hover:border-black hover:text-black transition-all text-sm">
-                <Link size={16}/>Insérer un lien
-              </button>
-            </div>
-          )}
-
-          {/* Modale ajout manuel */}
-          {showAddItem==='manual'&&isOwner(activeList)&&(
-            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowAddItem(null)}>
-              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
-                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
-                <h3 className="font-black text-xl">Ajouter un article</h3>
-                <input value={newItem.name} onChange={e=>setNewItem(i=>({...i,name:e.target.value}))} placeholder="Nom du produit..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
-                <input value={newItem.imageUrl} onChange={e=>setNewItem(i=>({...i,imageUrl:e.target.value}))} placeholder="URL image (facultatif)..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
-                {newItem.imageUrl&&<img src={newItem.imageUrl} alt="" className="w-full h-32 object-cover rounded-2xl" onError={e=>(e.currentTarget.style.display='none')}/>}
-                {newItem.url&&<div className="text-xs text-gray-400 truncate bg-gray-50 px-3 py-2 rounded-xl"><Link size={10} className="inline mr-1"/>{newItem.url}</div>}
-                <div className="flex gap-3">
-                  <button onClick={()=>{setShowAddItem(null);setNewItem({name:'',imageUrl:'',url:''}); setUrlInput('');}} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
-                  <button onClick={addItemManual} disabled={!newItem.name.trim()} className="flex-1 py-3 text-white font-black rounded-2xl disabled:opacity-40" style={{backgroundColor:config.primaryColor}}>Ajouter</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Modale ajout via URL */}
-          {showAddItem==='url'&&isOwner(activeList)&&(
-            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowAddItem(null)}>
-              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
-                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
-                <h3 className="font-black text-xl">Importer depuis un lien</h3>
-                <p className="text-sm text-gray-500">Collez l'URL d'une page produit — l'IA extrait le nom et l'image.</p>
-                <div className="flex gap-2">
-                  <input value={urlInput} onChange={e=>setUrlInput(e.target.value)} placeholder="https://..." className="flex-1 p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black text-sm" autoFocus/>
-                  <button onClick={scrapeUrl} disabled={!urlInput.trim()||urlLoading} className="p-3 text-white rounded-2xl disabled:opacity-40 flex items-center gap-1" style={{backgroundColor:config.primaryColor}}>
-                    {urlLoading?<Loader2 size={16} className="animate-spin"/>:<Scan size={16}/>}
-                  </button>
-                </div>
-                {urlError&&<p className="text-xs text-red-500 font-bold">{urlError}</p>}
-                <button onClick={()=>setShowAddItem(null)} className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
-              </div>
-            </div>
-          )}
-
-          {/* Articles de la liste */}
-          {(activeList.items||[]).length===0?(
-            <div className="text-center py-16 space-y-3">
-              <div className="text-5xl">{activeList.icon}</div>
-              <p className="text-gray-400 font-bold">Liste vide</p>
-              {isOwner(activeList)&&<p className="text-sm text-gray-300">Ajoutez votre premier article !</p>}
-            </div>
-          ):(
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {(activeList.items||[]).map((item:any)=>(
-                <div key={item.id} className={`group relative rounded-2xl overflow-hidden shadow-sm border transition-all hover:shadow-md ${isOwner(activeList)?'bg-white border-gray-100':'bg-blue-50/60 border-blue-100'}`}>
-                  {item.imageUrl?(
-                    <img src={item.imageUrl} alt={item.name} className="w-full h-32 object-cover" onError={e=>{(e.currentTarget as any).style.display='none';}}/>
-                  ):(
-                    <div className="w-full h-32 bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center text-4xl">{activeList.icon}</div>
-                  )}
-                  <div className="p-3">
-                    <p className="font-bold text-sm leading-tight">{item.name}</p>
-                    {item.url&&<a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 font-bold flex items-center gap-1 mt-1 hover:underline" onClick={e=>e.stopPropagation()}><ExternalLink size={9}/>Voir le produit</a>}
-                  </div>
-                  {isOwner(activeList)&&(
-                    <button onClick={()=>removeItem(activeList,item.id)} className="absolute top-2 right-2 w-7 h-7 bg-white/90 rounded-full flex items-center justify-center text-gray-400 hover:text-red-500 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
-                      <X size={12}/>
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ==========================================
 // APP COMPONENT
 // ==========================================
@@ -2826,6 +2462,7 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User|null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   const [config, setConfig] = useState<SiteConfig>(ORIGINAL_CONFIG);
+  const [lockedPagesMap, setLockedPagesMap] = useState<Record<string,boolean>>({});
   const [xsitePages, setXsitePages] = useState<any[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [events, setEvents] = useState<FamilyEvent[]>([]);
@@ -2890,6 +2527,7 @@ const App: React.FC = () => {
     if(!user) return;
     const ignoreError=(err:any)=>{console.log("Info:",err.code);};
     const unsubC=onSnapshot(doc(db,'site_config','main'),d=>{if(d.exists())setConfig(d.data() as SiteConfig);},ignoreError);
+    const unsubM=onSnapshot(doc(db,'site_config','maintenance'),d=>{if(d.exists())setLockedPagesMap(d.data()?.lockedPages||{});else setLockedPagesMap({});},ignoreError);
     const unsubX=onSnapshot(query(collection(db,'xsite_pages'),orderBy('timestamp','desc')),s=>setXsitePages(s.docs.map(d=>({...d.data(),id:d.id}))),ignoreError);
     const unsubR=onSnapshot(collection(db,'family_recipes'),s=>setRecipes(s.docs.map(d=>({...d.data(),id:d.id} as Recipe))),ignoreError);
     const unsubE=onSnapshot(collection(db,'family_events'),s=>{const raw=s.docs.map(d=>({...d.data(),id:d.id} as FamilyEvent));raw.sort((a,b)=>a.date.localeCompare(b.date));setEvents(raw);},ignoreError);
@@ -2912,7 +2550,7 @@ const App: React.FC = () => {
       });
       setNotifications(visible);
     },ignoreError);
-    return()=>{unsubC();unsubX();unsubR();unsubE();unsubV();unsubT();unsubU();unsubN();};
+    return()=>{unsubC();unsubM();unsubX();unsubR();unsubE();unsubV();unsubT();unsubU();unsubN();};
   },[user]);
 
   // DEEP LINKING
@@ -2963,9 +2601,8 @@ const App: React.FC = () => {
 
   // Helper : vérifie si une page est verrouillée pour les non-admins
   const isPageLocked = (viewKey: string): boolean => {
-    if(!user || user.email === ADMIN_EMAIL) return false;
-    const lockedPages = (config as any).lockedPages || {};
-    return !!lockedPages[viewKey];
+    if(user?.email === ADMIN_EMAIL) return false; // L'admin voit toujours tout
+    return !!lockedPagesMap[viewKey];
   };
 
   // --- ÉCRANS SPÉCIAUX ---
@@ -3289,6 +2926,10 @@ const App: React.FC = () => {
               arch={handleArchitect} chat={handleChat}
               prompt={aiPrompt} setP={setAiPrompt} load={isAiLoading} hist={chatHistory}
               users={siteUsers} choreStatus={choreStatus}
+              lockedPagesMap={lockedPagesMap}
+              onSaveMaintenance={async (pages:Record<string,boolean>)=>{
+                await setDoc(doc(db,'site_config','maintenance'),{lockedPages:pages});
+              }}
             />
           ):(
             <div className="max-w-md mx-auto bg-white/80 p-10 rounded-[3rem] text-center space-y-8 shadow-xl mt-20">
