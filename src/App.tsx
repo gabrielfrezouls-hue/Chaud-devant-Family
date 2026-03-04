@@ -151,40 +151,75 @@ const CircleLiquid = ({ fillPercentage }: { fillPercentage:number }) => {
 };
 
 // ==========================================
-// COMPOSANT FRIGO
+// COMPOSANT FRIGO + CELLIER
 // ==========================================
-const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
+const CELLIER_CATEGORIES = ['Épicerie Salée','Épicerie Sucrée','Boissons','Hygiène & Beauté','Entretien Maison','Divers'];
+const FRIGO_CATEGORIES   = ['Boucherie/Poisson','Boulangerie','Plat préparé','Restes','Primeur','Frais & Crèmerie','Surgelés'];
+
+type GaugeLevel = 'plein'|'moitie'|'vide';
+const GAUGE_CONFIG: Record<GaugeLevel,{label:string,color:string,bg:string,fill:number}> = {
+  plein:  {label:'Plein',   color:'text-green-700',  bg:'bg-green-50',   fill:100},
+  moitie: {label:'Moitié',  color:'text-orange-600', bg:'bg-orange-50',  fill:50},
+  vide:   {label:'Vide',    color:'text-red-600',    bg:'bg-red-50',     fill:5},
+};
+
+const GaugeBar = ({level, onClick}:{level:GaugeLevel, onClick:()=>void}) => {
+  const cfg = GAUGE_CONFIG[level];
+  return (
+    <button onClick={onClick} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${cfg.bg} ${cfg.color} transition-all hover:scale-105`} title="Cliquer pour changer">
+      <div className="w-12 h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-500" style={{width:`${cfg.fill}%`, backgroundColor: level==='plein'?'#16a34a':level==='moitie'?'#ea580c':'#dc2626'}}/>
+      </div>
+      <span className="text-[10px] font-black uppercase tracking-wide">{cfg.label}</span>
+    </button>
+  );
+};
+
+const FrigoView = ({ user, config, onNavigate }: { user:User, config:SiteConfig, onNavigate?:(v:string)=>void }) => {
   const [items, setItems] = useState<FrigoItem[]>([]);
-  const [newItem, setNewItem] = useState({ name:'', quantity:1, unit:'pcs', expiryDate:'' });
+  const [frigotab, setFrigotab] = useState<'frigo'|'cellier'>('frigo');
+  const [newItem, setNewItem] = useState({ name:'', quantity:1, unit:'pcs', expiryDate:'', hasExpiry:true });
   const [barcodeInput, setBarcodeInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [scanMsg, setScanMsg] = useState('');
-  // Ref pour l'input fichier IA Photo (chargeur de médias standard)
   const photoInputRef = useRef<HTMLInputElement>(null);
-  // Ref pour la photo de code-barre via IA
   const barcodePhotoRef = useRef<HTMLInputElement>(null);
 
-  // Analyse une photo pour en extraire le code-barre via geminiService
+  // NETTOYAGE AUTO-GASPI : supprime les articles périmés depuis plus de 5 jours
+  useEffect(() => {
+    const cleanup = async () => {
+      const snap = await getDocs(collection(db,'frigo_items'));
+      const today = new Date(); today.setHours(0,0,0,0);
+      const cutoff = new Date(today); cutoff.setDate(cutoff.getDate()-5);
+      for(const d of snap.docs) {
+        const item = d.data() as any;
+        // Ne pas supprimer les articles Cellier (pas de péremption)
+        if(CELLIER_CATEGORIES.includes(item.category) && !item.expiryDate) continue;
+        let expStr = item.expiryDate;
+        if(!expStr && item.addedAt) {
+          const SHELF:Record<string,number> = {'Boucherie/Poisson':3,'Boulangerie':3,'Plat préparé':4,'Restes':4,'Primeur':7,'Frais & Crèmerie':10,'Épicerie Salée':90,'Épicerie Sucrée':90,'Boissons':90,'Surgelés':90,'Divers':14};
+          const base = new Date(item.addedAt); base.setDate(base.getDate()+(SHELF[item.category]??14));
+          expStr = base.toISOString().split('T')[0];
+        }
+        if(expStr) {
+          const [y,m,d2]=expStr.split('-').map(Number);
+          const exp=new Date(y,m-1,d2);
+          if(exp<=cutoff) { await deleteDoc(doc(db,'frigo_items',d.id)); }
+        }
+      }
+    };
+    cleanup();
+  },[]);
+
   const handleBarcodePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if(!file) return;
-    e.target.value = '';
-    setIsLoading(true);
-    setScanMsg('⏳ Lecture du code-barre en cours...');
+    const file = e.target.files?.[0]; if(!file) return; e.target.value='';
+    setIsLoading(true); setScanMsg('⏳ Lecture du code-barre...');
     try {
       const { readBarcodeFromImage } = await import('./services/geminiService');
       const code = await readBarcodeFromImage(file);
-      if(code) {
-        setScanMsg(`✅ Code détecté : ${code} — Recherche produit...`);
-        await fetchProductByBarcode(code);
-      } else {
-        setScanMsg('❌ Aucun code-barre lisible sur cette photo.');
-        setIsLoading(false);
-      }
-    } catch {
-      setScanMsg('❌ Erreur lors de la lecture du code-barre.');
-      setIsLoading(false);
-    }
+      if(code) { setScanMsg(`✅ Code : ${code} — Recherche...`); await fetchProductByBarcode(code); }
+      else { setScanMsg('❌ Code-barre illisible.'); setIsLoading(false); }
+    } catch { setScanMsg('❌ Erreur lecture.'); setIsLoading(false); }
   };
 
   useEffect(() => {
@@ -193,149 +228,126 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
     return ()=>unsub();
   },[]);
 
+  const SHELF_LIFE: Record<string,number> = {
+    'Boucherie/Poisson':3,'Boulangerie':3,'Plat préparé':4,'Restes':4,'Primeur':7,
+    'Frais & Crèmerie':10,'Épicerie Salée':90,'Épicerie Sucrée':90,'Boissons':90,'Surgelés':90,'Divers':14,
+  };
+
   const addItem = async () => {
     if(!newItem.name.trim()) return;
-    setIsLoading(true);
-    setScanMsg('⏳ Classification IA en cours...');
+    setIsLoading(true); setScanMsg('⏳ Classification IA...');
     try {
       const { classifyFrigoItem } = await import('./services/geminiService');
       const aiResult = await classifyFrigoItem(newItem.name.trim());
       const category = aiResult?.category || categorizeShoppingItem(newItem.name);
-      const expiryDate = newItem.expiryDate || aiResult?.expiryDate || '';
+      const isCellier = CELLIER_CATEGORIES.includes(category);
+      // Pour le cellier, pas de date de péremption (sauf si forcée)
+      const expiryDate = (!isCellier && newItem.hasExpiry) ? (newItem.expiryDate || aiResult?.expiryDate || '') : '';
       await addDoc(collection(db,'frigo_items'),{
-        ...newItem,
-        name: newItem.name.trim(),
-        category,
-        expiryDate,
+        ...newItem, name:newItem.name.trim(), category, expiryDate,
+        gaugeLevel: isCellier ? 'plein' : undefined,
         addedAt: new Date().toISOString()
       });
-      setScanMsg(`✅ "${newItem.name.trim()}" → ${category}${expiryDate ? ` · péremption ${expiryDate}` : ''}`);
-      setNewItem({name:'',quantity:1,unit:'pcs',expiryDate:''});
-      setTimeout(()=>setScanMsg(''), 4000);
+      setScanMsg(`✅ "${newItem.name.trim()}" → ${category}${expiryDate?` · péremption ${expiryDate}`:isCellier?' · Cellier':''}`);
+      setNewItem({name:'',quantity:1,unit:'pcs',expiryDate:'',hasExpiry:true});
+      setTimeout(()=>setScanMsg(''),4000);
     } catch {
-      // Fallback silencieux si IA indisponible
       await addDoc(collection(db,'frigo_items'),{
         ...newItem, name:newItem.name.trim(),
-        category: categorizeShoppingItem(newItem.name),
-        addedAt: new Date().toISOString()
+        category:categorizeShoppingItem(newItem.name), addedAt:new Date().toISOString()
       });
-      setNewItem({name:'',quantity:1,unit:'pcs',expiryDate:''});
-      setScanMsg('');
+      setNewItem({name:'',quantity:1,unit:'pcs',expiryDate:'',hasExpiry:true}); setScanMsg('');
     }
     setIsLoading(false);
   };
 
   const fetchProductByBarcode = async (code:string) => {
-    setIsLoading(true);
-    setScanMsg('');
+    setIsLoading(true); setScanMsg('');
     try {
       const resp = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`);
       const data = await resp.json();
       if(data.status===1&&data.product) {
-        const p = data.product;
-        const name = p.product_name_fr||p.product_name||'Produit inconnu';
-        const category = categorizeShoppingItem(name);
+        const p=data.product; const name=p.product_name_fr||p.product_name||'Produit inconnu';
+        const category=categorizeShoppingItem(name);
+        const isCellier=CELLIER_CATEGORIES.includes(category);
         await addDoc(collection(db,'frigo_items'),{
-          name, category,
-          quantity:1, unit:'pcs',
-          barcode:code, addedAt:new Date().toISOString()
+          name, category, quantity:1, unit:'pcs', barcode:code,
+          gaugeLevel:isCellier?'plein':undefined, addedAt:new Date().toISOString()
         });
         setScanMsg(`✅ "${name}" (${category}) ajouté !`);
-      } else { setScanMsg('❌ Produit introuvable dans OpenFoodFacts.'); }
+      } else setScanMsg('❌ Produit introuvable.');
     } catch { setScanMsg('❌ Erreur réseau.'); }
-    setIsLoading(false);
-    setBarcodeInput('');
+    setIsLoading(false); setBarcodeInput('');
   };
 
-  // IA Photo : via sélecteur de fichiers/médias standard du navigateur
-  // accept="image/*" + capture="environment" → propose Caméra + Galerie sur mobile
   const handlePhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if(!file) return;
-    e.target.value = '';
-    setIsLoading(true);
-    setScanMsg('⏳ Analyse IA en cours...');
+    const file=e.target.files?.[0]; if(!file) return; e.target.value='';
+    setIsLoading(true); setScanMsg('⏳ Analyse IA...');
     try {
       const result = await scanProductImage(file);
-      if(result && result.name) {
-        // La catégorie retournée par l'IA correspond directement aux clés SHELF_LIFE
-        // L'expiryDate est estimée par l'IA selon les règles métier
+      if(result?.name) {
+        const isCellier=CELLIER_CATEGORIES.includes(result.category||'');
         await addDoc(collection(db,'frigo_items'),{
-          name: result.name,
-          category: result.category || categorizeShoppingItem(result.name),
-          expiryDate: result.expiryDate || '',
-          quantity: 1, unit: 'pcs',
-          addedAt: new Date().toISOString()
+          name:result.name, category:result.category||categorizeShoppingItem(result.name),
+          expiryDate:isCellier?'':(result.expiryDate||''),
+          gaugeLevel:isCellier?'plein':undefined, quantity:1, unit:'pcs', addedAt:new Date().toISOString()
         });
-        setScanMsg(`✅ "${result.name}" (${result.category}) — péremption le ${result.expiryDate || 'estimée auto'}`);
-      } else {
-        setScanMsg('❌ Produit non reconnu. Essayez une autre photo.');
-      }
-    } catch { setScanMsg('❌ Erreur lors de l\'analyse.'); }
+        setScanMsg(`✅ "${result.name}" (${result.category})`);
+      } else setScanMsg('❌ Non reconnu.');
+    } catch { setScanMsg('❌ Erreur analyse.'); }
     setIsLoading(false);
   };
 
   const deleteItem = async (id:string) => { await deleteDoc(doc(db,'frigo_items',id)); };
 
-  // Durée de conservation (jours) selon la catégorie
-  const SHELF_LIFE: Record<string,number> = {
-    'Boucherie/Poisson': 3,
-    'Boulangerie': 3,
-    'Plat préparé': 4,
-    'Restes': 4,
-    'Primeur': 7,
-    'Frais & Crèmerie': 10,
-    'Épicerie Salée': 90,
-    'Épicerie Sucrée': 90,
-    'Boissons': 90,
-    'Surgelés': 90,
-    'Divers': 14,
+  const cycleGauge = async (item: any) => {
+    const order:GaugeLevel[] = ['plein','moitie','vide','plein'];
+    const next = order[order.indexOf(item.gaugeLevel||'plein')+1] || 'plein';
+    await updateDoc(doc(db,'frigo_items',item.id),{gaugeLevel:next});
   };
 
-  // Calcule la date limite estimée à partir de la date d'ajout et de la catégorie
-  const estimateExpiryFromCategory = (addedAt:string, category:string): string => {
-    const days = SHELF_LIFE[category] ?? 14;
-    const d = new Date(addedAt);
-    d.setDate(d.getDate() + days);
-    return d.toISOString().split('T')[0];
+  const estimateExpiryFromCategory = (addedAt:string, category:string) => {
+    const days=SHELF_LIFE[category]??14; const d=new Date(addedAt);
+    d.setDate(d.getDate()+days); return d.toISOString().split('T')[0];
   };
 
   const getExpiryStatus = (item: FrigoItem) => {
-    // Date limite : expiryDate saisie, sinon estimée depuis addedAt + catégorie
-    let expiryStr = item.expiryDate;
-    if(!expiryStr && item.addedAt) {
-      expiryStr = estimateExpiryFromCategory(item.addedAt, item.category);
-    }
-    if(!expiryStr) return null;
-    const [y,m,d] = expiryStr.split('-').map(Number);
-    const exp = new Date(y, m-1, d);
-    const now = new Date(); now.setHours(0,0,0,0);
-    const diff = Math.ceil((exp.getTime()-now.getTime())/(1000*60*60*24));
-    if(diff < 0) return { label:'Périmé', color:'bg-red-100 text-red-700', icon:'🔴' };
-    if(diff <= 3) return { label:`J-${diff}`, color:'bg-orange-100 text-orange-700', icon:'🟠' };
-    return { label:`J-${diff}`, color:'bg-green-100 text-green-700', icon:'🟢' };
+    if(CELLIER_CATEGORIES.includes(item.category) && !item.expiryDate) return null;
+    let expStr=item.expiryDate;
+    if(!expStr&&item.addedAt) expStr=estimateExpiryFromCategory(item.addedAt,item.category);
+    if(!expStr) return null;
+    const [y,m,d]=expStr.split('-').map(Number); const exp=new Date(y,m-1,d);
+    const now=new Date(); now.setHours(0,0,0,0);
+    const diff=Math.ceil((exp.getTime()-now.getTime())/(86400000));
+    if(diff<0) return {label:'Périmé',color:'bg-red-100 text-red-700',icon:'🔴'};
+    if(diff<=3) return {label:`J-${diff}`,color:'bg-orange-100 text-orange-700',icon:'🟠'};
+    return {label:`J-${diff}`,color:'bg-green-100 text-green-700',icon:'🟢'};
   };
 
-  const expiringSoon = items.filter(i=>{
-    const s = getExpiryStatus(i);
-    return s && (s.icon==='🔴' || s.icon==='🟠');
-  });
+  const frigoItems   = items.filter(i=>FRIGO_CATEGORIES.includes(i.category));
+  const cellierItems = items.filter(i=>CELLIER_CATEGORIES.includes(i.category));
+  const expiringSoon = frigoItems.filter(i=>{ const s=getExpiryStatus(i); return s&&(s.icon==='🔴'||s.icon==='🟠'); });
+  const isCellierInput = CELLIER_CATEGORIES.includes(categorizeShoppingItem(newItem.name));
 
   return (
-    <div className="space-y-8 pb-24 animate-in fade-in" id="frigo-list">
-      {/* ALERTES ANTI-GASPI */}
-      {expiringSoon.length>0 && (
-        <div className="bg-red-50 border-2 border-red-200 rounded-3xl p-6">
-          <div className="flex items-center gap-3 mb-3">
-            <AlertTriangle className="text-red-500" size={24}/>
-            <h3 className="font-black text-red-700 uppercase tracking-widest text-sm">⚠️ BIENTÔT PÉRIMÉS — Anti-gaspi activé</h3>
-          </div>
+    <div className="space-y-6 pb-24 animate-in fade-in" id="frigo-list">
+
+      {/* ONGLETS FRIGO / CELLIER */}
+      <div className="flex gap-2 bg-white p-1.5 rounded-2xl shadow-sm border border-gray-100">
+        <button onClick={()=>setFrigotab('frigo')} className={`flex-1 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${frigotab==='frigo'?'text-white shadow-md':'text-gray-400'}`} style={frigotab==='frigo'?{backgroundColor:config.primaryColor}:{}}>
+          <Refrigerator size={14}/>Frigo ({frigoItems.length})
+        </button>
+        <button onClick={()=>setFrigotab('cellier')} className={`flex-1 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${frigotab==='cellier'?'text-white shadow-md':'text-gray-400'}`} style={frigotab==='cellier'?{backgroundColor:config.primaryColor}:{}}>
+          <Package size={14}/>Cellier ({cellierItems.length})
+        </button>
+      </div>
+
+      {/* ALERTES ANTI-GASPI — seulement onglet frigo */}
+      {frigotab==='frigo'&&expiringSoon.length>0&&(
+        <div className="bg-red-50 border-2 border-red-200 rounded-3xl p-5">
+          <div className="flex items-center gap-3 mb-3"><AlertTriangle className="text-red-500" size={20}/><h3 className="font-black text-red-700 uppercase tracking-widest text-xs">⚠️ Anti-gaspi — bientôt périmés</h3></div>
           <div className="flex flex-wrap gap-2">
-            {expiringSoon.map(i=>(
-              <span key={i.id} className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-bold">
-                {i.name} — {getExpiryStatus(i)?.label}
-              </span>
-            ))}
+            {expiringSoon.map(i=><span key={i.id} className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-bold">{i.name} — {getExpiryStatus(i)?.label}</span>)}
           </div>
         </div>
       )}
@@ -344,113 +356,119 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
       <div className="bg-white p-4 rounded-[2.5rem] shadow-xl border border-gray-100 space-y-3">
         <h3 className="font-black uppercase tracking-widest text-gray-400 text-xs flex items-center gap-2"><Plus size={14}/> AJOUTER UN PRODUIT</h3>
 
-        {/* Ligne 1 : Nom + quantité */}
+        {/* Ligne 1 : Nom + qté + unité */}
         <div className="flex gap-2">
-          <input
-            value={newItem.name}
-            onChange={e=>setNewItem({...newItem,name:e.target.value})}
-            onKeyDown={e=>e.key==='Enter'&&addItem()}
-            placeholder="Nom du produit..."
-            className="flex-1 min-w-0 p-3 bg-gray-50 rounded-2xl font-bold outline-none border-2 border-transparent focus:border-black transition-colors text-sm"
-          />
-          <input
-            type="number"
-            value={newItem.quantity}
-            onChange={e=>setNewItem({...newItem,quantity:parseInt(e.target.value)||1})}
-            className="w-14 p-3 bg-gray-50 rounded-2xl font-bold text-center outline-none text-sm shrink-0"
-            min={1}
-          />
-          <select
-            value={newItem.unit}
-            onChange={e=>setNewItem({...newItem,unit:e.target.value})}
-            className="p-3 bg-gray-50 rounded-2xl font-bold outline-none text-sm shrink-0"
-          >
+          <input value={newItem.name} onChange={e=>setNewItem({...newItem,name:e.target.value})} onKeyDown={e=>e.key==='Enter'&&addItem()} placeholder="Nom du produit..." className="flex-1 min-w-0 p-3 bg-gray-50 rounded-2xl font-bold outline-none border-2 border-transparent focus:border-black transition-colors text-sm"/>
+          <input type="number" value={newItem.quantity} onChange={e=>setNewItem({...newItem,quantity:parseInt(e.target.value)||1})} className="w-14 p-3 bg-gray-50 rounded-2xl font-bold text-center outline-none text-sm shrink-0" min={1}/>
+          <select value={newItem.unit} onChange={e=>setNewItem({...newItem,unit:e.target.value})} className="p-3 bg-gray-50 rounded-2xl font-bold outline-none text-sm shrink-0">
             <option>pcs</option><option>g</option><option>kg</option><option>ml</option><option>L</option><option>boîte</option>
           </select>
         </div>
 
-        {/* Ligne 2 : Date + Ajouter */}
-        <div className="flex gap-2 items-center">
-          <CalIcon size={14} className="text-gray-400 shrink-0"/>
-          <input
-            type="date"
-            value={newItem.expiryDate}
-            onChange={e=>setNewItem({...newItem,expiryDate:e.target.value})}
-            className="flex-1 min-w-0 p-2.5 bg-gray-50 rounded-xl font-bold text-xs outline-none"
-          />
-          <button
-            onClick={addItem}
-            disabled={isLoading}
-            className="px-4 py-2.5 bg-black text-white rounded-2xl font-bold hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1"
-          >
-            {isLoading ? <Loader2 size={15} className="animate-spin"/> : <Plus size={15}/>}
-            <span className="text-xs">Ajouter</span>
-          </button>
-        </div>
+        {/* Ligne 2 : Toggle péremption + date (si pas cellier) */}
+        {!isCellierInput&&(
+          <div className="flex gap-2 items-center">
+            <button
+              onClick={()=>setNewItem({...newItem,hasExpiry:!newItem.hasExpiry})}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all ${newItem.hasExpiry?'bg-orange-100 text-orange-700':'bg-gray-100 text-gray-400'}`}
+            >
+              {newItem.hasExpiry?<CalIcon size={12}/>:<X size={12}/>}
+              {newItem.hasExpiry?'DLC activée':'Sans DLC'}
+            </button>
+            {newItem.hasExpiry&&(
+              <input type="date" value={newItem.expiryDate} onChange={e=>setNewItem({...newItem,expiryDate:e.target.value})} className="flex-1 min-w-0 p-2.5 bg-gray-50 rounded-xl font-bold text-xs outline-none"/>
+            )}
+            <button onClick={addItem} disabled={isLoading} className="px-4 py-2.5 bg-black text-white rounded-2xl font-bold hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1">
+              {isLoading?<Loader2 size={15} className="animate-spin"/>:<Plus size={15}/>}
+              <span className="text-xs">Ajouter</span>
+            </button>
+          </div>
+        )}
+        {isCellierInput&&(
+          <div className="flex gap-2 items-center">
+            <div className="flex-1 text-xs text-gray-400 italic bg-amber-50 px-3 py-2 rounded-xl border border-amber-100 flex items-center gap-2"><Package size={12} className="text-amber-500"/>Catégorie Cellier — pas de péremption</div>
+            <button onClick={addItem} disabled={isLoading} className="px-4 py-2.5 bg-black text-white rounded-2xl font-bold hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1">
+              {isLoading?<Loader2 size={15} className="animate-spin"/>:<Plus size={15}/>}
+              <span className="text-xs">Ajouter</span>
+            </button>
+          </div>
+        )}
 
-        {/* Ligne 3 : Scan barcode */}
+        {/* Scan codes-barre + IA Photo */}
         <div className="flex gap-2 pt-2 border-t border-gray-100">
-          <input
-            value={barcodeInput}
-            onChange={e=>setBarcodeInput(e.target.value)}
-            onKeyDown={e=>e.key==='Enter'&&fetchProductByBarcode(barcodeInput)}
-            placeholder="Code-barre..."
-            className="flex-1 min-w-0 p-2.5 bg-gray-50 rounded-xl font-mono text-xs outline-none border-2 border-transparent focus:border-blue-400"
-          />
+          <input value={barcodeInput} onChange={e=>setBarcodeInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&fetchProductByBarcode(barcodeInput)} placeholder="Code-barre..." className="flex-1 min-w-0 p-2.5 bg-gray-50 rounded-xl font-mono text-xs outline-none border-2 border-transparent focus:border-blue-400"/>
           <input ref={barcodePhotoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleBarcodePhoto}/>
-          <button
-            onClick={()=>{ barcodeInput.trim() ? fetchProductByBarcode(barcodeInput) : barcodePhotoRef.current?.click(); }}
-            disabled={isLoading}
-            className="p-2.5 bg-blue-500 text-white rounded-xl hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1"
-            title={barcodeInput.trim() ? "Rechercher" : "Photo code-barre"}
-          >
-            {isLoading ? <Loader2 size={14} className="animate-spin"/> : barcodeInput.trim() ? <Barcode size={14}/> : <Camera size={14}/>}
-            <span className="text-[10px] font-bold hidden sm:block">{barcodeInput.trim() ? 'Valider' : 'Scanner'}</span>
+          <button onClick={()=>{barcodeInput.trim()?fetchProductByBarcode(barcodeInput):barcodePhotoRef.current?.click();}} disabled={isLoading} className="p-2.5 bg-blue-500 text-white rounded-xl hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1">
+            {isLoading?<Loader2 size={14} className="animate-spin"/>:barcodeInput.trim()?<Barcode size={14}/>:<Camera size={14}/>}
+            <span className="text-[10px] font-bold hidden sm:block">{barcodeInput.trim()?'Valider':'Scanner'}</span>
           </button>
-          {/* IA Photo produit */}
           <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoFile}/>
-          <button
-            onClick={()=>photoInputRef.current?.click()}
-            disabled={isLoading}
-            className="p-2.5 bg-purple-500 text-white rounded-xl hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1"
-            title="Identifier par photo IA"
-          >
-            {isLoading ? <Loader2 size={14} className="animate-spin"/> : <Brain size={14}/>}
+          <button onClick={()=>photoInputRef.current?.click()} disabled={isLoading} className="p-2.5 bg-purple-500 text-white rounded-xl hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1">
+            {isLoading?<Loader2 size={14} className="animate-spin"/>:<Brain size={14}/>}
             <span className="text-[10px] font-bold hidden sm:block">IA Photo</span>
           </button>
         </div>
-
-        {scanMsg && (
-          <div className={`text-center text-xs font-bold py-2 px-3 rounded-xl leading-tight ${
-            scanMsg.startsWith('✅') ? 'bg-green-50 text-green-700' :
-            scanMsg.startsWith('⏳') ? 'bg-blue-50 text-blue-700' :
-            'bg-red-50 text-red-700'
-          }`}>{scanMsg}</div>
-        )}
+        {scanMsg&&<div className={`text-center text-xs font-bold py-2 px-3 rounded-xl leading-tight ${scanMsg.startsWith('✅')?'bg-green-50 text-green-700':scanMsg.startsWith('⏳')?'bg-blue-50 text-blue-700':'bg-red-50 text-red-700'}`}>{scanMsg}</div>}
       </div>
 
-      {/* INVENTAIRE */}
-      <div className="bg-white/80 backdrop-blur-md p-6 rounded-[2.5rem] shadow-xl border border-gray-100">
-        <h3 className="font-black uppercase tracking-widest text-gray-400 text-xs flex items-center gap-2 mb-6"><Refrigerator size={14}/> INVENTAIRE ({items.length} produits)</h3>
-        {items.length===0&&<div className="text-center py-12 text-gray-300 italic">Frigo vide — ajoutez vos produits !</div>}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {items.map(item=>{
-            const expStatus=getExpiryStatus(item);
-            return (
-              <div key={item.id} className={`group flex justify-between items-center p-4 rounded-2xl border-l-4 transition-all hover:shadow-md ${expStatus?.icon==='🔴'?'bg-red-50 border-red-400':expStatus?.icon==='🟠'?'bg-orange-50 border-orange-400':'bg-gray-50 border-gray-200'}`}>
-                <div>
-                  <span className="font-bold text-gray-800 block">{item.name}</span>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[10px] font-bold text-gray-400">{item.quantity} {item.unit}</span>
-                    {expStatus&&<span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${expStatus.color}`}>{expStatus.icon} {expStatus.label}</span>}
+      {/* INVENTAIRE FRIGO */}
+      {frigotab==='frigo'&&(
+        <div className="bg-white/80 backdrop-blur-md p-6 rounded-[2.5rem] shadow-xl border border-gray-100">
+          <h3 className="font-black uppercase tracking-widest text-gray-400 text-xs flex items-center gap-2 mb-6"><Refrigerator size={14}/> INVENTAIRE FRIGO ({frigoItems.length})</h3>
+          {frigoItems.length===0&&<div className="text-center py-12 text-gray-300 italic">Frigo vide !</div>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {frigoItems.map(item=>{
+              const expStatus=getExpiryStatus(item);
+              return (
+                <div key={item.id} className={`group flex justify-between items-center p-4 rounded-2xl border-l-4 transition-all hover:shadow-md ${expStatus?.icon==='🔴'?'bg-red-50 border-red-400':expStatus?.icon==='🟠'?'bg-orange-50 border-orange-400':'bg-gray-50 border-gray-200'}`}>
+                  <div>
+                    <span className="font-bold text-gray-800 block">{item.name}</span>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-bold text-gray-400">{item.quantity} {item.unit}</span>
+                      <span className="text-[9px] font-bold text-gray-300 uppercase">{item.category}</span>
+                      {expStatus&&<span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${expStatus.color}`}>{expStatus.icon} {expStatus.label}</span>}
+                    </div>
                   </div>
+                  <button onClick={()=>deleteItem(item.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity"><X size={16}/></button>
                 </div>
-                <button onClick={()=>deleteItem(item.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity"><X size={16}/></button>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* INVENTAIRE CELLIER — jauges visuelles */}
+      {frigotab==='cellier'&&(
+        <div className="bg-white/80 backdrop-blur-md p-6 rounded-[2.5rem] shadow-xl border border-gray-100">
+          <h3 className="font-black uppercase tracking-widest text-gray-400 text-xs flex items-center gap-2 mb-2"><Package size={14}/> CELLIER ({cellierItems.length})</h3>
+          <p className="text-[10px] text-gray-400 italic mb-6">Cliquez sur la jauge pour modifier le niveau (Plein → Moitié → Vide)</p>
+          {cellierItems.length===0&&<div className="text-center py-12 text-gray-300 italic">Cellier vide !</div>}
+
+          {/* Grouper par catégorie */}
+          {Array.from(new Set(cellierItems.map(i=>i.category))).map(cat=>(
+            <div key={cat} className="mb-6">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"/>
+                {cat}
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {cellierItems.filter(i=>i.category===cat).map(item=>(
+                  <div key={item.id} className="group flex justify-between items-center p-3 rounded-2xl bg-amber-50/60 border border-amber-100 hover:shadow-sm transition-all">
+                    <div>
+                      <span className="font-bold text-gray-800 text-sm">{item.name}</span>
+                      <div className="text-[10px] text-gray-400 mt-0.5">{item.quantity} {item.unit}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <GaugeBar level={(item as any).gaugeLevel||'plein'} onClick={()=>cycleGauge(item)}/>
+                      <button onClick={()=>deleteItem(item.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity"><X size={14}/></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -458,10 +476,10 @@ const FrigoView = ({ user, config }: { user:User, config:SiteConfig }) => {
 // ==========================================
 // COMPOSANT MAJORDOME IA (Flottant dans HUB)
 // ==========================================
-const MajordomeChat = ({ user, config, hubItems, addHubItem }: { user:User, config:SiteConfig, hubItems:any[], addHubItem:(content:string)=>void }) => {
+const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecipe, onAddSemainier }: { user:User, config:SiteConfig, hubItems:any[], addHubItem:(content:string)=>void, recipes?:any[], onAddRecipe?:(r:any)=>void, onAddSemainier?:(title:string)=>void }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { role:'assistant', text:'Bonjour ! Je suis votre Majordome. Je peux vous conseiller, organiser votre frigo, ou ajouter des éléments à votre liste de courses. Que puis-je faire pour vous ?' }
+  const [messages, setMessages] = useState<Array<ChatMessage & {actions?:any[]}>>([
+    { role:'assistant', text:'Bonjour ! Je suis votre Majordome. Je peux vous conseiller, suggérer des recettes selon votre frigo, ou ajouter des éléments à vos listes. Que puis-je faire ?' }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -473,29 +491,41 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem }: { user:User, conf
     if(!input.trim()||isLoading) return;
     const userMsg = input.trim();
     setInput('');
-    const newMsgs:ChatMessage[] = [...messages,{role:'user',text:userMsg}];
+    const newMsgs = [...messages,{role:'user' as const,text:userMsg}];
     setMessages(newMsgs);
     setIsLoading(true);
 
-    // Contexte passé au service Gemini
     const shopItems = hubItems.filter(i=>i.type==='shop').map(i=>i.content).join(', ');
     const contextData = { shopItems: shopItems||'vide' };
 
     try {
-      // askButlerAgent retourne { type: 'action'|'text', data: ... }
       const result = await askButlerAgent(
-        newMsgs.map(m=>({ role: m.role, text: m.text })),
+        newMsgs.map(m=>({role:m.role, text:m.text})),
         contextData
       );
 
       if(result.type === 'action' && result.data?.action === 'ADD_HUB') {
-        // Action d'ajout au panier
         addHubItem(result.data.item);
-        const replyText = result.data.reply || `✅ "${result.data.item}" ajouté à la liste de courses.`;
-        setMessages([...newMsgs,{role:'assistant',text:replyText}]);
+        setMessages([...newMsgs,{role:'assistant',text:result.data.reply||`✅ "${result.data.item}" ajouté.`}]);
+      } else if(result.type === 'action' && result.data?.action === 'SUGGEST_RECIPE') {
+        // Réponse avec boutons d'action pour ajouter la recette
+        const recipeTitle = result.data.title || '';
+        const actions = [
+          ...(onAddRecipe&&recipeTitle ? [{label:'📚 Ajouter aux Recettes', fn:()=>onAddRecipe({title:recipeTitle,category:'plat',chef:'Majordome',ingredients:'',steps:'',image:''})}] : []),
+          ...(onAddSemainier&&recipeTitle ? [{label:'🗓️ Planifier au Semainier', fn:()=>onAddSemainier(recipeTitle)}] : []),
+        ];
+        setMessages([...newMsgs,{role:'assistant',text:result.data.reply||result.data||'', actions}]);
       } else {
-        const text = result.data || 'Désolé, une erreur est survenue.';
-        setMessages([...newMsgs,{role:'assistant',text}]);
+        // Détecter si le texte contient une recette suggérée
+        const text = typeof result.data === 'string' ? result.data : (result.data?.reply||'Désolé, une erreur est survenue.');
+        // Cherche un titre de recette dans le texte (heuristique simple)
+        const recipeMatch = text.match(/(?:je vous suggère|proposer|recette\s*:?)\s*[«""]?([^«"".,\n]{3,50})/i);
+        const detectedTitle = recipeMatch?.[1]?.trim();
+        const actions = detectedTitle ? [
+          ...(onAddRecipe ? [{label:'📚 Sauvegarder la recette', fn:()=>onAddRecipe({title:detectedTitle,category:'plat',chef:'Majordome',ingredients:'',steps:'',image:''})}] : []),
+          ...(onAddSemainier ? [{label:'🗓️ Planifier au Semainier', fn:()=>onAddSemainier(detectedTitle)}] : []),
+        ] : [];
+        setMessages([...newMsgs,{role:'assistant',text, actions:actions.length?actions:undefined}]);
       }
     } catch { setMessages([...newMsgs,{role:'assistant',text:'Erreur de connexion au Majordome.'}]); }
     setIsLoading(false);
@@ -503,28 +533,36 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem }: { user:User, conf
 
   return (
     <>
-      {/* BOUTON FLOTTANT */}
       <button onClick={()=>setIsOpen(true)} className="fixed bottom-28 md:bottom-8 right-6 z-50 w-14 h-14 rounded-full text-white shadow-2xl flex items-center justify-center hover:scale-110 transition-transform" style={{backgroundColor:config.primaryColor}}>
         <Bot size={24}/>
       </button>
 
-      {/* FENÊTRE CHAT */}
       {isOpen&&(
-        <div className="fixed bottom-28 md:bottom-8 right-6 z-[80] w-80 md:w-96 bg-white rounded-3xl shadow-2xl border border-gray-100 flex flex-col" style={{height:'480px'}}>
+        <div className="fixed bottom-28 md:bottom-8 right-6 z-[80] w-80 md:w-96 bg-white rounded-3xl shadow-2xl border border-gray-100 flex flex-col" style={{height:'520px'}}>
           <div className="flex items-center justify-between p-5 border-b border-gray-100 rounded-t-3xl" style={{backgroundColor:config.primaryColor}}>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center"><Bot size={16} className="text-white"/></div>
-              <div><div className="font-black text-white text-sm">LE MAJORDOME</div><div className="text-white/60 text-[10px]">Conseiller IA de la famille</div></div>
+              <div><div className="font-black text-white text-sm">LE MAJORDOME</div><div className="text-white/60 text-[10px]">Conseiller IA — Recettes, Courses, Frigo</div></div>
             </div>
             <button onClick={()=>setIsOpen(false)} className="text-white/60 hover:text-white"><X size={20}/></button>
           </div>
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
             {messages.map((m,i)=>(
-              <div key={i} className={`flex ${m.role==='user'?'justify-end':''}`}>
+              <div key={i} className={`flex flex-col ${m.role==='user'?'items-end':''}`}>
                 <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${m.role==='user'?'text-white rounded-tr-sm':'bg-gray-50 text-gray-700 rounded-tl-sm'}`} style={m.role==='user'?{backgroundColor:config.primaryColor}:{}}>
                   <p className="whitespace-pre-wrap leading-relaxed">{m.text}</p>
                 </div>
+                {/* Boutons d'action Recette / Semainier */}
+                {m.actions&&m.actions.length>0&&(
+                  <div className="flex flex-wrap gap-1.5 mt-1.5 ml-1">
+                    {m.actions.map((a,j)=>(
+                      <button key={j} onClick={()=>{a.fn(); setMessages(prev=>prev.map((msg,idx)=>idx===i?{...msg,actions:[]}:msg));}} className="text-[10px] font-black px-3 py-1.5 rounded-xl border-2 border-opacity-30 hover:scale-105 transition-transform" style={{borderColor:config.primaryColor,color:config.primaryColor,backgroundColor:`${config.primaryColor}15`}}>
+                        {a.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             {isLoading&&<div className="flex"><div className="bg-gray-50 p-3 rounded-2xl rounded-tl-sm"><div className="flex gap-1">{[0,1,2].map(i=><div key={i} className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay:`${i*0.15}s`}}/>)}</div></div></div>}
@@ -543,19 +581,48 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem }: { user:User, conf
 // ==========================================
 // COMPOSANT HUB (TABLEAU)
 // ==========================================
-const HubView = ({ user, config, usersMapping }: { user:User, config:SiteConfig, usersMapping:any }) => {
+const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemainier }: { user:User, config:SiteConfig, usersMapping:any, recipes?:any[], onAddRecipe?:(r:any)=>void, onAddSemainier?:(title:string)=>void }) => {
   const [hubItems, setHubItems] = useState<any[]>([]);
   const [newItem, setNewItem] = useState('');
   const [storeSearch, setStoreSearch] = useState('');
   const [selectedStore, setSelectedStore] = useState('');
   const [inputType, setInputType] = useState<'shop'|'note'|'msg'>('shop');
   const [showStoreList, setShowStoreList] = useState(false);
+  // Quick-add to Frigo modal
+  const [showFrigoQuick, setShowFrigoQuick] = useState(false);
+  const [frigoQuickName, setFrigoQuickName] = useState('');
+  const [frigoQuickLoading, setFrigoQuickLoading] = useState(false);
 
   useEffect(() => {
     const q=query(collection(db,'hub_items'),orderBy('createdAt','desc'));
     const unsub=onSnapshot(q,s=>setHubItems(s.docs.map(d=>({id:d.id,...d.data()}))));
     return ()=>unsub();
   },[]);
+
+  const addToFrigoQuick = async () => {
+    if(!frigoQuickName.trim()) return;
+    setFrigoQuickLoading(true);
+    try {
+      const { classifyFrigoItem } = await import('./services/geminiService');
+      const aiResult = await classifyFrigoItem(frigoQuickName.trim());
+      const category = aiResult?.category || categorizeShoppingItem(frigoQuickName);
+      const isCellier = CELLIER_CATEGORIES.includes(category);
+      await addDoc(collection(db,'frigo_items'),{
+        name: frigoQuickName.trim(), category,
+        expiryDate: isCellier ? '' : (aiResult?.expiryDate||''),
+        gaugeLevel: isCellier ? 'plein' : undefined,
+        quantity:1, unit:'pcs', addedAt:new Date().toISOString()
+      });
+      setFrigoQuickName(''); setShowFrigoQuick(false);
+    } catch {
+      await addDoc(collection(db,'frigo_items'),{
+        name:frigoQuickName.trim(), category:categorizeShoppingItem(frigoQuickName),
+        quantity:1, unit:'pcs', addedAt:new Date().toISOString()
+      });
+      setFrigoQuickName(''); setShowFrigoQuick(false);
+    }
+    setFrigoQuickLoading(false);
+  };
 
   const addItem = async (content?:string) => {
     const text = content||newItem;
@@ -583,12 +650,51 @@ const HubView = ({ user, config, usersMapping }: { user:User, config:SiteConfig,
 
   return (
     <div className="space-y-8 pb-32 animate-in fade-in" id="top">
+
+      {/* MODALE AJOUT RAPIDE FRIGO */}
+      {showFrigoQuick&&(
+        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowFrigoQuick(false)}>
+          <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{backgroundColor:`${config.primaryColor}20`}}>
+                <Refrigerator size={20} style={{color:config.primaryColor}}/>
+              </div>
+              <div>
+                <h3 className="font-black text-lg">Ajouter au Frigo</h3>
+                <p className="text-xs text-gray-400">L'IA classifie automatiquement</p>
+              </div>
+            </div>
+            <input
+              value={frigoQuickName}
+              onChange={e=>setFrigoQuickName(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&addToFrigoQuick()}
+              placeholder="Nom du produit..."
+              className="w-full p-4 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black transition-colors"
+              autoFocus
+            />
+            <div className="flex gap-3">
+              <button onClick={()=>setShowFrigoQuick(false)} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
+              <button onClick={addToFrigoQuick} disabled={!frigoQuickName.trim()||frigoQuickLoading} className="flex-1 py-3 text-white font-black rounded-2xl flex items-center justify-center gap-2 disabled:opacity-50" style={{backgroundColor:config.primaryColor}}>
+                {frigoQuickLoading?<Loader2 size={16} className="animate-spin"/>:<Plus size={16}/>}
+                Ajouter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* SAISIE RAPIDE */}
       <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 sticky top-24 z-30" id="hub-input">
         <div className="flex gap-2 mb-4 justify-center">
           <button onClick={()=>setInputType('shop')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType==='shop'?'bg-orange-500 text-white shadow-lg scale-105':'bg-gray-100 text-gray-400'}`}><ShoppingCart size={16} className="inline mr-2"/>Course</button>
           <button onClick={()=>setInputType('note')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType==='note'?'bg-yellow-400 text-white shadow-lg scale-105':'bg-gray-100 text-gray-400'}`}><StickyNote size={16} className="inline mr-2"/>Note</button>
           <button onClick={()=>setInputType('msg')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType==='msg'?'bg-blue-500 text-white shadow-lg scale-105':'bg-gray-100 text-gray-400'}`}><MessageSquare size={16} className="inline mr-2"/>Msg</button>
+          {/* Bouton Ajout Rapide Frigo */}
+          <button onClick={()=>setShowFrigoQuick(true)} className="py-3 px-4 rounded-xl font-bold text-xs uppercase transition-all bg-teal-50 text-teal-600 hover:bg-teal-100 flex items-center gap-1.5" title="Ajouter directement au Frigo">
+            <Refrigerator size={14}/>
+            <span className="hidden sm:inline">Frigo</span>
+          </button>
         </div>
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
@@ -615,7 +721,6 @@ const HubView = ({ user, config, usersMapping }: { user:User, config:SiteConfig,
           )}
         </div>
       </div>
-
       {/* GRILLE CONTENU */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* COURSES */}
@@ -664,7 +769,13 @@ const HubView = ({ user, config, usersMapping }: { user:User, config:SiteConfig,
       </div>
 
       {/* MAJORDOME FLOTTANT */}
-      <MajordomeChat user={user} config={config} hubItems={hubItems} addHubItem={(content)=>addItem(content)}/>
+      <MajordomeChat
+        user={user} config={config} hubItems={hubItems}
+        addHubItem={(content)=>addItem(content)}
+        recipes={recipes}
+        onAddRecipe={onAddRecipe}
+        onAddSemainier={onAddSemainier}
+      />
     </div>
   );
 };
@@ -933,6 +1044,7 @@ const SideMenu = ({ config, isOpen, close, setView, logout }: any) => {
         {id:'tasks', label:'Les Corvées'},
         {id:'wallet', label:'La Tirelire'},
         {id:'calendar', label:"L'Agenda"},
+        {id:'wishlist', label:'Les WishLists 🎁'},
       ]
     },
     {
@@ -1032,7 +1144,7 @@ const HomeCard = ({ icon, title, label, onClick, color }: any) => (
 // ==========================================
 // ADMIN PANEL (RÉORGANISÉ)
 // ==========================================
-const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, choreStatus, fireRule }: any) => {
+const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, choreStatus }: any) => {
   const [tab, setTab] = useState('users');
   const [newUser, setNewUser] = useState({email:'',letter:'',name:''});
   const [localC, setLocalC] = useState(config);
@@ -1043,9 +1155,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   const [currentXSite, setCurrentXSite] = useState({id:'',name:'',html:''});
   const [qrCodeUrl, setQrCodeUrl] = useState<string|null>(null);
   const [notif, setNotif] = useState<Partial<AppNotification>>({message:'',type:'info',repeat:'once',linkView:'',linkId:'',targets:['all']});
-  const [notifMode, setNotifMode] = useState<'manual'|'ai'>('manual');
-  const [aiNotif, setAiNotif] = useState<any>({trigger:'',prompt:'',targets:['all'],condition:'',cooldownHours:24});
-  const [aiNotifLoading, setAiNotifLoading] = useState(false);
   const [aiRules, setAiRules] = useState<any[]>([]);
   const [schedDate, setSchedDate] = useState('');
   const [schedTime, setSchedTime] = useState('');
@@ -1058,41 +1167,10 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
     return()=>unsub();
   },[]);
 
-  // Écoute les règles IA
-  useEffect(()=>{
-    const unsub=onSnapshot(collection(db,'ai_notif_rules'),s=>setAiRules(s.docs.map(d=>({id:d.id,...d.data()}))));
-    return()=>unsub();
-  },[]);
-
   useEffect(()=>{setLocalC(config);},[config]);
-
-  const saveAiRule = async () => {
-    if(!aiNotif.trigger||!aiNotif.prompt) return;
-    await addDoc(collection(db,'ai_notif_rules'),{
-      trigger: aiNotif.trigger,
-      condition: aiNotif.condition||'',
-      instructions: aiNotif.prompt,
-      targets: aiNotif.targets,
-      cooldownHours: aiNotif.cooldownHours||24,
-      enabled: true,
-      lastFiredAt: null,
-      createdAt: new Date().toISOString(),
-    });
-    setAiNotif({trigger:'',prompt:'',targets:['all'],condition:'',cooldownHours:24});
-    alert('✅ Règle enregistrée ! Elle s\'évalue automatiquement toutes les 5 minutes.');
-  };
 
   const [toast, setToast] = useState<{msg:string,ok:boolean}|null>(null);
   const showToast = (msg:string, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),4000); };
-
-  const fireRuleNow = async (rule: any) => {
-    setAiNotifLoading(true);
-    try {
-      const result = await fireRule(rule);
-      showToast(`✅ Règle testée — condition vérifiée dans Firebase.`);
-    } catch(e:any) { showToast('❌ Erreur : '+(e.message||e), false); }
-    setAiNotifLoading(false);
-  };
 
   const handleFile=(e:any,cb:any)=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=()=>cb(r.result);r.readAsDataURL(f);}};
   const startEditVersion=(v:any)=>{setEditingVersionId(v.id);setTempVersionName(v.name);};
@@ -1172,231 +1250,37 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {/* NOTIF */}
       {tab==='notif'&&(
         <div className="space-y-8 animate-in fade-in">
-          {/* Sélecteur de mode */}
-          <div className="flex items-center gap-4">
-            <h3 className="text-3xl font-cinzel font-bold flex-1" style={{color:config.primaryColor}}>NOTIFICATIONS</h3>
-            <select value={notifMode} onChange={e=>setNotifMode(e.target.value as 'manual'|'ai')} className="p-3 rounded-2xl border-2 border-gray-200 font-black text-sm outline-none" style={{borderColor:notifMode==='ai'?config.primaryColor:''}}>
-              <option value="manual">✍️ Manuelle</option>
-              <option value="ai">🤖 Générée par IA</option>
-            </select>
+          <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>NOTIFICATIONS</h3>
+
+          {/* MODE MANUEL UNIQUEMENT */}
+          <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
+            <textarea value={notif.message} onChange={e=>setNotif({...notif,message:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200" placeholder="Message..."/>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={()=>setNotif({...notif,targets:['all']})} className={`px-3 py-1 rounded-full text-xs font-bold ${notif.targets?.includes('all')?'bg-black text-white':'bg-gray-200 text-gray-500'}`}>TOUS</button>
+              {users.map((u:any)=>(
+                <button key={u.id} onClick={()=>{const current=notif.targets?.includes('all')?[]:(notif.targets||[]);const newTargets=current.includes(u.id)?current.filter((t:string)=>t!==u.id):[...current,u.id];setNotif({...notif,targets:newTargets});}} className={`px-3 py-1 rounded-full text-xs font-bold ${notif.targets?.includes(u.id)?'bg-blue-500 text-white':'bg-gray-200 text-gray-500'}`}>{u.name||u.letter}</button>
+              ))}
+            </div>
+            <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-4 rounded-xl border border-gray-200">
+              <div className="flex items-center gap-2 min-w-[200px]">
+                <CornerDownRight size={16} className="text-gray-400"/>
+                <select value={notif.linkView} onChange={e=>setNotif({...notif,linkView:e.target.value,linkId:''})} className="bg-transparent text-sm font-bold outline-none w-full">
+                  <option value="">-- Page (Aucune) --</option>
+                  {Object.keys(ORIGINAL_CONFIG.navigationLabels).map(key=>(<option key={key} value={key}>{ORIGINAL_CONFIG.navigationLabels[key as keyof typeof ORIGINAL_CONFIG.navigationLabels]}</option>))}
+                </select>
+              </div>
+              {notif.linkView==='xsite'?(<select value={notif.linkId} onChange={e=>setNotif({...notif,linkId:e.target.value})} className="flex-1 bg-transparent text-sm outline-none border-l pl-3 w-full"><option value="">-- Choisir un site --</option>{xsitePages.map((p:any)=><option key={p.id} value={p.id}>{p.name}</option>)}</select>)
+              :notif.linkView&&VIEW_ANCHORS[notif.linkView]?(<select value={notif.linkId} onChange={e=>setNotif({...notif,linkId:e.target.value})} className="flex-1 bg-transparent text-sm outline-none border-l pl-3 w-full"><option value="">-- Section --</option>{VIEW_ANCHORS[notif.linkView].map(a=><option key={a.id} value={a.id}>{a.label}</option>)}</select>)
+              :(<div className="flex-1 text-xs text-gray-400 italic pl-3 border-l">Pas de sous-section</div>)}
+            </div>
+            <div className="flex flex-wrap gap-4">
+              <select value={notif.type} onChange={e=>setNotif({...notif,type:e.target.value as any})} className="p-3 rounded-xl border border-gray-200"><option value="info">Info</option><option value="alert">Alerte</option><option value="fun">Fun</option></select>
+              <select value={notif.repeat} onChange={e=>setNotif({...notif,repeat:e.target.value as any})} className="p-3 rounded-xl border border-gray-200"><option value="once">Une fois</option><option value="daily">Tous les jours</option><option value="monthly">Tous les mois</option></select>
+              <div className="flex gap-2 items-center bg-white p-2 rounded-xl border border-gray-200"><CalendarClock size={16} className="text-gray-400"/><input type="date" value={schedDate} onChange={e=>setSchedDate(e.target.value)} className="text-xs font-bold outline-none"/><input type="time" value={schedTime} onChange={e=>setSchedTime(e.target.value)} className="text-xs font-bold outline-none"/></div>
+              <button onClick={sendNotification} className="flex-1 bg-black text-white font-bold rounded-xl px-6">Envoyer Interne</button>
+            </div>
+            <button onClick={sendEmailToAll} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 font-bold rounded-xl hover:bg-gray-100 flex items-center justify-center gap-2"><Mail size={16}/>Envoyer par Mail</button>
           </div>
-
-          {/* MODE MANUEL */}
-          {notifMode==='manual'&&(
-            <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
-              <textarea value={notif.message} onChange={e=>setNotif({...notif,message:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200" placeholder="Message..."/>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={()=>setNotif({...notif,targets:['all']})} className={`px-3 py-1 rounded-full text-xs font-bold ${notif.targets?.includes('all')?'bg-black text-white':'bg-gray-200 text-gray-500'}`}>TOUS</button>
-                {users.map((u:any)=>(
-                  <button key={u.id} onClick={()=>{const current=notif.targets?.includes('all')?[]:(notif.targets||[]);const newTargets=current.includes(u.id)?current.filter((t:string)=>t!==u.id):[...current,u.id];setNotif({...notif,targets:newTargets});}} className={`px-3 py-1 rounded-full text-xs font-bold ${notif.targets?.includes(u.id)?'bg-blue-500 text-white':'bg-gray-200 text-gray-500'}`}>{u.name||u.letter}</button>
-                ))}
-              </div>
-              <div className="flex flex-col md:flex-row gap-4 items-center bg-white p-4 rounded-xl border border-gray-200">
-                <div className="flex items-center gap-2 min-w-[200px]">
-                  <CornerDownRight size={16} className="text-gray-400"/>
-                  <select value={notif.linkView} onChange={e=>setNotif({...notif,linkView:e.target.value,linkId:''})} className="bg-transparent text-sm font-bold outline-none w-full">
-                    <option value="">-- Page (Aucune) --</option>
-                    {Object.keys(ORIGINAL_CONFIG.navigationLabels).map(key=>(<option key={key} value={key}>{ORIGINAL_CONFIG.navigationLabels[key as keyof typeof ORIGINAL_CONFIG.navigationLabels]}</option>))}
-                  </select>
-                </div>
-                {notif.linkView==='xsite'?(<select value={notif.linkId} onChange={e=>setNotif({...notif,linkId:e.target.value})} className="flex-1 bg-transparent text-sm outline-none border-l pl-3 w-full"><option value="">-- Choisir un site --</option>{xsitePages.map((p:any)=><option key={p.id} value={p.id}>{p.name}</option>)}</select>)
-                :notif.linkView&&VIEW_ANCHORS[notif.linkView]?(<select value={notif.linkId} onChange={e=>setNotif({...notif,linkId:e.target.value})} className="flex-1 bg-transparent text-sm outline-none border-l pl-3 w-full"><option value="">-- Section --</option>{VIEW_ANCHORS[notif.linkView].map(a=><option key={a.id} value={a.id}>{a.label}</option>)}</select>)
-                :(<div className="flex-1 text-xs text-gray-400 italic pl-3 border-l">Pas de sous-section</div>)}
-              </div>
-              <div className="flex flex-wrap gap-4">
-                <select value={notif.type} onChange={e=>setNotif({...notif,type:e.target.value as any})} className="p-3 rounded-xl border border-gray-200"><option value="info">Info</option><option value="alert">Alerte</option><option value="fun">Fun</option></select>
-                <select value={notif.repeat} onChange={e=>setNotif({...notif,repeat:e.target.value as any})} className="p-3 rounded-xl border border-gray-200"><option value="once">Une fois</option><option value="daily">Tous les jours</option><option value="monthly">Tous les mois</option></select>
-                <div className="flex gap-2 items-center bg-white p-2 rounded-xl border border-gray-200"><CalendarClock size={16} className="text-gray-400"/><input type="date" value={schedDate} onChange={e=>setSchedDate(e.target.value)} className="text-xs font-bold outline-none"/><input type="time" value={schedTime} onChange={e=>setSchedTime(e.target.value)} className="text-xs font-bold outline-none"/></div>
-                <button onClick={sendNotification} className="flex-1 bg-black text-white font-bold rounded-xl px-6">Envoyer Interne</button>
-              </div>
-              <button onClick={sendEmailToAll} className="w-full py-3 border-2 border-dashed border-gray-300 text-gray-500 font-bold rounded-xl hover:bg-gray-100 flex items-center justify-center gap-2"><Mail size={16}/>Envoyer par Mail</button>
-            </div>
-          )}
-
-          {/* MODE IA — RÈGLES PERSISTANTES */}
-          {notifMode==='ai'&&(
-            <div className="space-y-5 animate-in fade-in">
-
-              {/* TOAST FEEDBACK (fixed overlay) */}
-              {toast&&(
-                <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[600] px-5 py-3 rounded-2xl shadow-xl text-white font-bold text-sm whitespace-nowrap ${toast.ok?'bg-green-600':'bg-red-600'}`}>
-                  {toast.msg}
-                </div>
-              )}
-
-              {/* FORMULAIRE CRÉATION DE RÈGLE */}
-              <div className="bg-gray-50 p-5 rounded-3xl border border-gray-100 space-y-4">
-                <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 flex items-center gap-2"><Plus size={13}/>Nouvelle règle automatique</h4>
-
-                {/* DÉCLENCHEUR */}
-                <div>
-                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-1.5">Déclencheur *</label>
-                  <select value={aiNotif.trigger} onChange={e=>setAiNotif((a:any)=>({...a,trigger:e.target.value}))} className="w-full p-3 rounded-xl border-2 border-gray-200 font-bold text-sm outline-none focus:border-black bg-white">
-                    <option value="">-- Choisir un déclencheur --</option>
-
-                    <optgroup label="🧊 Frigo — Contenu">
-                      <option value="frigo:last_added">Dernier article ajouté au frigo</option>
-                      <option value="frigo:all">Inventaire complet du frigo</option>
-                      <option value="frigo:low_stock">Frigo presque vide (≤ 5 articles)</option>
-                      <option value="frigo:full">Frigo bien rempli (≥ 15 articles)</option>
-                    </optgroup>
-                    <optgroup label="🧊 Frigo — Péremption">
-                      <option value="frigo:expiring_3">Produits expirant dans ≤ 3 jours</option>
-                      <option value="frigo:expiring_7">Produits expirant dans ≤ 7 jours</option>
-                      <option value="frigo:expired">Produits périmés à jeter</option>
-                    </optgroup>
-
-                    <optgroup label="🛒 Courses">
-                      <option value="hub:last_added">Dernier article ajouté aux courses</option>
-                      <option value="hub:full_list">Liste de courses complète</option>
-                      <option value="hub:long_list">Longue liste (≥ 10 articles)</option>
-                      <option value="hub:empty">Liste de courses vide</option>
-                    </optgroup>
-
-                    <optgroup label="🧹 Corvées — Par membre">
-                      <option value="chores:pending_G">Corvées en retard — Gabriel (G)</option>
-                      <option value="chores:pending_P">Corvées en retard — Pauline (P)</option>
-                      <option value="chores:pending_V">Corvées en retard — Valentin (V)</option>
-                    </optgroup>
-                    <optgroup label="🧹 Corvées — Général">
-                      <option value="chores:summary">Résumé état corvées G+P+V</option>
-                      <option value="chores:all_done">Toutes les corvées faites cette semaine</option>
-                    </optgroup>
-
-                    <optgroup label="🗓️ Semainier — Repas">
-                      <option value="semainier:today">Repas planifiés aujourd'hui</option>
-                      <option value="semainier:tomorrow">Repas planifiés demain</option>
-                      <option value="semainier:week">Récap repas de la semaine</option>
-                      <option value="semainier:missing">Jours sans repas planifié cette semaine</option>
-                    </optgroup>
-
-                    <optgroup label="📅 Événements">
-                      <option value="events:today">Événement aujourd'hui</option>
-                      <option value="events:tomorrow">Événement demain</option>
-                      <option value="events:week">Événements dans les 7 prochains jours</option>
-                      <option value="events:month">Événements dans les 30 prochains jours</option>
-                    </optgroup>
-
-                    <optgroup label="📚 Recettes">
-                      <option value="recipes:last_added">Dernière recette ajoutée</option>
-                      <option value="recipes:suggest">Suggestion recette selon le frigo actuel</option>
-                    </optgroup>
-
-                    <optgroup label="💰 Budget">
-                      <option value="wallet:low_balance">Solde bas (proche de 0)</option>
-                      <option value="wallet:goal_reached">Objectif d'épargne atteint</option>
-                    </optgroup>
-
-                    <optgroup label="⏰ Temporel — Récurrent">
-                      <option value="time:daily">Tous les jours (contexte du jour)</option>
-                      <option value="time:monday_morning">Lundi matin (début de semaine)</option>
-                      <option value="time:friday_evening">Vendredi soir (fin de semaine)</option>
-                      <option value="time:weekend">Week-end (samedi & dimanche)</option>
-                      <option value="time:tuesday">Mardi</option>
-                      <option value="time:wednesday">Mercredi</option>
-                      <option value="time:thursday">Jeudi</option>
-                    </optgroup>
-
-                    <optgroup label="⚙️ Général">
-                      <option value="general:custom">Message libre (toutes les données)</option>
-                    </optgroup>
-                  </select>
-                </div>
-
-                {/* CONDITION OPTIONNELLE */}
-                <div>
-                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-1.5">
-                    Condition <span className="text-gray-300 font-normal normal-case tracking-normal">(facultatif — ex: "seulement si Gabriel est concerné")</span>
-                  </label>
-                  <input
-                    value={(aiNotif as any).condition||''}
-                    onChange={e=>setAiNotif(a=>({...a, condition:e.target.value}))}
-                    placeholder="Ex: seulement le week-end, si plus de 3 produits concernés, uniquement pour G..."
-                    className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none focus:border-black"
-                  />
-                </div>
-
-                {/* INSTRUCTIONS IA */}
-                <div>
-                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-1.5">Instructions pour l'IA *</label>
-                  <textarea value={aiNotif.prompt} onChange={e=>setAiNotif(a=>({...a,prompt:e.target.value}))} placeholder="Ex: Proposer une recette avec l'article, ton chaleureux, rappeler les corvées avec bienveillance..." className="w-full p-3 rounded-xl border border-gray-200 text-sm outline-none h-20 resize-none"/>
-                </div>
-
-                {/* COOLDOWN */}
-                <div className="flex gap-3 items-center">
-                  <label className="font-black text-xs uppercase tracking-widest text-gray-400 shrink-0">Répéter max 1× par</label>
-                  <select value={(aiNotif as any).cooldownHours||24} onChange={e=>setAiNotif(a=>({...a,cooldownHours:parseInt(e.target.value)}))} className="flex-1 p-2.5 rounded-xl border border-gray-200 text-sm font-bold outline-none bg-white">
-                    <option value={1}>heure</option>
-                    <option value={6}>6 heures</option>
-                    <option value={12}>12 heures</option>
-                    <option value={24}>jour</option>
-                    <option value={168}>semaine</option>
-                    <option value={720}>mois</option>
-                  </select>
-                </div>
-
-                {/* DESTINATAIRES */}
-                <div>
-                  <label className="block font-black text-xs uppercase tracking-widest text-gray-400 mb-1.5">Destinataires</label>
-                  <div className="flex flex-wrap gap-2">
-                    <button onClick={()=>setAiNotif(a=>({...a,targets:['all']}))} className={`px-3 py-1 rounded-full text-xs font-bold ${aiNotif.targets.includes('all')?'bg-black text-white':'bg-gray-200 text-gray-500'}`}>TOUS</button>
-                    {users.map((u:any)=>(
-                      <button key={u.id} onClick={()=>{const c=aiNotif.targets.includes('all')?[]:aiNotif.targets;const t=c.includes(u.id)?c.filter((x:string)=>x!==u.id):[...c,u.id];setAiNotif(a=>({...a,targets:t}));}} className={`px-3 py-1 rounded-full text-xs font-bold ${aiNotif.targets.includes(u.id)?'bg-purple-500 text-white':'bg-gray-200 text-gray-500'}`}>{u.name||u.letter}</button>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  onClick={saveAiRule}
-                  disabled={!aiNotif.trigger||!aiNotif.prompt}
-                  className="w-full py-3 text-white font-black rounded-2xl uppercase tracking-widest shadow-lg flex items-center justify-center gap-2 disabled:opacity-40"
-                  style={{backgroundColor:config.primaryColor}}
-                >
-                  <Plus size={16}/>Enregistrer la règle
-                </button>
-              </div>
-
-              {/* LISTE DES RÈGLES ACTIVES */}
-              {aiRules.length>0&&(
-                <div className="space-y-2">
-                  <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 flex items-center gap-2"><Sparkles size={13}/>Règles automatiques ({aiRules.length})</h4>
-                  {aiRules.map((rule:any)=>(
-                    <div key={rule.id} className={`p-4 rounded-2xl border transition-all ${rule.enabled?'bg-white border-gray-200':'bg-gray-50 border-gray-100 opacity-60'}`}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <span className="text-xs font-black bg-purple-100 text-purple-700 px-2 py-0.5 rounded">{rule.trigger}</span>
-                            {rule.condition&&<span className="text-xs text-gray-500 italic">si: {rule.condition}</span>}
-                          </div>
-                          <p className="text-sm font-bold text-gray-700 truncate">{rule.instructions}</p>
-                          <div className="flex items-center gap-3 mt-1">
-                            <span className="text-[10px] text-gray-400">↻ 1×/{rule.cooldownHours>=168?'semaine':rule.cooldownHours>=24?'jour':'heure'}</span>
-                            {rule.lastFiredAt&&<span className="text-[10px] text-gray-400">Dernier envoi : {new Date(rule.lastFiredAt).toLocaleString('fr-FR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>}
-                          </div>
-                        </div>
-                        <div className="flex gap-2 shrink-0">
-                          <button
-                            onClick={()=>fireRuleNow(rule)}
-                            disabled={aiNotifLoading}
-                            className="p-2 bg-purple-50 text-purple-600 rounded-xl hover:bg-purple-100 transition-colors"
-                            title="Tester maintenant"
-                          ><Sparkles size={14}/></button>
-                          <button
-                            onClick={()=>updateDoc(doc(db,'ai_notif_rules',rule.id),{enabled:!rule.enabled})}
-                            className={`p-2 rounded-xl transition-colors ${rule.enabled?'bg-green-50 text-green-600 hover:bg-red-50 hover:text-red-500':'bg-gray-100 text-gray-400 hover:bg-green-50 hover:text-green-600'}`}
-                            title={rule.enabled?'Désactiver':'Activer'}
-                          >{rule.enabled?<CheckCircle2 size={14}/>:<X size={14}/>}</button>
-                          <button onClick={()=>deleteDoc(doc(db,'ai_notif_rules',rule.id))} className="p-2 bg-red-50 text-red-400 rounded-xl hover:bg-red-100 transition-colors"><Trash2 size={14}/></button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <p className="text-[10px] text-gray-400 italic text-center">Les règles sont évaluées automatiquement toutes les 5 min. L'IA n'envoie que si les données réelles remplissent la condition.</p>
-            </div>
-          )}
 
           {/* LISTE DES NOTIFS ACTIVES */}
           <div className="space-y-2">
@@ -1904,6 +1788,369 @@ const MaintenancePage = ({ pageName }: { pageName?: string }) => (
 );
 
 // ==========================================
+// ==========================================
+// COMPOSANT WISHLIST
+// ==========================================
+const WISHLIST_ICONS = ['🎁','🛍️','✨','🏠','👗','📱','🎮','📚','🎵','🧸','🌿','💄','🔧','🍕','✈️','💪','🎨','⌚','💻','🏋️'];
+
+const WishlistView = ({ user, config, siteUsers }: { user:User, config:SiteConfig, siteUsers:any[] }) => {
+  const [lists, setLists]     = useState<any[]>([]);
+  const [activeList, setActiveList] = useState<any|null>(null);
+  const [showCreate, setShowCreate]   = useState(false);
+  const [showAddItem, setShowAddItem] = useState<'manual'|'url'|null>(null);
+  const [showShare, setShowShare]     = useState(false);
+  const [newList, setNewList]  = useState({name:'', icon:'🎁', category:''});
+  const [newItem, setNewItem]  = useState({name:'', imageUrl:'', url:''});
+  const [urlInput, setUrlInput] = useState('');
+  const [urlLoading, setUrlLoading] = useState(false);
+  const [urlError, setUrlError]   = useState('');
+
+  // Charger les wishlists (propres + partagées)
+  useEffect(()=>{
+    if(!user?.email) return;
+    const q = query(collection(db,'wishlists'), orderBy('createdAt','desc'));
+    const unsub = onSnapshot(q, snap=>{
+      const all = snap.docs.map(d=>({id:d.id,...d.data()})) as any[];
+      // Garder : les miennes + celles partagées avec moi
+      const visible = all.filter((l:any)=>
+        l.ownerEmail===user.email ||
+        (l.sharedWith||[]).includes(user.email)
+      );
+      setLists(visible);
+    });
+    return()=>unsub();
+  },[user]);
+
+  // Recharger l'activeList depuis la liste à jour
+  useEffect(()=>{
+    if(!activeList) return;
+    const updated = lists.find(l=>l.id===activeList.id);
+    if(updated) setActiveList(updated);
+  },[lists]);
+
+  const isOwner = (list:any) => list.ownerEmail===user.email;
+
+  const createList = async () => {
+    if(!newList.name.trim()) return;
+    const doc2 = await addDoc(collection(db,'wishlists'),{
+      name:newList.name.trim(), icon:newList.icon, category:newList.category,
+      ownerEmail:user.email, ownerName:user.displayName||user.email,
+      sharedWith:[], items:[], createdAt:new Date().toISOString()
+    });
+    setShowCreate(false); setNewList({name:'',icon:'🎁',category:''});
+    // Ouvrir la liste créée
+    setActiveList({id:doc2.id, name:newList.name.trim(), icon:newList.icon, items:[], ownerEmail:user.email, sharedWith:[]});
+  };
+
+  const deleteList = async (list:any) => {
+    if(!confirm(`Supprimer la liste "${list.name}" ?`)) return;
+    await deleteDoc(doc(db,'wishlists',list.id));
+    if(activeList?.id===list.id) setActiveList(null);
+  };
+
+  const addItemManual = async () => {
+    if(!newItem.name.trim()||!activeList) return;
+    const item = {id:Date.now().toString(), name:newItem.name.trim(), imageUrl:newItem.imageUrl, addedAt:new Date().toISOString()};
+    await updateDoc(doc(db,'wishlists',activeList.id),{items:arrayUnion(item)});
+    setNewItem({name:'',imageUrl:'',url:''}); setShowAddItem(null);
+  };
+
+  const scrapeUrl = async () => {
+    if(!urlInput.trim()) return;
+    setUrlLoading(true); setUrlError('');
+    try {
+      // Use Gemini to extract product info from URL
+      const { callGeminiDirect } = await import('./services/geminiService');
+      const result = await callGeminiDirect([{role:'user', text:
+        `Analyse cette URL de produit : ${urlInput}\nExtrait le nom du produit et l'URL de l'image principale.\nRéponds UNIQUEMENT en JSON : {"name":"nom du produit","imageUrl":"url image ou vide"}`
+      }]);
+      const parsed = JSON.parse(result?.match(/\{[\s\S]*\}/)?.[0]||'{}');
+      if(parsed.name) {
+        setNewItem({name:parsed.name, imageUrl:parsed.imageUrl||'', url:urlInput});
+        setShowAddItem('manual'); // Passe au form manuel pré-rempli
+        setUrlInput('');
+      } else { setUrlError('Impossible d\'extraire le produit. Saisissez manuellement.'); }
+    } catch { setUrlError('Erreur — essayez l\'ajout manuel.'); }
+    setUrlLoading(false);
+  };
+
+  const removeItem = async (list:any, itemId:string) => {
+    const updated = (list.items||[]).filter((i:any)=>i.id!==itemId);
+    await updateDoc(doc(db,'wishlists',list.id),{items:updated});
+  };
+
+  const shareWith = async (list:any, targetEmail:string, targetName:string) => {
+    if((list.sharedWith||[]).includes(targetEmail)) return;
+    await updateDoc(doc(db,'wishlists',list.id),{sharedWith:arrayUnion(targetEmail)});
+    // Notification ciblée
+    await addDoc(collection(db,'notifications'),{
+      message:`${user.displayName||'Quelqu\'un'} a partagé la WishList "${list.name}" ${list.icon} avec toi !`,
+      type:'info', repeat:'once', targets:[targetEmail],
+      linkView:'wishlist', createdAt:new Date().toISOString(), readBy:{},
+    });
+    alert(`✅ WishList partagée avec ${targetName} !`);
+  };
+
+  const unshare = async (list:any, targetEmail:string) => {
+    await updateDoc(doc(db,'wishlists',list.id),{sharedWith:arrayRemove(targetEmail)});
+  };
+
+  const myLists     = lists.filter(l=>l.ownerEmail===user.email);
+  const sharedLists = lists.filter(l=>l.ownerEmail!==user.email);
+
+  return (
+    <div className="space-y-6 pb-32 animate-in fade-in">
+
+      {/* HEADER */}
+      <div className="flex items-center justify-between">
+        {activeList ? (
+          <button onClick={()=>setActiveList(null)} className="flex items-center gap-2 text-gray-500 font-bold hover:text-black transition-colors">
+            <ArrowLeft size={20}/> Mes Listes
+          </button>
+        ) : (
+          <h2 className="text-4xl font-cinzel font-black" style={{color:config.primaryColor}}>WISHLISTS</h2>
+        )}
+        {!activeList&&(
+          <button onClick={()=>setShowCreate(true)} className="flex items-center gap-2 px-4 py-2.5 text-white font-black rounded-2xl shadow-lg hover:scale-105 transition-transform text-sm" style={{backgroundColor:config.primaryColor}}>
+            <Plus size={16}/>Nouvelle liste
+          </button>
+        )}
+      </div>
+
+      {/* MODALE CRÉATION */}
+      {showCreate&&(
+        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowCreate(false)}>
+          <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+            <h3 className="font-black text-xl">Nouvelle WishList</h3>
+            {/* Sélecteur icône */}
+            <div>
+              <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Icône</label>
+              <div className="flex flex-wrap gap-2">
+                {WISHLIST_ICONS.map(icon=>(
+                  <button key={icon} onClick={()=>setNewList(l=>({...l,icon}))} className={`text-2xl p-2 rounded-xl transition-all ${newList.icon===icon?'bg-gray-900 scale-110':'bg-gray-100 hover:bg-gray-200'}`}>{icon}</button>
+                ))}
+              </div>
+            </div>
+            <input value={newList.name} onChange={e=>setNewList(l=>({...l,name:e.target.value}))} placeholder="Nom de la liste..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black"/>
+            <input value={newList.category} onChange={e=>setNewList(l=>({...l,category:e.target.value}))} placeholder="Catégorie (facultatif)..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
+            <div className="flex gap-3">
+              <button onClick={()=>setShowCreate(false)} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
+              <button onClick={createList} disabled={!newList.name.trim()} className="flex-1 py-3 text-white font-black rounded-2xl disabled:opacity-40" style={{backgroundColor:config.primaryColor}}>Créer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VUE LISTE DES WISHLISTS */}
+      {!activeList&&(
+        <div className="space-y-6">
+          {/* Mes listes */}
+          {myLists.length>0&&(
+            <div className="space-y-3">
+              <h3 className="font-black text-xs uppercase tracking-widest text-gray-400 flex items-center gap-2"><Star size={12}/>Mes listes ({myLists.length})</h3>
+              {myLists.map(list=>(
+                <div key={list.id} onClick={()=>setActiveList(list)} className="flex items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all group">
+                  <div className="text-4xl">{list.icon}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-black text-lg leading-tight">{list.name}</div>
+                    <div className="flex items-center gap-3 mt-1">
+                      {list.category&&<span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">{list.category}</span>}
+                      <span className="text-[10px] text-gray-400">{(list.items||[]).length} article{(list.items||[]).length!==1?'s':''}</span>
+                      {(list.sharedWith||[]).length>0&&<span className="text-[10px] font-bold text-blue-500 flex items-center gap-1"><Users size={9}/>Partagée</span>}
+                    </div>
+                  </div>
+                  <ChevronRight size={18} className="text-gray-300 group-hover:text-gray-600 transition-colors"/>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Listes partagées */}
+          {sharedLists.length>0&&(
+            <div className="space-y-3">
+              <h3 className="font-black text-xs uppercase tracking-widest text-gray-400 flex items-center gap-2"><Users size={12}/>Partagées avec moi ({sharedLists.length})</h3>
+              {sharedLists.map(list=>(
+                <div key={list.id} onClick={()=>setActiveList(list)} className="flex items-center gap-4 p-4 bg-blue-50/70 rounded-2xl border-2 border-blue-200/60 cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all group">
+                  <div className="text-4xl">{list.icon}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-black text-lg leading-tight">{list.name}</div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full flex items-center gap-1"><Eye size={8}/>Lecture seule</span>
+                      <span className="text-[10px] text-gray-500">par {list.ownerName||list.ownerEmail}</span>
+                      <span className="text-[10px] text-gray-400">{(list.items||[]).length} article{(list.items||[]).length!==1?'s':''}</span>
+                    </div>
+                  </div>
+                  <ChevronRight size={18} className="text-blue-300 group-hover:text-blue-600 transition-colors"/>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {lists.length===0&&(
+            <div className="text-center py-20 space-y-4">
+              <div className="text-6xl">🎁</div>
+              <p className="text-gray-400 font-bold">Aucune wishlist pour l'instant</p>
+              <p className="text-sm text-gray-300">Créez votre première liste d'envies !</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* VUE DÉTAIL D'UNE WISHLIST */}
+      {activeList&&(
+        <div className="space-y-4">
+          {/* Titre et actions */}
+          <div className={`p-5 rounded-[2.5rem] shadow-xl ${isOwner(activeList)?'bg-white border border-gray-100':'bg-blue-50 border-2 border-blue-200'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-5xl">{activeList.icon}</span>
+                <div>
+                  <h3 className="font-black text-2xl">{activeList.name}</h3>
+                  {activeList.category&&<span className="text-xs text-gray-400 font-bold uppercase tracking-wide">{activeList.category}</span>}
+                  {!isOwner(activeList)&&<div className="flex items-center gap-1 mt-1"><Eye size={10} className="text-blue-500"/><span className="text-[10px] text-blue-600 font-bold">Lecture seule · par {activeList.ownerName||activeList.ownerEmail}</span></div>}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {isOwner(activeList)&&(
+                  <>
+                    <button onClick={()=>setShowShare(true)} className="p-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors" title="Partager"><Users size={16}/></button>
+                    <button onClick={()=>deleteList(activeList)} className="p-2.5 bg-red-50 text-red-400 rounded-xl hover:bg-red-100 transition-colors" title="Supprimer"><Trash2 size={16}/></button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Partage info */}
+            {isOwner(activeList)&&(activeList.sharedWith||[]).length>0&&(
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Partagée avec :</span>
+                  {(activeList.sharedWith||[]).map((email:string)=>{
+                    const u=siteUsers.find(u=>u.id===email);
+                    return (
+                      <span key={email} className="flex items-center gap-1.5 bg-blue-100 text-blue-700 text-xs font-bold px-2.5 py-1 rounded-full">
+                        {u?.name||email}
+                        <button onClick={()=>unshare(activeList,email)} className="hover:text-red-500 transition-colors"><X size={10}/></button>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Modale partage */}
+          {showShare&&isOwner(activeList)&&(
+            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowShare(false)}>
+              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+                <h3 className="font-black text-xl">Partager "{activeList.name}"</h3>
+                <p className="text-sm text-gray-500">Choisissez un membre de la famille :</p>
+                <div className="space-y-2">
+                  {siteUsers.filter(u=>u.id!==user.email).map((u:any)=>{
+                    const alreadyShared=(activeList.sharedWith||[]).includes(u.id);
+                    return (
+                      <button key={u.id} onClick={()=>{if(!alreadyShared){shareWith(activeList,u.id,u.name||u.id);setShowShare(false);}}} className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all ${alreadyShared?'bg-green-50 border border-green-200 cursor-default':'bg-gray-50 hover:bg-gray-100 cursor-pointer'}`}>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-black text-lg">{u.letter||u.name?.[0]||'?'}</div>
+                          <span className="font-bold">{u.name||u.id}</span>
+                        </div>
+                        {alreadyShared?<span className="text-xs text-green-600 font-bold flex items-center gap-1"><CheckCircle2 size={14}/>Partagé</span>:<ChevronRight size={16} className="text-gray-400"/>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button onClick={()=>setShowShare(false)} className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Fermer</button>
+              </div>
+            </div>
+          )}
+
+          {/* Bouton ajout (propriétaire seulement) */}
+          {isOwner(activeList)&&(
+            <div className="flex gap-3">
+              <button onClick={()=>setShowAddItem('manual')} className="flex-1 flex items-center justify-center gap-2 p-4 bg-white rounded-2xl border-2 border-dashed border-gray-300 text-gray-600 font-bold hover:border-black hover:text-black transition-all text-sm">
+                <Plus size={16}/>Ajout manuel
+              </button>
+              <button onClick={()=>setShowAddItem('url')} className="flex-1 flex items-center justify-center gap-2 p-4 bg-white rounded-2xl border-2 border-dashed border-gray-300 text-gray-600 font-bold hover:border-black hover:text-black transition-all text-sm">
+                <Link size={16}/>Insérer un lien
+              </button>
+            </div>
+          )}
+
+          {/* Modale ajout manuel */}
+          {showAddItem==='manual'&&isOwner(activeList)&&(
+            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowAddItem(null)}>
+              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+                <h3 className="font-black text-xl">Ajouter un article</h3>
+                <input value={newItem.name} onChange={e=>setNewItem(i=>({...i,name:e.target.value}))} placeholder="Nom du produit..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
+                <input value={newItem.imageUrl} onChange={e=>setNewItem(i=>({...i,imageUrl:e.target.value}))} placeholder="URL image (facultatif)..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
+                {newItem.imageUrl&&<img src={newItem.imageUrl} alt="" className="w-full h-32 object-cover rounded-2xl" onError={e=>(e.currentTarget.style.display='none')}/>}
+                {newItem.url&&<div className="text-xs text-gray-400 truncate bg-gray-50 px-3 py-2 rounded-xl"><Link size={10} className="inline mr-1"/>{newItem.url}</div>}
+                <div className="flex gap-3">
+                  <button onClick={()=>{setShowAddItem(null);setNewItem({name:'',imageUrl:'',url:''}); setUrlInput('');}} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
+                  <button onClick={addItemManual} disabled={!newItem.name.trim()} className="flex-1 py-3 text-white font-black rounded-2xl disabled:opacity-40" style={{backgroundColor:config.primaryColor}}>Ajouter</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modale ajout via URL */}
+          {showAddItem==='url'&&isOwner(activeList)&&(
+            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowAddItem(null)}>
+              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+                <h3 className="font-black text-xl">Importer depuis un lien</h3>
+                <p className="text-sm text-gray-500">Collez l'URL d'une page produit — l'IA extrait le nom et l'image.</p>
+                <div className="flex gap-2">
+                  <input value={urlInput} onChange={e=>setUrlInput(e.target.value)} placeholder="https://..." className="flex-1 p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black text-sm" autoFocus/>
+                  <button onClick={scrapeUrl} disabled={!urlInput.trim()||urlLoading} className="p-3 text-white rounded-2xl disabled:opacity-40 flex items-center gap-1" style={{backgroundColor:config.primaryColor}}>
+                    {urlLoading?<Loader2 size={16} className="animate-spin"/>:<Scan size={16}/>}
+                  </button>
+                </div>
+                {urlError&&<p className="text-xs text-red-500 font-bold">{urlError}</p>}
+                <button onClick={()=>setShowAddItem(null)} className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
+              </div>
+            </div>
+          )}
+
+          {/* Articles de la liste */}
+          {(activeList.items||[]).length===0?(
+            <div className="text-center py-16 space-y-3">
+              <div className="text-5xl">{activeList.icon}</div>
+              <p className="text-gray-400 font-bold">Liste vide</p>
+              {isOwner(activeList)&&<p className="text-sm text-gray-300">Ajoutez votre premier article !</p>}
+            </div>
+          ):(
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {(activeList.items||[]).map((item:any)=>(
+                <div key={item.id} className={`group relative rounded-2xl overflow-hidden shadow-sm border transition-all hover:shadow-md ${isOwner(activeList)?'bg-white border-gray-100':'bg-blue-50/60 border-blue-100'}`}>
+                  {item.imageUrl?(
+                    <img src={item.imageUrl} alt={item.name} className="w-full h-32 object-cover" onError={e=>{(e.currentTarget as any).style.display='none';}}/>
+                  ):(
+                    <div className="w-full h-32 bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center text-4xl">{activeList.icon}</div>
+                  )}
+                  <div className="p-3">
+                    <p className="font-bold text-sm leading-tight">{item.name}</p>
+                    {item.url&&<a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 font-bold flex items-center gap-1 mt-1 hover:underline" onClick={e=>e.stopPropagation()}><ExternalLink size={9}/>Voir le produit</a>}
+                  </div>
+                  {isOwner(activeList)&&(
+                    <button onClick={()=>removeItem(activeList,item.id)} className="absolute top-2 right-2 w-7 h-7 bg-white/90 rounded-full flex items-center justify-center text-gray-400 hover:text-red-500 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                      <X size={12}/>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==========================================
 // APP COMPONENT
 // ==========================================
 const App: React.FC = () => {
@@ -1931,7 +2178,6 @@ const App: React.FC = () => {
   const [aiPrompt, setAiPrompt] = useState('');
   const [chatHistory, setChatHistory] = useState<{role:string,text:string}[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [aiRulesApp, setAiRulesApp] = useState<any[]>([]);
 
   // AUTH
   useEffect(()=>{
@@ -1981,29 +2227,6 @@ const App: React.FC = () => {
     return()=>{unsubC();unsubX();unsubR();unsubE();unsubV();unsubT();unsubU();unsubN();};
   },[user]);
 
-  // ÉVALUATEUR AUTO DES RÈGLES IA (toutes les 5 min + au chargement)
-  useEffect(()=>{
-    if(!user||!siteUsers.length) return;
-    const evaluate = async () => {
-      const snap = await getDocs(collection(db,'ai_notif_rules'));
-      const rules = snap.docs.map(d=>({id:d.id,...d.data()})) as any[];
-      const active = rules.filter((r:any)=>r.enabled);
-      for(const rule of active) {
-        // Vérifie le cooldown
-        if(rule.lastFiredAt) {
-          const lastFired = new Date(rule.lastFiredAt).getTime();
-          const cooldownMs = (rule.cooldownHours||24) * 3600 * 1000;
-          if(Date.now() - lastFired < cooldownMs) continue;
-        }
-        // Passe la règle à l'évaluateur silencieux (rule=true → pas d'alert)
-        try { await evaluateAiRule(rule); } catch(e) { console.warn('Rule eval error:', rule.trigger, e); }
-      }
-    };
-    evaluate();
-    const interval = setInterval(evaluate, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [user, siteUsers]);
-
   // DEEP LINKING
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
@@ -2021,100 +2244,6 @@ const App: React.FC = () => {
   const handleLogin=async()=>{try{await signInWithPopup(auth,googleProvider);}catch(e){alert("Erreur Auth");}};
   const handleLogout=()=>{signOut(auth);setCurrentView('home');};
 
-  // Évalue une règle IA et envoie si condition remplie (utilisé par l'évaluateur auto + AdminPanel)
-  const evaluateAiRule = async (rule: any) => {
-    const { callGeminiDirect } = await import('./services/geminiService');
-    const today    = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    const dayName  = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][today.getDay()];
-    const dayNum   = today.getDay();
-    const getWN    = (d:Date) => { const t=new Date(d.valueOf());const dn=(d.getDay()+6)%7;t.setDate(t.getDate()-dn+3);const ft=t.valueOf();t.setMonth(0,1);if(t.getDay()!==4)t.setMonth(0,1+((4-t.getDay())+7)%7);return 1+Math.ceil((ft-t.valueOf())/604800000); };
-    const weekKey  = `${today.getFullYear()}_W${String(getWN(today)).padStart(2,'0')}`;
-    const SHELF:Record<string,number> = {'Boucherie/Poisson':3,'Boulangerie':3,'Plat préparé':4,'Restes':4,'Primeur':7,'Frais & Crèmerie':10,'Épicerie Salée':90,'Épicerie Sucrée':90,'Boissons':90,'Surgelés':180,'Divers':14};
-    const [domain,type] = rule.trigger.split(':');
-    let focusData='', contextData='', shouldSend=true;
-
-    if(domain==='time') {
-      if(type==='monday_morning'&&dayNum!==1) return;
-      if(type==='friday_evening'&&dayNum!==5) return;
-      if(type==='weekend'&&dayNum!==0&&dayNum!==6) return;
-      if(type==='tuesday'&&dayNum!==2) return;
-      if(type==='wednesday'&&dayNum!==3) return;
-      if(type==='thursday'&&dayNum!==4) return;
-      focusData=`${dayName} ${todayStr}`;
-    } else if(domain==='frigo') {
-      const snap=await getDocs(query(collection(db,'frigo_items'),orderBy('addedAt','desc')));
-      const all=snap.docs.map(d=>({id:d.id,...d.data()} as any));
-      contextData=`Recettes : ${recipes.slice(0,10).map(r=>r.title).join(', ')||'aucune'}`;
-      if(type==='last_added'){const l=all[0];if(!l)return;focusData=`Dernier ajout : "${l.name}" (${l.category||'?'})`; contextData+=` | Autres : ${all.slice(1,5).map((i:any)=>i.name).join(', ')||'aucun'}`;}
-      else if(type==='expiring_3'||type==='expiring_7'){const d=type==='expiring_3'?3:7;const l=all.filter((i:any)=>{let e=i.expiryDate;if(!e&&i.addedAt){const x=new Date(i.addedAt);x.setDate(x.getDate()+(SHELF[i.category]??14));e=x.toISOString().split('T')[0];}if(!e)return false;return Math.ceil((new Date(e).getTime()-today.getTime())/86400000)>=0&&Math.ceil((new Date(e).getTime()-today.getTime())/86400000)<=d;});if(!l.length)return;focusData=`Expirant ≤${d}j : ${l.map((i:any)=>i.name).join(', ')}`;}
-      else if(type==='expired'){const l=all.filter((i:any)=>{let e=i.expiryDate;if(!e&&i.addedAt){const x=new Date(i.addedAt);x.setDate(x.getDate()+(SHELF[i.category]??14));e=x.toISOString().split('T')[0];}if(!e)return false;return Math.ceil((new Date(e).getTime()-today.getTime())/86400000)<0;});if(!l.length)return;focusData=`Périmés : ${l.map((i:any)=>i.name).join(', ')}`;}
-      else if(type==='low_stock'){if(all.length>5)return;focusData=`Frigo presque vide (${all.length} articles)`;}
-      else if(type==='full'){if(all.length<15)return;focusData=`Frigo plein : ${all.length} articles`;}
-      else focusData=`Frigo (${all.length}) : ${all.slice(0,8).map((i:any)=>i.name).join(', ')||'vide'}`;
-    } else if(domain==='hub') {
-      const snap=await getDocs(query(collection(db,'hub_items'),orderBy('createdAt','desc'),where('type','==','shop')));
-      const all=snap.docs.map(d=>({id:d.id,...d.data()} as any));
-      if(type==='last_added'){const l=all[0];if(!l)return;focusData=`Dernier course : "${l.content}"`;}
-      else if(type==='long_list'){if(all.length<10)return;focusData=`Longue liste (${all.length}) : ${all.slice(0,12).map((i:any)=>i.content).join(', ')}`;}
-      else if(type==='empty'){if(all.length>0)return;focusData='Liste vide';}
-      else{if(!all.length)return;focusData=`Courses (${all.length}) : ${all.slice(0,12).map((i:any)=>i.content).join(', ')}`;}
-    } else if(domain==='chores') {
-      if(type==='summary')focusData=`Corvées : ${Object.entries(choreStatus).slice(-2).map(([w,c]:any)=>`${w} G:${c.G?'✅':'❌'} P:${c.P?'✅':'❌'} V:${c.V?'✅':'❌'}`).join(' | ')||'aucune'}`;
-      else if(type==='all_done'){const w=choreStatus[weekKey]||{};if(!w.G||!w.P||!w.V)return;focusData='Toutes corvées faites ✅';}
-      else{const l=type.replace('pending_','');const p=Object.entries(choreStatus).map(([wid,c]:any)=>c[l]?null:wid).filter(Boolean);if(!p.length)return;focusData=`Corvées non faites ${l} : ${p.slice(0,3).join(', ')}`;}
-    } else if(domain==='semainier') {
-      const snap=await getDocs(collection(db,'semainier_meals'));
-      const all=Object.fromEntries(snap.docs.map(d=>[d.id,d.data()]));
-      const tmrDay=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][(today.getDay()+1)%7];
-      if(type==='today'){const m=all[`${dayName}_Midi_${weekKey}`],s=all[`${dayName}_Soir_${weekKey}`];if(!m&&!s)return;focusData=`Repas ${dayName} : ${m?.platName||'?'} / ${s?.platName||'?'}`;}
-      else if(type==='tomorrow'){const m=all[`${tmrDay}_Midi_${weekKey}`],s=all[`${tmrDay}_Soir_${weekKey}`];if(!m&&!s)return;focusData=`Repas demain ${tmrDay} : ${m?.platName||'?'} / ${s?.platName||'?'}`;}
-      else if(type==='missing'){const JOURS=['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];const miss=JOURS.filter(j=>!all[`${j}_Midi_${weekKey}`]&&!all[`${j}_Soir_${weekKey}`]);if(!miss.length)return;focusData=`Jours sans repas : ${miss.join(', ')}`;}
-      else{const w=Object.entries(all).filter(([k])=>k.includes(weekKey)).map(([k,v]:any)=>`${k.split('_')[0]}: ${v.platName}`).join(', ');if(!w)return;focusData=`Semaine : ${w}`;}
-    } else if(domain==='events') {
-      const snap=await getDocs(collection(db,'family_events'));
-      const all=snap.docs.map(d=>d.data() as any);
-      const tmr=new Date(today.getTime()+86400000).toISOString().split('T')[0];
-      const in7=new Date(today.getTime()+7*86400000).toISOString().split('T')[0];
-      const in30=new Date(today.getTime()+30*86400000).toISOString().split('T')[0];
-      if(type==='today'){const l=all.filter((e:any)=>e.date?.split('T')[0]===todayStr);if(!l.length)return;focusData=`Événement aujourd'hui : ${l.map((e:any)=>e.title).join(', ')}`;}
-      else if(type==='tomorrow'){const l=all.filter((e:any)=>e.date?.split('T')[0]===tmr);if(!l.length)return;focusData=`Événement demain : ${l.map((e:any)=>e.title).join(', ')}`;}
-      else if(type==='week'){const l=all.filter((e:any)=>{const d=e.date?.split('T')[0];return d>=todayStr&&d<=in7;});if(!l.length)return;focusData=`Événements 7j : ${l.map((e:any)=>e.title).join(', ')}`;}
-      else{const l=all.filter((e:any)=>{const d=e.date?.split('T')[0];return d>=todayStr&&d<=in30;});if(!l.length)return;focusData=`Événements 30j : ${l.map((e:any)=>e.title).join(', ')}`;}
-    } else if(domain==='recipes') {
-      if(type==='suggest'){const snap=await getDocs(collection(db,'frigo_items'));const all=snap.docs.map(d=>d.data() as any);if(!all.length)return;focusData=`Frigo : ${all.slice(0,8).map((i:any)=>i.name).join(', ')}`;contextData=`Recettes : ${recipes.slice(0,12).map(r=>r.title).join(', ')||'aucune'}`;}
-      else{const snap=await getDocs(query(collection(db,'family_recipes'),orderBy('timestamp','desc')));const l=snap.docs[0];if(!l)return;const r=l.data() as any;focusData=`Recette : "${r.title}" par ${r.chef||'?'}`;}
-    } else {
-      const [fS,hS]=await Promise.all([getDocs(collection(db,'frigo_items')),getDocs(collection(db,'hub_items'))]);
-      focusData=`Frigo : ${fS.docs.map(d=>(d.data() as any).name).slice(0,6).join(', ')||'vide'} | Courses : ${hS.docs.map(d=>d.data() as any).filter((i:any)=>i.type==='shop').slice(0,6).map((i:any)=>i.content).join(', ')||'vide'}`;
-    }
-
-    if(!focusData) return;
-
-    // Condition optionnelle
-    if(rule.condition?.trim()) {
-      const check=await callGeminiDirect([{role:'user',text:`Données : ${focusData}\nCondition : "${rule.condition}"\nRéponds UNIQUEMENT "OUI" ou "NON".`}]);
-      if(!check?.toUpperCase().includes('OUI')) return;
-    }
-
-    const targetedUsers = rule.targets?.includes('all') ? siteUsers : siteUsers.filter((u:any)=>rule.targets?.includes(u.id));
-    const membersStr = targetedUsers.map((u:any)=>u.name||u.id).join(', ')||'famille';
-
-    const res = await callGeminiDirect([{role:'user',text:`Majordome "Chaud Devant". ${dayName} ${todayStr}.\nDONNÉE : ${focusData}\n${contextData?`CONTEXTE : ${contextData}\n`:''}\nDESTINATAIRES : ${membersStr}\nINSTRUCTIONS : ${rule.instructions}\n⛔ N'invente rien. ✅ Max 2 phrases. JSON : {"notifications":[{"userId":"${targetedUsers[0]?.id||'all'}","name":"prénom","message":"texte"}]}`}]);
-    const result:any=(() => { try { const m=res?.match(/\{[\s\S]*\}/);return m?JSON.parse(m[0]):null; } catch { return null; } })();
-    if(!result?.notifications?.length) return;
-
-    for(const n of result.notifications) {
-      if(!n.message?.trim()) continue;
-      const target=n.userId==='all'?null:siteUsers.find((u:any)=>u.id===n.userId||u.name===n.name);
-      await addDoc(collection(db,'notifications'),{
-        message:n.message.trim(), type:'info', repeat:'once',
-        targets:target?[target.id]:(rule.targets?.includes('all')?['all']:rule.targets||['all']),
-        createdAt:new Date().toISOString(), readBy:{}, generatedByAI:true, trigger:rule.trigger,
-      });
-    }
-    await updateDoc(doc(db,'ai_notif_rules',rule.id),{lastFiredAt:new Date().toISOString()});
-  };
   const saveConfig=async(c:SiteConfig,saveHistory=false)=>{
     try{
       await setDoc(doc(db,'site_config','main'),c);
@@ -2267,7 +2396,21 @@ const App: React.FC = () => {
         )}
 
         {/* HUB */}
-        {currentView==='hub'&&(isPageLocked('hub')?<MaintenancePage pageName="Le Tableau"/>:<HubView user={user} config={config} usersMapping={usersMapping}/>)}
+        {currentView==='hub'&&(isPageLocked('hub')?<MaintenancePage pageName="Le Tableau"/>:(
+          <HubView
+            user={user} config={config} usersMapping={usersMapping}
+            recipes={recipes}
+            onAddRecipe={(r:any)=>addEntry('family_recipes',r)}
+            onAddSemainier={(title:string)=>{
+              const today=new Date();
+              const dayName=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][today.getDay()];
+              const getWN=(d:Date)=>{const t=new Date(d.valueOf());const dn=(d.getDay()+6)%7;t.setDate(t.getDate()-dn+3);const ft=t.valueOf();t.setMonth(0,1);if(t.getDay()!==4)t.setMonth(0,1+((4-t.getDay())+7)%7);return 1+Math.ceil((ft-t.valueOf())/604800000);};
+              const weekKey=`${today.getFullYear()}_W${String(getWN(today)).padStart(2,'0')}`;
+              setDoc(doc(db,`semainier_meals`,`${dayName}_Soir_${weekKey}`),{platName:title,participants:['G','P','V'],mealTime:'Soir',day:dayName,weekKey,updatedAt:new Date().toISOString()});
+              alert(`✅ "${title}" planifié ce soir !`);
+            }}
+          />
+        ))}
 
         {/* FRIGO */}
         {currentView==='frigo'&&(
@@ -2284,6 +2427,13 @@ const App: React.FC = () => {
 
         {/* PORTE-MONNAIE */}
         {currentView==='wallet'&&(isPageLocked('wallet')?<MaintenancePage pageName="Porte-Monnaie"/>:<WalletView user={user} config={config}/>)}
+
+        {/* WISHLIST */}
+        {currentView==='wishlist'&&(
+          <div className="space-y-6">
+            <WishlistView user={user} config={config} siteUsers={siteUsers}/>
+          </div>
+        )}
 
         {/* TÂCHES */}
         {currentView==='tasks'&&(isPageLocked('tasks') ? <MaintenancePage pageName="Tâches"/> : (
@@ -2439,7 +2589,6 @@ const App: React.FC = () => {
               arch={handleArchitect} chat={handleChat}
               prompt={aiPrompt} setP={setAiPrompt} load={isAiLoading} hist={chatHistory}
               users={siteUsers} choreStatus={choreStatus}
-              fireRule={evaluateAiRule}
             />
           ):(
             <div className="max-w-md mx-auto bg-white/80 p-10 rounded-[3rem] text-center space-y-8 shadow-xl mt-20">
