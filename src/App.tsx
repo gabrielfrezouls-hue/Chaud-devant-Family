@@ -53,7 +53,8 @@ const VIEW_ANCHORS: Record<string,{label:string,id:string}[]> = {
   tasks:[{label:'Tableau',id:'tasks-table'}],
   calendar:[{label:'Calendrier',id:'calendar-view'}],
   cooking:[{label:'Semainier',id:'cooking-frame'}],
-  frigo:[{label:'Inventaire',id:'frigo-list'}]
+  frigo:[{label:'Inventaire',id:'frigo-list'}],
+  wishlist:[{label:'Mes listes',id:'wishlist-top'}]
 };
 
 // --- CONFIG PAR DÉFAUT ---
@@ -62,7 +63,7 @@ const ORIGINAL_CONFIG: SiteConfig = {
   welcomeTitle: 'CHAUD DEVANT',
   welcomeText: "Bienvenue dans l'espace sacré de notre famille.",
   welcomeImage: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop',
-  navigationLabels: { home:'ACCUEIL', hub:'LE TABLEAU', xsite:'XSITE', cooking:'SEMAINIER', recipes:'RECETTES', calendar:'CALENDRIER', tasks:'TÂCHES', wallet:'PORTE-MONNAIE', frigo:'FRIGO' },
+  navigationLabels: { home:'ACCUEIL', hub:'LE TABLEAU', xsite:'XSITE', cooking:'SEMAINIER', recipes:'RECETTES', calendar:'CALENDRIER', tasks:'TÂCHES', wallet:'PORTE-MONNAIE', frigo:'FRIGO', wishlist:'WISHLISTS' },
   homeHtml: '', cookingHtml: '',
   isLocked: false
 };
@@ -2773,9 +2774,11 @@ const App: React.FC = () => {
 
         {/* WISHLIST */}
         {currentView==='wishlist'&&(
-          <div className="space-y-6">
+          isPageLocked('wishlist') ? <MaintenancePage pageName="WishLists"/> : (
+          <div className="space-y-6" id="wishlist-top">
             <WishlistView user={user} config={config} siteUsers={siteUsers}/>
           </div>
+          )
         )}
 
         {/* TÂCHES */}
