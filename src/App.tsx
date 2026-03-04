@@ -1915,21 +1915,37 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
 // ==========================================
 // PAGE MAINTENANCE (par page)
 // ==========================================
-const MaintenancePage = ({ pageName }: { pageName?: string }) => (
+const MaintenancePage = ({ pageName, isHome }: { pageName?: string, isHome?: boolean }) => (
   <div className="flex flex-col items-center justify-center min-h-[60vh] py-20 bg-black rounded-[3rem]">
     <div className="text-center space-y-8 animate-in fade-in duration-1000 px-8">
       <div className="w-20 h-20 mx-auto border border-white/10 rounded-full flex items-center justify-center">
-        <Flame className="text-white/30" size={36}/>
+        {isHome ? <Lock className="text-white/30" size={36}/> : <Flame className="text-white/30" size={36}/>}
       </div>
       <div>
-        <h1 className="text-4xl md:text-6xl font-black text-white tracking-[0.3em] uppercase" style={{fontFamily:'Georgia, serif'}}>
-          Ici,
-        </h1>
-        <h2 className="text-2xl md:text-4xl font-black text-white/50 tracking-widest uppercase mt-2" style={{fontFamily:'Georgia, serif'}}>
-          débute le futur.
-        </h2>
-        {pageName && (
-          <p className="mt-6 text-white/20 text-xs uppercase tracking-[0.4em]">{pageName} — bientôt disponible</p>
+        {isHome ? (
+          <>
+            <h1 className="text-4xl md:text-6xl font-black text-white tracking-[0.2em] uppercase" style={{fontFamily:'Georgia, serif'}}>
+              Chaud Devant
+            </h1>
+            <h2 className="text-xl md:text-3xl font-black text-white/50 tracking-widest uppercase mt-3" style={{fontFamily:'Georgia, serif'}}>
+              Le site est temporairement fermé.
+            </h2>
+            <p className="mt-6 text-white/30 text-sm leading-relaxed max-w-sm mx-auto">
+              Notre espace famille est en cours de mise à jour.<br/>Revenez très bientôt !
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className="text-4xl md:text-6xl font-black text-white tracking-[0.3em] uppercase" style={{fontFamily:'Georgia, serif'}}>
+              Ici,
+            </h1>
+            <h2 className="text-2xl md:text-4xl font-black text-white/50 tracking-widest uppercase mt-2" style={{fontFamily:'Georgia, serif'}}>
+              débute le futur.
+            </h2>
+            {pageName && (
+              <p className="mt-6 text-white/20 text-xs uppercase tracking-[0.4em]">{pageName} — bientôt disponible</p>
+            )}
+          </>
         )}
       </div>
       <div className="w-12 h-px bg-white/10 mx-auto"/>
@@ -2090,29 +2106,24 @@ const WishlistView = ({ user, config, siteUsers }: { user:User, config:SiteConfi
     if(!urlInput.trim()) return;
     setUrlLoading(true); setUrlError('');
     try {
-      // On réutilise extractRecipeFromUrl pour fetcher la page, puis on extrait le titre + image
-      const html = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(urlInput)}`).then(r=>r.json()).then(d=>d.contents||'');
-      // Extraire og:title et og:image depuis le HTML
-      const titleMatch = html.match(/<meta[^>]+(?:og:title|property="og:title")[^>]+content="([^"]+)"/i)
-        || html.match(/<title[^>]*>([^<]+)<\/title>/i);
-      const imgMatch = html.match(/<meta[^>]+(?:og:image|property="og:image")[^>]+content="([^"]+)"/i);
-      const name = titleMatch?.[1]?.trim() || '';
-      const imageUrl = imgMatch?.[1]?.trim() || '';
-      if(name) {
-        setNewItem({name, imageUrl, url:urlInput});
+      const { extractProductFromUrl } = await import('./services/geminiService');
+      const result = await extractProductFromUrl(urlInput.trim());
+      if(result?.name) {
+        setNewItem({name: result.name, imageUrl: result.imageUrl || '', url: urlInput.trim()});
         setShowAddItem('manual');
         setUrlInput('');
       } else {
-        // Fallback : essayer avec l'IA Gemini
-        const { askAIChat } = await import('./services/geminiService');
-        const r = await askAIChat(`URL produit: ${urlInput}\nRéponds UNIQUEMENT en JSON strict sans markdown: {"name":"nom produit","imageUrl":"url ou vide"}`);
-        const parsed = JSON.parse((r||'').match(/\{[\s\S]*?\}/)?.[0]||'{}');
-        if(parsed?.name && !parsed.name.includes('Gemini') && !parsed.name.includes('Flash')) {
-          setNewItem({name:parsed.name, imageUrl:parsed.imageUrl||'', url:urlInput});
-          setShowAddItem('manual'); setUrlInput('');
-        } else { setUrlError("Impossible d'extraire — ajoutez manuellement."); }
+        // Ouvrir quand même le formulaire avec l'URL pré-remplie pour saisie manuelle
+        setNewItem({name: '', imageUrl: '', url: urlInput.trim()});
+        setShowAddItem('manual');
+        setUrlInput('');
+        setUrlError("Nom non détecté — saisissez-le manuellement.");
       }
-    } catch { setUrlError('Erreur réseau. Essayez l\'ajout manuel.'); }
+    } catch {
+      setNewItem({name: '', imageUrl: '', url: urlInput.trim()});
+      setShowAddItem('manual');
+      setUrlInput('');
+    }
     setUrlLoading(false);
   };
 
@@ -2698,6 +2709,7 @@ const App: React.FC = () => {
 
         {/* ACCUEIL */}
         {currentView==='home'&&(
+          isPageLocked('home') ? <MaintenancePage pageName="Accueil" isHome/> : (
           <div className="space-y-16 animate-in fade-in duration-1000" id="top">
             <section className="relative h-[60vh] rounded-[3rem] overflow-hidden shadow-2xl group">
               <img src={config.welcomeImage} className="w-full h-full object-cover transition-transform duration-[10s] group-hover:scale-110"/>
@@ -2718,6 +2730,7 @@ const App: React.FC = () => {
               <HomeCard icon={<ChefHat size={40}/>} title="Recettes" label="Nos petits plats" onClick={()=>setCurrentView('recipes')} color={config.primaryColor}/>
             </div>
           </div>
+          )
         )}
 
         {/* MODALE FREEMIUM GLOBALE */}
