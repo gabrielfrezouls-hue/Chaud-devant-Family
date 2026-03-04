@@ -175,7 +175,7 @@ const GaugeBar = ({level, onClick}:{level:GaugeLevel, onClick:()=>void}) => {
   );
 };
 
-const FrigoView = ({ user, config, onNavigate }: { user:User, config:SiteConfig, onNavigate?:(v:string)=>void }) => {
+const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { user:User, config:SiteConfig, onNavigate?:(v:string)=>void, isPremium?:boolean, onShowFreemium?:()=>void }) => {
   const [items, setItems] = useState<FrigoItem[]>([]);
   const [frigotab, setFrigotab] = useState<'frigo'|'cellier'>('frigo');
   const [newItem, setNewItem] = useState({ name:'', quantity:1, unit:'pcs', expiryDate:'', hasExpiry:true });
@@ -282,6 +282,18 @@ const FrigoView = ({ user, config, onNavigate }: { user:User, config:SiteConfig,
 
   const handlePhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file=e.target.files?.[0]; if(!file) return; e.target.value='';
+    // Vérification quota scan IA (5/mois pour gratuits)
+    if(!isPremium) {
+      const monthKey = new Date().toISOString().slice(0,7); // "2025-01"
+      const scanKeyDoc = await getDoc(doc(db,'user_prefs',user.email||'?'));
+      const scanData = scanKeyDoc.exists() ? scanKeyDoc.data() : {};
+      const scansThisMonth = scanData[`scans_${monthKey}`] || 0;
+      if(scansThisMonth >= 5) {
+        if(onShowFreemium) onShowFreemium();
+        return;
+      }
+      await setDoc(doc(db,'user_prefs',user.email||'?'),{[`scans_${monthKey}`]:scansThisMonth+1},{merge:true});
+    }
     setIsLoading(true); setScanMsg('⏳ Analyse IA...');
     try {
       const result = await scanProductImage(file);
@@ -386,7 +398,16 @@ const FrigoView = ({ user, config, onNavigate }: { user:User, config:SiteConfig,
         )}
         {isCellierInput&&(
           <div className="flex gap-2 items-center">
-            <div className="flex-1 text-xs text-gray-400 italic bg-amber-50 px-3 py-2 rounded-xl border border-amber-100 flex items-center gap-2"><Package size={12} className="text-amber-500"/>Catégorie Cellier — pas de péremption</div>
+            <button
+              onClick={()=>setNewItem({...newItem,hasExpiry:!newItem.hasExpiry})}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all ${newItem.hasExpiry?'bg-orange-100 text-orange-700':'bg-amber-50 text-amber-600 border border-amber-200'}`}
+            >
+              {newItem.hasExpiry?<CalIcon size={12}/>:<Package size={12}/>}
+              {newItem.hasExpiry?'DLC activée':'Activer la péremption'}
+            </button>
+            {newItem.hasExpiry&&(
+              <input type="date" value={newItem.expiryDate} onChange={e=>setNewItem({...newItem,expiryDate:e.target.value})} className="flex-1 min-w-0 p-2.5 bg-gray-50 rounded-xl font-bold text-xs outline-none"/>
+            )}
             <button onClick={addItem} disabled={isLoading} className="px-4 py-2.5 bg-black text-white rounded-2xl font-bold hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1">
               {isLoading?<Loader2 size={15} className="animate-spin"/>:<Plus size={15}/>}
               <span className="text-xs">Ajouter</span>
@@ -476,7 +497,7 @@ const FrigoView = ({ user, config, onNavigate }: { user:User, config:SiteConfig,
 // ==========================================
 // COMPOSANT MAJORDOME IA (Flottant dans HUB)
 // ==========================================
-const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecipe, onAddSemainier }: { user:User, config:SiteConfig, hubItems:any[], addHubItem:(content:string)=>void, recipes?:any[], onAddRecipe?:(r:any)=>void, onAddSemainier?:(title:string)=>void }) => {
+const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecipe, onAddSemainier, isPremium, onShowFreemium }: { user:User, config:SiteConfig, hubItems:any[], addHubItem:(content:string)=>void, recipes?:any[], onAddRecipe?:(r:any)=>void, onAddSemainier?:(title:string)=>void, isPremium?:boolean, onShowFreemium?:()=>void }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Array<ChatMessage & {actions?:any[]}>>([
     { role:'assistant', text:'Bonjour ! Je suis votre Majordome. Je peux vous conseiller, suggérer des recettes selon votre frigo, ou ajouter des éléments à vos listes. Que puis-je faire ?' }
@@ -487,8 +508,26 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecip
 
   useEffect(()=>{ if(scrollRef.current) scrollRef.current.scrollTop=scrollRef.current.scrollHeight; },[messages,isOpen]);
 
+  // Quota semaine (3 requêtes/semaine pour free)
+  const getWeekKey = () => {
+    const d=new Date(); const dn=(d.getDay()+6)%7;
+    const mon=new Date(d); mon.setDate(d.getDate()-dn); return mon.toISOString().slice(0,10);
+  };
+
   const send = async () => {
     if(!input.trim()||isLoading) return;
+
+    // Garde freemium
+    if(!isPremium) {
+      const weekKey = getWeekKey();
+      const stored = JSON.parse(localStorage.getItem('butler_quota')||'{}');
+      const count = stored[weekKey] || 0;
+      if(count >= 3) {
+        if(onShowFreemium) onShowFreemium();
+        return;
+      }
+      localStorage.setItem('butler_quota', JSON.stringify({...stored,[weekKey]:count+1}));
+    }
     const userMsg = input.trim();
     setInput('');
     const newMsgs = [...messages,{role:'user' as const,text:userMsg}];
@@ -531,10 +570,18 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecip
     setIsLoading(false);
   };
 
+  // Calcul quota restant affiché
+  const weekKey = getWeekKey();
+  const storedQuota = typeof window!=='undefined' ? JSON.parse(localStorage.getItem('butler_quota')||'{}') : {};
+  const usedThisWeek = storedQuota[weekKey] || 0;
+  const remainingQuota = isPremium ? null : Math.max(0, 3 - usedThisWeek);
+
   return (
     <>
-      <button onClick={()=>setIsOpen(true)} className="fixed bottom-28 md:bottom-8 right-6 z-50 w-14 h-14 rounded-full text-white shadow-2xl flex items-center justify-center hover:scale-110 transition-transform" style={{backgroundColor:config.primaryColor}}>
+      <button onClick={()=>setIsOpen(true)} className="fixed bottom-28 md:bottom-8 right-6 z-50 w-14 h-14 rounded-full text-white shadow-2xl flex items-center justify-center hover:scale-110 transition-transform relative" style={{backgroundColor:config.primaryColor}}>
         <Bot size={24}/>
+        {remainingQuota===0&&<span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-400 rounded-full text-white text-[9px] font-black flex items-center justify-center">!</span>}
+        {remainingQuota!==null&&remainingQuota>0&&<span className="absolute -top-1 -right-1 w-5 h-5 bg-gray-900 rounded-full text-white text-[9px] font-black flex items-center justify-center">{remainingQuota}</span>}
       </button>
 
       {isOpen&&(
@@ -542,7 +589,12 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecip
           <div className="flex items-center justify-between p-5 border-b border-gray-100 rounded-t-3xl" style={{backgroundColor:config.primaryColor}}>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center"><Bot size={16} className="text-white"/></div>
-              <div><div className="font-black text-white text-sm">LE MAJORDOME</div><div className="text-white/60 text-[10px]">Conseiller IA — Recettes, Courses, Frigo</div></div>
+              <div>
+                <div className="font-black text-white text-sm">LE MAJORDOME</div>
+                <div className="text-white/60 text-[10px]">
+                  {isPremium ? 'Conseiller IA — Recettes, Courses, Frigo' : `${remainingQuota} requête${remainingQuota!==1?'s':''} restante${remainingQuota!==1?'s':''} cette semaine`}
+                </div>
+              </div>
             </div>
             <button onClick={()=>setIsOpen(false)} className="text-white/60 hover:text-white"><X size={20}/></button>
           </div>
@@ -581,7 +633,7 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecip
 // ==========================================
 // COMPOSANT HUB (TABLEAU)
 // ==========================================
-const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemainier }: { user:User, config:SiteConfig, usersMapping:any, recipes?:any[], onAddRecipe?:(r:any)=>void, onAddSemainier?:(title:string)=>void }) => {
+const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemainier, isPremium, onShowFreemium }: { user:User, config:SiteConfig, usersMapping:any, recipes?:any[], onAddRecipe?:(r:any)=>void, onAddSemainier?:(title:string)=>void, isPremium?:boolean, onShowFreemium?:()=>void }) => {
   const [hubItems, setHubItems] = useState<any[]>([]);
   const [newItem, setNewItem] = useState('');
   const [storeSearch, setStoreSearch] = useState('');
@@ -690,11 +742,6 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
           <button onClick={()=>setInputType('shop')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType==='shop'?'bg-orange-500 text-white shadow-lg scale-105':'bg-gray-100 text-gray-400'}`}><ShoppingCart size={16} className="inline mr-2"/>Course</button>
           <button onClick={()=>setInputType('note')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType==='note'?'bg-yellow-400 text-white shadow-lg scale-105':'bg-gray-100 text-gray-400'}`}><StickyNote size={16} className="inline mr-2"/>Note</button>
           <button onClick={()=>setInputType('msg')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType==='msg'?'bg-blue-500 text-white shadow-lg scale-105':'bg-gray-100 text-gray-400'}`}><MessageSquare size={16} className="inline mr-2"/>Msg</button>
-          {/* Bouton Ajout Rapide Frigo */}
-          <button onClick={()=>setShowFrigoQuick(true)} className="py-3 px-4 rounded-xl font-bold text-xs uppercase transition-all bg-teal-50 text-teal-600 hover:bg-teal-100 flex items-center gap-1.5" title="Ajouter directement au Frigo">
-            <Refrigerator size={14}/>
-            <span className="hidden sm:inline">Frigo</span>
-          </button>
         </div>
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
@@ -735,7 +782,14 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
                 </div>
                 <span className="font-bold text-gray-700 block">{item.content}</span>
               </div>
-              <button onClick={()=>deleteItem(item.id)} className="text-gray-300 hover:text-red-500"><X size={18}/></button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={()=>{setFrigoQuickName(item.content);setShowFrigoQuick(true);}}
+                  className="opacity-0 group-hover:opacity-100 p-1.5 bg-teal-50 text-teal-600 rounded-lg hover:bg-teal-100 transition-all"
+                  title="Ajouter au Frigo"
+                ><Refrigerator size={13}/></button>
+                <button onClick={()=>deleteItem(item.id)} className="text-gray-300 hover:text-red-500"><X size={18}/></button>
+              </div>
             </div>
           ))}
           {sortedShopItems.length===0&&<div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-300">Frigo plein !</div>}
@@ -775,6 +829,8 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
         recipes={recipes}
         onAddRecipe={onAddRecipe}
         onAddSemainier={onAddSemainier}
+        isPremium={isPremium}
+        onShowFreemium={onShowFreemium}
       />
     </div>
   );
@@ -1180,9 +1236,19 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
 
   const registerUser=async()=>{
     if(!newUser.email||!newUser.letter)return alert("Email et Lettre requis");
-    await setDoc(doc(db,'site_users',newUser.email),{...newUser,createdAt:new Date().toISOString()});
+    await setDoc(doc(db,'site_users',newUser.email),{...newUser,plan:'free',createdAt:new Date().toISOString()});
     setNewUser({email:'',letter:'',name:''});
-    alert("Utilisateur ajouté !");
+    showToast("Utilisateur ajouté !");
+  };
+
+  const [editingUser, setEditingUser] = useState<any|null>(null);
+  const saveEditUser = async () => {
+    if(!editingUser) return;
+    await updateDoc(doc(db,'site_users',editingUser.id),{
+      name:editingUser.name, letter:editingUser.letter, plan:editingUser.plan||'free'
+    });
+    showToast("Utilisateur mis à jour !");
+    setEditingUser(null);
   };
 
   const sendNotification=async()=>{
@@ -1224,6 +1290,46 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {tab==='users'&&(
         <div className="space-y-8 animate-in fade-in">
           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>UTILISATEURS</h3>
+
+          {/* MODALE ÉDITION UTILISATEUR */}
+          {editingUser&&(
+            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setEditingUser(null)}>
+              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+                <h4 className="font-black text-xl">Modifier {editingUser.name||editingUser.id}</h4>
+                <div className="text-xs text-gray-400 bg-gray-50 px-3 py-2 rounded-xl">{editingUser.id}</div>
+                <input value={editingUser.name||''} onChange={e=>setEditingUser((u:any)=>({...u,name:e.target.value}))} placeholder="Prénom" className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black"/>
+                <div className="flex gap-3 items-center">
+                  <label className="text-xs font-black uppercase tracking-widest text-gray-400 w-16 shrink-0">Lettre</label>
+                  <input value={editingUser.letter||''} onChange={e=>setEditingUser((u:any)=>({...u,letter:e.target.value.toUpperCase().slice(0,1)}))} placeholder="G" className="w-16 p-3 rounded-xl bg-gray-50 font-black text-center text-xl outline-none border-2 border-transparent focus:border-black"/>
+                </div>
+                {/* Plan */}
+                <div>
+                  <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Accès</label>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={()=>setEditingUser((u:any)=>({...u,plan:'free'}))}
+                      className={`flex-1 py-3 rounded-2xl font-black text-sm transition-all ${editingUser.plan==='free'||!editingUser.plan?'bg-gray-900 text-white':'bg-gray-100 text-gray-400'}`}
+                    >
+                      Gratuit
+                    </button>
+                    <button
+                      onClick={()=>setEditingUser((u:any)=>({...u,plan:'pro'}))}
+                      className={`flex-1 py-3 rounded-2xl font-black text-sm transition-all ${editingUser.plan==='pro'?'text-white shadow-lg scale-105':'bg-gray-100 text-gray-400'}`}
+                      style={editingUser.plan==='pro'?{backgroundColor:config.primaryColor}:{}}
+                    >
+                      ☕ Premium
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={()=>setEditingUser(null)} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
+                  <button onClick={saveEditUser} className="flex-1 py-3 text-white font-black rounded-2xl" style={{backgroundColor:config.primaryColor}}>Enregistrer</button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
             <h4 className="font-bold mb-4 text-xs uppercase tracking-widest text-gray-400">Ajouter un membre</h4>
             <div className="flex flex-col md:flex-row gap-4">
@@ -1235,12 +1341,20 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
           </div>
           <div className="space-y-3">
             {users.map((u:any)=>(
-              <div key={u.id} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
+              <div key={u.id} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-100 shadow-sm group">
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-black text-gray-500">{u.letter}</div>
-                  <div><div className="font-bold">{u.name||'Sans nom'}</div><div className="text-xs text-gray-400">{u.id}</div></div>
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center font-black text-white text-lg" style={{backgroundColor:config.primaryColor}}>{u.letter||'?'}</div>
+                  <div>
+                    <div className="font-bold">{u.name||'Sans nom'}</div>
+                    <div className="text-xs text-gray-400">{u.id}</div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">{u.lastLogin?`Vu ${new Date(u.lastLogin).toLocaleDateString()}`:'Jamais connecté'}</div>
+                  </div>
                 </div>
-                <div className="text-[10px] font-bold uppercase text-green-600 bg-green-50 px-2 py-1 rounded-md">{u.lastLogin?new Date(u.lastLogin).toLocaleDateString():'Jamais'}</div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full ${u.plan==='pro'?'text-white':'bg-gray-100 text-gray-400'}`} style={u.plan==='pro'?{backgroundColor:config.primaryColor}:{}}>{u.plan==='pro'?'☕ Premium':'Gratuit'}</span>
+                  <button onClick={()=>setEditingUser({...u})} className="p-2 bg-gray-100 text-gray-400 rounded-xl hover:bg-gray-200 transition-colors opacity-0 group-hover:opacity-100"><Pencil size={14}/></button>
+                  <button onClick={()=>del('site_users',u.id)} className="p-2 bg-red-50 text-red-400 rounded-xl hover:bg-red-100 transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={14}/></button>
+                </div>
               </div>
             ))}
           </div>
@@ -1533,7 +1647,7 @@ function getMondayOfWeek(offset:number){const now=new Date();now.setHours(0,0,0,
 function getWeekId(offset:number){const mon=getMondayOfWeek(offset);return `${mon.getFullYear()}_W${String(getWeekNumber(mon)).padStart(2,'0')}`;}
 function makeKey(day:string,meal:string,offset:number){return `${day}_${meal}_${getWeekId(offset)}`;}
 
-const SemainierView = ({config, recipes}:{config:SiteConfig, recipes:Recipe[]}) => {
+const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:SiteConfig, recipes:Recipe[], isPremium?:boolean, onShowFreemium?:()=>void}) => {
   const [data, setData] = useState<Record<string,any>>({});
   const [weekOffset, setWeekOffset] = useState(0);
   const [modal, setModal] = useState<{day:string,meal:string}|null>(null);
@@ -1638,7 +1752,16 @@ const SemainierView = ({config, recipes}:{config:SiteConfig, recipes:Recipe[]}) 
         <div className="flex items-center gap-3">
           <button onClick={()=>setWeekOffset(w=>w-1)} className="w-10 h-10 rounded-full border-2 flex items-center justify-center font-black text-lg hover:bg-black hover:text-white transition-colors" style={{borderColor:config.primaryColor,color:config.primaryColor}}>‹</button>
           <span className="font-bold text-sm text-gray-600 min-w-[200px] text-center">{weekLabel}</span>
-          <button onClick={()=>setWeekOffset(w=>w+1)} className="w-10 h-10 rounded-full border-2 flex items-center justify-center font-black text-lg hover:bg-black hover:text-white transition-colors" style={{borderColor:config.primaryColor,color:config.primaryColor}}>›</button>
+          <button
+            onClick={()=>{
+              if(!isPremium&&weekOffset>=1){if(onShowFreemium)onShowFreemium();return;}
+              setWeekOffset(w=>w+1);
+            }}
+            className="w-10 h-10 rounded-full border-2 flex items-center justify-center font-black text-lg hover:bg-black hover:text-white transition-colors relative"
+            style={{borderColor:config.primaryColor,color:config.primaryColor}}
+          >
+            ›{!isPremium&&weekOffset>=1&&<span className="absolute -top-1 -right-1 text-[8px] bg-amber-400 text-white rounded-full w-4 h-4 flex items-center justify-center">☕</span>}
+          </button>
         </div>
       </div>
 
@@ -1793,7 +1916,517 @@ const MaintenancePage = ({ pageName }: { pageName?: string }) => (
 // ==========================================
 const WISHLIST_ICONS = ['🎁','🛍️','✨','🏠','👗','📱','🎮','📚','🎵','🧸','🌿','💄','🔧','🍕','✈️','💪','🎨','⌚','💻','🏋️'];
 
+// Hook freemium : renvoie si l'utilisateur courant est premium
+const useIsPremium = (userEmail:string|null|undefined, siteUsers:any[]) => {
+  const u = siteUsers.find(u=>u.id===userEmail);
+  return u?.plan==='pro' || u?.plan==='premium';
+};
+
+// Modale freemium générique
+const FreemiumModal = ({ config, onClose, onUpgrade }:{config:SiteConfig,onClose:()=>void,onUpgrade:()=>void}) => (
+  <div className="fixed inset-0 z-[300] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={onClose}>
+    <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-8 w-full md:max-w-md shadow-2xl space-y-5" onClick={e=>e.stopPropagation()}>
+      <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+      <div className="text-center">
+        <div className="text-5xl mb-3">☕</div>
+        <h2 className="font-cinzel font-black text-2xl" style={{color:config.primaryColor}}>CHAUD DEVANT</h2>
+        <p className="font-black text-lg mt-2">Débloquez tous les services pour<br/>votre gestion familiale</p>
+        <p className="text-3xl font-black mt-3" style={{color:config.primaryColor}}>pour 1 CAFÉ par mois !</p>
+        <p className="text-xs text-gray-400 mt-1">soit 3,99 € / mois — annulable à tout moment</p>
+      </div>
+      <div className="space-y-2 bg-gray-50 rounded-2xl p-4">
+        {[
+          ['🍳','Recettes illimitées + Scans IA illimités'],
+          ['🤖','Majordome IA 24h/24 — H24'],
+          ['🗓️','Semainier sur 3 mois complets'],
+          ['🎁','WishLists infinies, articles illimités'],
+          ['🗂️','XSites illimités sans branding'],
+          ['📅','Synchronisation Agenda bidirectionnelle'],
+        ].map(([icon,label],i)=>(
+          <div key={i} className="flex items-center gap-3 text-sm">
+            <span className="text-xl w-7 text-center">{icon}</span>
+            <span className="font-bold text-gray-700">{label}</span>
+          </div>
+        ))}
+      </div>
+      <button onClick={onUpgrade} className="w-full py-4 text-white font-black text-lg rounded-2xl shadow-xl hover:scale-[1.02] transition-transform" style={{backgroundColor:config.primaryColor}}>
+        ☕ Débloquer maintenant
+      </button>
+      <button onClick={onClose} className="w-full py-2 text-gray-400 text-sm font-bold">Pas maintenant</button>
+    </div>
+  </div>
+);
+
 const WishlistView = ({ user, config, siteUsers }: { user:User, config:SiteConfig, siteUsers:any[] }) => {
+  const isPremium = useIsPremium(user.email, siteUsers);
+  const [lists, setLists]     = useState<any[]>([]);
+  const [activeList, setActiveList] = useState<any|null>(null);
+  const [showCreate, setShowCreate]   = useState(false);
+  const [showAddItem, setShowAddItem] = useState<'manual'|'url'|null>(null);
+  const [showShare, setShowShare]     = useState(false);
+  const [showFreemium, setShowFreemium] = useState(false);
+  // Edit modes
+  const [editingList, setEditingList] = useState<any|null>(null);   // liste en cours d'édition
+  const [editingItem, setEditingItem] = useState<any|null>(null);   // article en cours d'édition
+  const [newList, setNewList]  = useState({name:'', icon:'🎁', category:''});
+  const [newItem, setNewItem]  = useState({name:'', imageUrl:'', url:''});
+  const [urlInput, setUrlInput] = useState('');
+  const [urlLoading, setUrlLoading] = useState(false);
+  const [urlError, setUrlError]   = useState('');
+
+  // Toutes les catégories existantes extraites des listes
+  const allCategories = Array.from(new Set(lists.map(l=>l.category).filter(Boolean))) as string[];
+
+  // Charger les wishlists (propres + partagées)
+  useEffect(()=>{
+    if(!user?.email) return;
+    const q = query(collection(db,'wishlists'), orderBy('createdAt','desc'));
+    const unsub = onSnapshot(q, snap=>{
+      const all = snap.docs.map(d=>({id:d.id,...d.data()})) as any[];
+      setLists(all.filter((l:any)=> l.ownerEmail===user.email || (l.sharedWith||[]).includes(user.email)));
+    });
+    return()=>unsub();
+  },[user]);
+
+  useEffect(()=>{
+    if(!activeList) return;
+    const updated = lists.find(l=>l.id===activeList.id);
+    if(updated) setActiveList(updated);
+  },[lists]);
+
+  const isOwner = (list:any) => list.ownerEmail===user.email;
+
+  const requestUpgrade = async () => {
+    await addDoc(collection(db,'notifications'),{
+      message:`🚀 Demande Premium de ${user.displayName||user.email} — souhaite passer en version payante !`,
+      type:'alert', repeat:'once', targets:[import.meta.env?.VITE_ADMIN_EMAIL||'gabriel.frezouls@gmail.com'],
+      createdAt:new Date().toISOString(), readBy:{},
+    });
+    setShowFreemium(false);
+    alert('✅ Demande envoyée ! L\'administrateur vous contactera très bientôt.');
+  };
+
+  // Garde freemium : max 1 liste partagée active + max 5 articles
+  const canCreateList = () => {
+    if(isPremium) return true;
+    const sharedActive = lists.filter(l=>l.ownerEmail===user.email && (l.sharedWith||[]).length>0);
+    return sharedActive.length < 1 || lists.filter(l=>l.ownerEmail===user.email).length < 1;
+  };
+  const canAddItem = (list:any) => {
+    if(isPremium) return true;
+    return (list.items||[]).length < 5;
+  };
+
+  const createList = async () => {
+    if(!newList.name.trim()) return;
+    const docRef = await addDoc(collection(db,'wishlists'),{
+      name:newList.name.trim(), icon:newList.icon, category:newList.category.trim(),
+      ownerEmail:user.email, ownerName:user.displayName||user.email,
+      sharedWith:[], items:[], createdAt:new Date().toISOString()
+    });
+    setShowCreate(false); setNewList({name:'',icon:'🎁',category:''});
+    setActiveList({id:docRef.id, name:newList.name.trim(), icon:newList.icon, category:newList.category.trim(), items:[], ownerEmail:user.email, sharedWith:[]});
+  };
+
+  const saveEditList = async () => {
+    if(!editingList) return;
+    await updateDoc(doc(db,'wishlists',editingList.id),{
+      name:editingList.name, icon:editingList.icon, category:editingList.category||''
+    });
+    setActiveList((a:any)=>a ? {...a, name:editingList.name, icon:editingList.icon, category:editingList.category} : a);
+    setEditingList(null);
+  };
+
+  const deleteList = async (list:any) => {
+    if(!confirm(`Supprimer "${list.name}" ?`)) return;
+    await deleteDoc(doc(db,'wishlists',list.id));
+    if(activeList?.id===list.id) setActiveList(null);
+  };
+
+  const addItemManual = async () => {
+    if(!newItem.name.trim()||!activeList) return;
+    const item = {id:Date.now().toString(), name:newItem.name.trim(), imageUrl:newItem.imageUrl.trim(), url:newItem.url, addedAt:new Date().toISOString()};
+    await updateDoc(doc(db,'wishlists',activeList.id),{items:arrayUnion(item)});
+    setNewItem({name:'',imageUrl:'',url:''}); setShowAddItem(null);
+  };
+
+  const saveEditItem = async () => {
+    if(!editingItem||!activeList) return;
+    const updated = (activeList.items||[]).map((i:any)=>i.id===editingItem.id ? editingItem : i);
+    await updateDoc(doc(db,'wishlists',activeList.id),{items:updated});
+    setEditingItem(null);
+  };
+
+  // Scrape URL via extractRecipeFromUrl (web fetch + IA)
+  const scrapeUrl = async () => {
+    if(!urlInput.trim()) return;
+    setUrlLoading(true); setUrlError('');
+    try {
+      // On réutilise extractRecipeFromUrl pour fetcher la page, puis on extrait le titre + image
+      const html = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(urlInput)}`).then(r=>r.json()).then(d=>d.contents||'');
+      // Extraire og:title et og:image depuis le HTML
+      const titleMatch = html.match(/<meta[^>]+(?:og:title|property="og:title")[^>]+content="([^"]+)"/i)
+        || html.match(/<title[^>]*>([^<]+)<\/title>/i);
+      const imgMatch = html.match(/<meta[^>]+(?:og:image|property="og:image")[^>]+content="([^"]+)"/i);
+      const name = titleMatch?.[1]?.trim() || '';
+      const imageUrl = imgMatch?.[1]?.trim() || '';
+      if(name) {
+        setNewItem({name, imageUrl, url:urlInput});
+        setShowAddItem('manual');
+        setUrlInput('');
+      } else {
+        // Fallback : essayer avec l'IA Gemini
+        const { askAIChat } = await import('./services/geminiService');
+        const r = await askAIChat(`URL produit: ${urlInput}\nRéponds UNIQUEMENT en JSON strict sans markdown: {"name":"nom produit","imageUrl":"url ou vide"}`);
+        const parsed = JSON.parse((r||'').match(/\{[\s\S]*?\}/)?.[0]||'{}');
+        if(parsed?.name && !parsed.name.includes('Gemini') && !parsed.name.includes('Flash')) {
+          setNewItem({name:parsed.name, imageUrl:parsed.imageUrl||'', url:urlInput});
+          setShowAddItem('manual'); setUrlInput('');
+        } else { setUrlError("Impossible d'extraire — ajoutez manuellement."); }
+      }
+    } catch { setUrlError('Erreur réseau. Essayez l\'ajout manuel.'); }
+    setUrlLoading(false);
+  };
+
+  const removeItem = async (list:any, itemId:string) => {
+    await updateDoc(doc(db,'wishlists',list.id),{items:(list.items||[]).filter((i:any)=>i.id!==itemId)});
+  };
+
+  const shareWith = async (list:any, targetEmail:string, targetName:string) => {
+    if((list.sharedWith||[]).includes(targetEmail)) return;
+    await updateDoc(doc(db,'wishlists',list.id),{sharedWith:arrayUnion(targetEmail)});
+    await addDoc(collection(db,'notifications'),{
+      message:`${user.displayName||'Quelqu\'un'} a partagé la WishList "${list.name}" ${list.icon} avec toi !`,
+      type:'info', repeat:'once', targets:[targetEmail], linkView:'wishlist', createdAt:new Date().toISOString(), readBy:{},
+    });
+    alert(`✅ WishList partagée avec ${targetName} !`);
+  };
+  const unshare = async (list:any, targetEmail:string) => {
+    await updateDoc(doc(db,'wishlists',list.id),{sharedWith:arrayRemove(targetEmail)});
+  };
+
+  // Grouper mes listes par catégorie
+  const myLists     = lists.filter(l=>l.ownerEmail===user.email);
+  const sharedLists = lists.filter(l=>l.ownerEmail!==user.email);
+  const groupedMyLists = myLists.reduce((acc:any, l:any) => {
+    const cat = l.category||'Sans catégorie'; if(!acc[cat]) acc[cat]=[]; acc[cat].push(l); return acc;
+  }, {});
+
+  return (
+    <div className="space-y-6 pb-32 animate-in fade-in">
+      {showFreemium&&<FreemiumModal config={config} onClose={()=>setShowFreemium(false)} onUpgrade={requestUpgrade}/>}
+
+      {/* HEADER */}
+      <div className="flex items-center justify-between">
+        {activeList ? (
+          <button onClick={()=>setActiveList(null)} className="flex items-center gap-2 text-gray-500 font-bold hover:text-black transition-colors">
+            <ArrowLeft size={20}/> Mes Listes
+          </button>
+        ) : (
+          <h2 className="text-4xl font-cinzel font-black" style={{color:config.primaryColor}}>WISHLISTS</h2>
+        )}
+        {!activeList&&(
+          <button onClick={()=>setShowCreate(true)} className="flex items-center gap-2 px-4 py-2.5 text-white font-black rounded-2xl shadow-lg hover:scale-105 transition-transform text-sm" style={{backgroundColor:config.primaryColor}}>
+            <Plus size={16}/>Nouvelle liste
+          </button>
+        )}
+        {activeList&&isOwner(activeList)&&(
+          <button onClick={()=>setEditingList({...activeList})} className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold text-xs hover:bg-gray-200 transition-all">
+            <Pencil size={13}/>Modifier
+          </button>
+        )}
+      </div>
+
+      {/* MODALE CRÉATION */}
+      {showCreate&&(
+        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowCreate(false)}>
+          <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+            <h3 className="font-black text-xl">Nouvelle WishList</h3>
+            <div>
+              <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Icône</label>
+              <div className="flex flex-wrap gap-2">
+                {WISHLIST_ICONS.map(icon=>(
+                  <button key={icon} onClick={()=>setNewList(l=>({...l,icon}))} className={`text-2xl p-2 rounded-xl transition-all ${newList.icon===icon?'bg-gray-900 scale-110':'bg-gray-100 hover:bg-gray-200'}`}>{icon}</button>
+                ))}
+              </div>
+            </div>
+            <input value={newList.name} onChange={e=>setNewList(l=>({...l,name:e.target.value}))} placeholder="Nom de la liste..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
+            {/* Catégorie : dropdown des catégories existantes + créer */}
+            <div>
+              <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-1.5">Catégorie</label>
+              <select
+                value={newList.category}
+                onChange={e=>{ if(e.target.value==='__new__') { const c=prompt('Nom de la nouvelle catégorie :'); if(c?.trim()) setNewList(l=>({...l,category:c.trim()})); } else setNewList(l=>({...l,category:e.target.value})); }}
+                className="w-full p-3 rounded-xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black text-sm"
+              >
+                <option value="">— Aucune catégorie —</option>
+                {allCategories.map(c=><option key={c} value={c}>{c}</option>)}
+                <option value="__new__">✚ Créer une catégorie…</option>
+              </select>
+              {newList.category&&<p className="text-xs text-gray-400 mt-1 ml-1">Catégorie : <strong>{newList.category}</strong></p>}
+            </div>
+            <div className="flex gap-3">
+              <button onClick={()=>setShowCreate(false)} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
+              <button onClick={createList} disabled={!newList.name.trim()} className="flex-1 py-3 text-white font-black rounded-2xl disabled:opacity-40" style={{backgroundColor:config.primaryColor}}>Créer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODALE ÉDITION LISTE */}
+      {editingList&&(
+        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setEditingList(null)}>
+          <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+            <h3 className="font-black text-xl">Modifier la WishList</h3>
+            <div className="flex flex-wrap gap-2">
+              {WISHLIST_ICONS.map(icon=>(
+                <button key={icon} onClick={()=>setEditingList((l:any)=>({...l,icon}))} className={`text-2xl p-2 rounded-xl transition-all ${editingList.icon===icon?'bg-gray-900 scale-110':'bg-gray-100 hover:bg-gray-200'}`}>{icon}</button>
+              ))}
+            </div>
+            <input value={editingList.name} onChange={e=>setEditingList((l:any)=>({...l,name:e.target.value}))} className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black"/>
+            <select
+              value={editingList.category||''}
+              onChange={e=>{ if(e.target.value==='__new__'){const c=prompt('Nouvelle catégorie :');if(c?.trim())setEditingList((l:any)=>({...l,category:c.trim()}));}else setEditingList((l:any)=>({...l,category:e.target.value})); }}
+              className="w-full p-3 rounded-xl bg-gray-50 font-bold outline-none text-sm"
+            >
+              <option value="">— Aucune catégorie —</option>
+              {allCategories.map(c=><option key={c} value={c}>{c}</option>)}
+              <option value="__new__">✚ Créer une catégorie…</option>
+            </select>
+            <div className="flex gap-3">
+              <button onClick={()=>setEditingList(null)} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
+              <button onClick={saveEditList} className="flex-1 py-3 text-white font-black rounded-2xl" style={{backgroundColor:config.primaryColor}}>Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VUE LISTE DES WISHLISTS */}
+      {!activeList&&(
+        <div className="space-y-6">
+          {Object.keys(groupedMyLists).length>0&&(
+            <div className="space-y-4">
+              {Object.entries(groupedMyLists).map(([cat, catLists]:any)=>(
+                <div key={cat}>
+                  <h3 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full inline-block" style={{backgroundColor:config.primaryColor}}/>
+                    {cat}
+                  </h3>
+                  <div className="space-y-2">
+                    {catLists.map((list:any)=>(
+                      <div key={list.id} onClick={()=>setActiveList(list)} className="flex items-center gap-4 p-4 bg-white rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all group">
+                        <div className="text-4xl">{list.icon}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-black text-lg leading-tight">{list.name}</div>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="text-[10px] text-gray-400">{(list.items||[]).length} article{(list.items||[]).length!==1?'s':''}</span>
+                            {!isPremium&&(list.items||[]).length>=5&&<span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Limite Free</span>}
+                            {(list.sharedWith||[]).length>0&&<span className="text-[10px] font-bold text-blue-500 flex items-center gap-1"><Users size={9}/>Partagée</span>}
+                          </div>
+                        </div>
+                        <ChevronRight size={18} className="text-gray-300 group-hover:text-gray-600 transition-colors"/>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {sharedLists.length>0&&(
+            <div className="space-y-2">
+              <h3 className="font-black text-xs uppercase tracking-widest text-gray-400 flex items-center gap-2"><Users size={12}/>Partagées avec moi</h3>
+              {sharedLists.map(list=>(
+                <div key={list.id} onClick={()=>setActiveList(list)} className="flex items-center gap-4 p-4 bg-blue-50/70 rounded-2xl border-2 border-blue-200/60 cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all group">
+                  <div className="text-4xl">{list.icon}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-black text-lg leading-tight">{list.name}</div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full flex items-center gap-1"><Eye size={8}/>Lecture seule</span>
+                      <span className="text-[10px] text-gray-500">par {list.ownerName||list.ownerEmail}</span>
+                    </div>
+                  </div>
+                  <ChevronRight size={18} className="text-blue-300 group-hover:text-blue-600 transition-colors"/>
+                </div>
+              ))}
+            </div>
+          )}
+          {lists.length===0&&(
+            <div className="text-center py-20 space-y-4">
+              <div className="text-6xl">🎁</div>
+              <p className="text-gray-400 font-bold">Aucune wishlist pour l'instant</p>
+              <p className="text-sm text-gray-300">Créez votre première liste d'envies !</p>
+            </div>
+          )}
+          {!isPremium&&<p className="text-center text-[10px] text-gray-300 italic">Version gratuite · 1 liste partagée max · 5 articles/liste · <button onClick={()=>setShowFreemium(true)} className="underline text-amber-500 font-bold">Débloquer</button></p>}
+        </div>
+      )}
+
+      {/* VUE DÉTAIL */}
+      {activeList&&(
+        <div className="space-y-4">
+          <div className={`p-5 rounded-[2.5rem] shadow-xl ${isOwner(activeList)?'bg-white border border-gray-100':'bg-blue-50 border-2 border-blue-200'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-5xl">{activeList.icon}</span>
+                <div>
+                  <h3 className="font-black text-2xl">{activeList.name}</h3>
+                  {activeList.category&&<span className="text-xs text-gray-400 font-bold uppercase tracking-wide">{activeList.category}</span>}
+                  {!isOwner(activeList)&&<div className="flex items-center gap-1 mt-1"><Eye size={10} className="text-blue-500"/><span className="text-[10px] text-blue-600 font-bold">Lecture seule · {activeList.ownerName||activeList.ownerEmail}</span></div>}
+                </div>
+              </div>
+              {isOwner(activeList)&&(
+                <div className="flex gap-2">
+                  <button onClick={()=>setShowShare(true)} className="p-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors" title="Partager"><Users size={16}/></button>
+                  <button onClick={()=>deleteList(activeList)} className="p-2.5 bg-red-50 text-red-400 rounded-xl hover:bg-red-100 transition-colors" title="Supprimer"><Trash2 size={16}/></button>
+                </div>
+              )}
+            </div>
+            {isOwner(activeList)&&(activeList.sharedWith||[]).length>0&&(
+              <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Partagée avec :</span>
+                {(activeList.sharedWith||[]).map((email:string)=>{
+                  const u=siteUsers.find(u=>u.id===email);
+                  return <span key={email} className="flex items-center gap-1.5 bg-blue-100 text-blue-700 text-xs font-bold px-2.5 py-1 rounded-full">{u?.name||email}<button onClick={()=>unshare(activeList,email)} className="hover:text-red-500"><X size={10}/></button></span>;
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Partage modale */}
+          {showShare&&isOwner(activeList)&&(
+            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowShare(false)}>
+              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+                <h3 className="font-black text-xl">Partager "{activeList.name}"</h3>
+                <div className="space-y-2">
+                  {siteUsers.filter(u=>u.id!==user.email).map((u:any)=>{
+                    const already=(activeList.sharedWith||[]).includes(u.id);
+                    return (
+                      <button key={u.id} onClick={()=>{if(!already){shareWith(activeList,u.id,u.name||u.id);setShowShare(false);}}} className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all ${already?'bg-green-50 border border-green-200 cursor-default':'bg-gray-50 hover:bg-gray-100'}`}>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-black text-lg">{u.letter||u.name?.[0]||'?'}</div>
+                          <span className="font-bold">{u.name||u.id}</span>
+                        </div>
+                        {already?<span className="text-xs text-green-600 font-bold flex items-center gap-1"><CheckCircle2 size={14}/>Partagé</span>:<ChevronRight size={16} className="text-gray-400"/>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button onClick={()=>setShowShare(false)} className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Fermer</button>
+              </div>
+            </div>
+          )}
+
+          {/* Boutons ajout */}
+          {isOwner(activeList)&&(
+            <div className="flex gap-3">
+              <button
+                onClick={()=>{ if(!canAddItem(activeList)){setShowFreemium(true);return;} setShowAddItem('manual'); }}
+                className="flex-1 flex items-center justify-center gap-2 p-4 bg-white rounded-2xl border-2 border-dashed border-gray-300 text-gray-600 font-bold hover:border-black hover:text-black transition-all text-sm"
+              >
+                <Plus size={16}/>{!isPremium&&(activeList.items||[]).length>=5?'⚠️ Limite atteinte':'Ajout manuel'}
+              </button>
+              <button
+                onClick={()=>{ if(!canAddItem(activeList)){setShowFreemium(true);return;} setShowAddItem('url'); }}
+                className="flex-1 flex items-center justify-center gap-2 p-4 bg-white rounded-2xl border-2 border-dashed border-gray-300 text-gray-600 font-bold hover:border-black hover:text-black transition-all text-sm"
+              >
+                <Link size={16}/>Insérer un lien
+              </button>
+            </div>
+          )}
+
+          {/* Modale ajout manuel */}
+          {showAddItem==='manual'&&isOwner(activeList)&&(
+            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowAddItem(null)}>
+              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+                <h3 className="font-black text-xl">Ajouter un article</h3>
+                <input value={newItem.name} onChange={e=>setNewItem(i=>({...i,name:e.target.value}))} placeholder="Nom du produit..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
+                <input value={newItem.imageUrl} onChange={e=>setNewItem(i=>({...i,imageUrl:e.target.value}))} placeholder="URL image (facultatif)..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
+                {newItem.imageUrl&&<img src={newItem.imageUrl} alt="" className="w-full h-32 object-cover rounded-2xl" onError={e=>(e.currentTarget.style.display='none')}/>}
+                {newItem.url&&<div className="text-xs text-gray-400 truncate bg-gray-50 px-3 py-2 rounded-xl"><Link size={10} className="inline mr-1"/>{newItem.url}</div>}
+                <div className="flex gap-3">
+                  <button onClick={()=>{setShowAddItem(null);setNewItem({name:'',imageUrl:'',url:''});setUrlInput('');}} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
+                  <button onClick={addItemManual} disabled={!newItem.name.trim()} className="flex-1 py-3 text-white font-black rounded-2xl disabled:opacity-40" style={{backgroundColor:config.primaryColor}}>Ajouter</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modale URL */}
+          {showAddItem==='url'&&isOwner(activeList)&&(
+            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowAddItem(null)}>
+              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+                <h3 className="font-black text-xl">Importer depuis un lien</h3>
+                <p className="text-sm text-gray-500">Collez l'URL d'une page produit — l'IA extrait le nom et l'image.</p>
+                <div className="flex gap-2">
+                  <input value={urlInput} onChange={e=>setUrlInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&scrapeUrl()} placeholder="https://..." className="flex-1 p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black text-sm" autoFocus/>
+                  <button onClick={scrapeUrl} disabled={!urlInput.trim()||urlLoading} className="p-3 text-white rounded-2xl disabled:opacity-40 flex items-center" style={{backgroundColor:config.primaryColor}}>
+                    {urlLoading?<Loader2 size={16} className="animate-spin"/>:<Scan size={16}/>}
+                  </button>
+                </div>
+                {urlError&&<p className="text-xs text-red-500 font-bold">{urlError}</p>}
+                <button onClick={()=>setShowAddItem(null)} className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
+              </div>
+            </div>
+          )}
+
+          {/* Modale édition article */}
+          {editingItem&&isOwner(activeList)&&(
+            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setEditingItem(null)}>
+              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+                <h3 className="font-black text-xl">Modifier l'article</h3>
+                <input value={editingItem.name} onChange={e=>setEditingItem((i:any)=>({...i,name:e.target.value}))} className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
+                <input value={editingItem.imageUrl||''} onChange={e=>setEditingItem((i:any)=>({...i,imageUrl:e.target.value}))} placeholder="URL image..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
+                <input value={editingItem.url||''} onChange={e=>setEditingItem((i:any)=>({...i,url:e.target.value}))} placeholder="Lien produit..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
+                {editingItem.imageUrl&&<img src={editingItem.imageUrl} alt="" className="w-full h-28 object-cover rounded-xl" onError={e=>(e.currentTarget.style.display='none')}/>}
+                <div className="flex gap-3">
+                  <button onClick={()=>setEditingItem(null)} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
+                  <button onClick={saveEditItem} className="flex-1 py-3 text-white font-black rounded-2xl" style={{backgroundColor:config.primaryColor}}>Enregistrer</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Articles */}
+          {(activeList.items||[]).length===0?(
+            <div className="text-center py-16 space-y-3">
+              <div className="text-5xl">{activeList.icon}</div>
+              <p className="text-gray-400 font-bold">Liste vide</p>
+              {isOwner(activeList)&&<p className="text-sm text-gray-300">Ajoutez votre premier article !</p>}
+            </div>
+          ):(
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {(activeList.items||[]).map((item:any)=>(
+                <div key={item.id} className={`group relative rounded-2xl overflow-hidden shadow-sm border transition-all hover:shadow-md ${isOwner(activeList)?'bg-white border-gray-100':'bg-blue-50/60 border-blue-100'}`}>
+                  {item.imageUrl?(
+                    <img src={item.imageUrl} alt={item.name} className="w-full h-32 object-cover" onError={e=>{(e.currentTarget as any).style.display='none';}}/>
+                  ):(
+                    <div className="w-full h-32 bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center text-4xl">{activeList.icon}</div>
+                  )}
+                  <div className="p-3">
+                    <p className="font-bold text-sm leading-tight">{item.name}</p>
+                    {item.url&&<a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 font-bold flex items-center gap-1 mt-1 hover:underline" onClick={e=>e.stopPropagation()}><ExternalLink size={9}/>Voir le produit</a>}
+                  </div>
+                  {isOwner(activeList)&&(
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={()=>setEditingItem({...item})} className="w-7 h-7 bg-white/90 rounded-full flex items-center justify-center text-gray-500 hover:text-black shadow-sm"><Pencil size={10}/></button>
+                      <button onClick={()=>removeItem(activeList,item.id)} className="w-7 h-7 bg-white/90 rounded-full flex items-center justify-center text-gray-400 hover:text-red-500 shadow-sm"><X size={10}/></button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
   const [lists, setLists]     = useState<any[]>([]);
   const [activeList, setActiveList] = useState<any|null>(null);
   const [showCreate, setShowCreate]   = useState(false);
@@ -2178,6 +2811,25 @@ const App: React.FC = () => {
   const [aiPrompt, setAiPrompt] = useState('');
   const [chatHistory, setChatHistory] = useState<{role:string,text:string}[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [showFreemiumModal, setShowFreemiumModal] = useState(false);
+
+  // Helper : l'utilisateur courant est-il premium ?
+  const isCurrentUserPremium = () => {
+    if(!user?.email) return false;
+    const u = siteUsers.find(u=>u.id===user.email);
+    return u?.plan==='pro' || u?.plan==='premium';
+  };
+
+  // Demande d'upgrade → notif admin
+  const requestPremiumUpgrade = async () => {
+    await addDoc(collection(db,'notifications'),{
+      message:`🚀 Demande Premium de ${user?.displayName||user?.email} — souhaite accéder à la version payante !`,
+      type:'alert', repeat:'once', targets:[ADMIN_EMAIL],
+      createdAt:new Date().toISOString(), readBy:{},
+    });
+    setShowFreemiumModal(false);
+    alert('✅ Demande envoyée ! L\'administrateur vous contactera très bientôt.');
+  };
 
   // AUTH
   useEffect(()=>{
@@ -2395,11 +3047,16 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {/* MODALE FREEMIUM GLOBALE */}
+        {showFreemiumModal&&<FreemiumModal config={config} onClose={()=>setShowFreemiumModal(false)} onUpgrade={requestPremiumUpgrade}/>}
+
         {/* HUB */}
         {currentView==='hub'&&(isPageLocked('hub')?<MaintenancePage pageName="Le Tableau"/>:(
           <HubView
             user={user} config={config} usersMapping={usersMapping}
             recipes={recipes}
+            isPremium={isCurrentUserPremium()}
+            onShowFreemium={()=>setShowFreemiumModal(true)}
             onAddRecipe={(r:any)=>addEntry('family_recipes',r)}
             onAddSemainier={(title:string)=>{
               const today=new Date();
@@ -2420,7 +3077,7 @@ const App: React.FC = () => {
               <h2 className="text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>MON FRIGO</h2>
               <p className="text-gray-500 italic text-sm">Inventaire intelligent & gestion anti-gaspi</p>
             </div>
-            <FrigoView user={user} config={config}/>
+            <FrigoView user={user} config={config} isPremium={isCurrentUserPremium()} onShowFreemium={()=>setShowFreemiumModal(true)}/>
           </div>
           )
         )}
@@ -2550,7 +3207,14 @@ const App: React.FC = () => {
           <div className="space-y-10" id="recipes-list">
             <div className="flex flex-col items-center gap-6">
               <h2 className="text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>RECETTES</h2>
-              <button onClick={()=>{setCurrentRecipe(defaultRecipeState);setIsRecipeModalOpen(true);}} className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl" style={{backgroundColor:config.primaryColor}}><Plus size={20}/>Ajouter une recette</button>
+              {!isCurrentUserPremium()&&recipes.length>=15?(
+                <div className="flex flex-col items-center gap-3">
+                  <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-4 py-2 rounded-full font-bold">{recipes.length}/15 recettes (limite gratuite)</div>
+                  <button onClick={()=>setShowFreemiumModal(true)} className="flex items-center gap-2 px-8 py-4 text-white rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform shadow-xl" style={{backgroundColor:config.primaryColor}}>☕ Débloquer les recettes illimitées</button>
+                </div>
+              ):(
+                <button onClick={()=>{setCurrentRecipe(defaultRecipeState);setIsRecipeModalOpen(true);}} className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl" style={{backgroundColor:config.primaryColor}}><Plus size={20}/>Ajouter une recette{!isCurrentUserPremium()&&<span className="text-xs opacity-70 font-normal">({recipes.length}/15)</span>}</button>
+              )}
             </div>
             <RecipeModal isOpen={isRecipeModalOpen} onClose={setIsRecipeModalOpen} config={config} currentRecipe={currentRecipe} setCurrentRecipe={setCurrentRecipe} updateEntry={updateEntry} addEntry={addEntry}/>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -2573,7 +3237,7 @@ const App: React.FC = () => {
         {currentView==='cooking'&&(isPageLocked('cooking') ? <MaintenancePage pageName="Semainier"/> : (
           <div className="space-y-0 animate-in fade-in" id="cooking-frame">
             <div className="bg-white/90 rounded-[3rem] overflow-hidden shadow-xl border border-black/5" style={{minHeight:'800px'}}>
-              <SemainierView config={config} recipes={recipes}/>
+              <SemainierView config={config} recipes={recipes} isPremium={isCurrentUserPremium()} onShowFreemium={()=>setShowFreemiumModal(true)}/>
             </div>
           </div>
         ))}
