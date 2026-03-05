@@ -451,7 +451,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { us
                       {expStatus&&<span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${expStatus.color}`}>{expStatus.icon} {expStatus.label}</span>}
                     </div>
                   </div>
-                  <button onClick={()=>deleteItem(item.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity"><X size={16}/></button>
+                  <button onClick={()=>deleteItem(item.id)} className="opacity-30 group-hover:opacity-100 md:opacity-0 text-gray-300 hover:text-red-500 transition-opacity touch-action-manipulation"><X size={16}/></button>
                 </div>
               );
             })}
@@ -482,7 +482,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { us
                     </div>
                     <div className="flex items-center gap-2">
                       <GaugeBar level={(item as any).gaugeLevel||'plein'} onClick={()=>cycleGauge(item)}/>
-                      <button onClick={()=>deleteItem(item.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity"><X size={14}/></button>
+                      <button onClick={()=>deleteItem(item.id)} className="opacity-30 group-hover:opacity-100 md:opacity-0 text-gray-300 hover:text-red-500 transition-opacity"><X size={14}/></button>
                     </div>
                   </div>
                 ))}
@@ -738,7 +738,7 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
       )}
 
       {/* SAISIE RAPIDE */}
-      <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 sticky top-24 z-30" id="hub-input">
+      <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 md:sticky md:top-24 z-30" id="hub-input">
         <div className="flex gap-2 mb-4 justify-center">
           <button onClick={()=>setInputType('shop')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType==='shop'?'bg-orange-500 text-white shadow-lg scale-105':'bg-gray-100 text-gray-400'}`}><ShoppingCart size={16} className="inline mr-2"/>Course</button>
           <button onClick={()=>setInputType('note')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType==='note'?'bg-yellow-400 text-white shadow-lg scale-105':'bg-gray-100 text-gray-400'}`}><StickyNote size={16} className="inline mr-2"/>Note</button>
@@ -786,7 +786,7 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
               <div className="flex items-center gap-1">
                 <button
                   onClick={()=>{setFrigoQuickName(item.content);setShowFrigoQuick(true);}}
-                  className="opacity-0 group-hover:opacity-100 p-1.5 bg-teal-50 text-teal-600 rounded-lg hover:bg-teal-100 transition-all"
+                  className="opacity-30 group-hover:opacity-100 md:opacity-0 p-1.5 bg-teal-50 text-teal-600 rounded-lg hover:bg-teal-100 transition-all"
                   title="Ajouter au Frigo"
                 ><Refrigerator size={13}/></button>
                 <button onClick={()=>deleteItem(item.id)} className="text-gray-300 hover:text-red-500"><X size={18}/></button>
@@ -907,7 +907,7 @@ const WalletView = ({ user, config }: { user:User, config:SiteConfig }) => {
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in" id="top">
-      <div className="flex justify-center gap-4 mb-8">
+      <div className="flex flex-wrap justify-center gap-3 mb-8">
         <button onClick={()=>setActiveTab('family')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab==='family'?'bg-black text-white shadow-lg':'bg-white text-gray-400'}`}><ShieldAlert className="inline mr-2 mb-1" size={16}/>Dettes Famille</button>
         <button onClick={()=>setActiveTab('personal')} className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${activeTab==='personal'?'bg-black text-white shadow-lg':'bg-white text-gray-400'}`}><PiggyBank className="inline mr-2 mb-1" size={16}/>Ma Tirelire</button>
       </div>
@@ -933,7 +933,7 @@ const WalletView = ({ user, config }: { user:User, config:SiteConfig }) => {
       ):(
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 space-y-6">
-            <div className="relative h-64 w-full"><CircleLiquid fillPercentage={fillPercent}/><div className="absolute inset-0 flex flex-col items-center justify-center"><p className="text-[10px] font-black uppercase text-yellow-800/60 tracking-widest mb-1">Solde Actuel</p><h2 className="text-5xl font-cinzel font-black text-yellow-900 drop-shadow-sm mb-4">{myWallet.balance?.toFixed(0)}€</h2><div className="flex items-center gap-2 bg-white/40 p-1.5 rounded-2xl backdrop-blur-sm shadow-sm border border-white/50 w-48"><button onClick={()=>updateBalance('sub')} className="p-2 bg-white/50 hover:bg-red-400 hover:text-white rounded-xl transition-colors"><Minus size={16}/></button><input type="number" value={walletAmount} onChange={e=>setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-lg outline-none text-yellow-900 placeholder-yellow-800/40" placeholder="..."/><button onClick={()=>updateBalance('add')} className="p-2 bg-white/50 hover:bg-green-400 hover:text-white rounded-xl transition-colors"><Plus size={16}/></button></div></div></div>
+            <div className="relative h-64 w-full"><CircleLiquid fillPercentage={fillPercent}/><div className="absolute inset-0 flex flex-col items-center justify-center"><p className="text-[10px] font-black uppercase text-yellow-800/60 tracking-widest mb-1">Solde Actuel</p><h2 className="text-3xl md:text-5xl font-cinzel font-black text-yellow-900 drop-shadow-sm mb-4">{myWallet.balance?.toFixed(0)}€</h2><div className="flex items-center gap-2 bg-white/40 p-1.5 rounded-2xl backdrop-blur-sm shadow-sm border border-white/50 w-48"><button onClick={()=>updateBalance('sub')} className="p-2 bg-white/50 hover:bg-red-400 hover:text-white rounded-xl transition-colors"><Minus size={16}/></button><input type="number" value={walletAmount} onChange={e=>setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-lg outline-none text-yellow-900 placeholder-yellow-800/40" placeholder="..."/><button onClick={()=>updateBalance('add')} className="p-2 bg-white/50 hover:bg-green-400 hover:text-white rounded-xl transition-colors"><Plus size={16}/></button></div></div></div>
             <div className="bg-white p-4 rounded-3xl shadow-sm border border-yellow-100 flex items-center gap-3"><div className="p-3 bg-yellow-100 text-yellow-600 rounded-full"><Target size={20}/></div><div className="flex-1"><label className="text-[10px] font-bold uppercase text-gray-400">Objectif</label><input type="number" value={goalInput} onChange={e=>setGoalInput(e.target.value)} onBlur={saveGoal} className="w-full font-black text-gray-700 outline-none" placeholder="Définir..."/>{myWallet.startBalance>0&&<span className="text-[10px] text-gray-300">Départ:{myWallet.startBalance}€</span>}</div>{fillPercent>0&&<span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-1 rounded-lg">{fillPercent.toFixed(0)}%</span>}</div>
             <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><ClipboardList size={14}/> Tâches Rémunérées</h3><div className="flex gap-2 mb-4"><input value={newTask} onChange={e=>setNewTask(e.target.value)} placeholder="Ajouter une tâche..." className="flex-1 bg-gray-50 rounded-xl px-3 text-sm font-bold outline-none"/><button onClick={addWalletTask} className="p-2 bg-gray-200 rounded-xl"><Plus size={16}/></button></div><div className="space-y-2 max-h-40 overflow-y-auto">{(myWallet.tasks||[]).map((t:any)=>(<div key={t.id} className="flex items-center gap-3 group"><button onClick={()=>toggleWalletTask(t.id)}>{t.done?<CheckCircle2 size={16} className="text-green-500"/>:<Square size={16} className="text-gray-300"/>}</button><span className={`text-sm font-bold flex-1 ${t.done?'line-through text-gray-300':'text-gray-600'}`}>{t.text}</span><button onClick={()=>deleteWalletTask(t.id)} className="opacity-0 group-hover:opacity-100 text-red-300"><X size={14}/></button></div>))}</div></div>
           </div>
@@ -1191,9 +1191,9 @@ const BottomNav = ({ config, view, setView, hidden }: any) => (
 );
 
 const HomeCard = ({ icon, title, label, onClick, color }: any) => (
-  <div onClick={onClick} className="bg-white/70 backdrop-blur-md p-10 rounded-[3rem] cursor-pointer hover:scale-105 transition-transform shadow-lg border border-white/50 group">
+  <div onClick={onClick} className="bg-white/70 backdrop-blur-md p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] cursor-pointer hover:scale-105 transition-transform shadow-lg border border-white/50 group">
     <div style={{color}} className="mb-6 group-hover:scale-110 transition-transform">{icon}</div>
-    <h3 className="text-3xl font-cinzel font-bold mb-2">{title}</h3>
+    <h3 className="text-xl md:text-3xl font-cinzel font-bold mb-2">{title}</h3>
     <p className="text-[10px] font-bold tracking-widest opacity-50 uppercase flex items-center gap-2">{label}<ChevronRight size={14}/></p>
   </div>
 );
@@ -1390,7 +1390,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   ];
 
   return (
-    <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[3.5rem] shadow-2xl min-h-[700px] border border-black/5">
+    <div className="bg-white/90 backdrop-blur-xl p-4 md:p-8 rounded-[2rem] md:rounded-[3.5rem] shadow-2xl min-h-[700px] border border-black/5">
       <div className="flex gap-2 overflow-x-auto mb-10 pb-4 no-scrollbar">
         {tabs.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest whitespace-nowrap transition-all ${tab===t.id?'text-white scale-105 shadow-lg':'bg-gray-100 text-gray-400'}`} style={{backgroundColor:tab===t.id?config.primaryColor:''}}>{t.i}{t.l}</button>
@@ -1822,7 +1822,7 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
                     >
                       {entry?(
                         <div className="p-2 rounded-xl min-h-[80px] flex flex-col gap-1" style={{backgroundColor:config.primaryColor+'15',borderLeft:`3px solid ${config.primaryColor}`}}>
-                          <button onClick={e=>deleteMeal(day,meal,e)} className="absolute top-1 left-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">×</button>
+                          <button onClick={e=>deleteMeal(day,meal,e)} className="absolute top-1 left-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center opacity-30 md:opacity-0 group-hover:opacity-100 transition-opacity z-10">×</button>
                           <div className="font-bold text-sm text-gray-800 leading-tight pr-5">{entry.platName}</div>
                           <div className="text-[10px] text-gray-500">{entry.participants?.join(', ')}</div>
                           {entry.recetteLink&&<a href={entry.recetteLink} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px]" style={{backgroundColor:config.primaryColor,color:'white'}}>🔗</a>}
@@ -2461,7 +2461,7 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
                     {item.url&&<a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 font-bold flex items-center gap-1 mt-1 hover:underline" onClick={e=>e.stopPropagation()}><ExternalLink size={9}/>Voir le produit</a>}
                   </div>
                   {isOwner(activeList)&&(
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={()=>setEditingItem({...item})} className="w-7 h-7 bg-white/90 rounded-full flex items-center justify-center text-gray-500 hover:text-black shadow-sm"><Pencil size={10}/></button>
                       <button onClick={()=>removeItem(activeList,item.id)} className="w-7 h-7 bg-white/90 rounded-full flex items-center justify-center text-gray-400 hover:text-red-500 shadow-sm"><X size={10}/></button>
                     </div>
@@ -2660,8 +2660,11 @@ const App: React.FC = () => {
       {/* NOTIFICATIONS PANEL */}
       {isNotifOpen&&(
         <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex justify-end" onClick={()=>setIsNotifOpen(false)}>
-          <div className="w-full max-w-sm bg-white h-full p-6 animate-in slide-in-from-right shadow-2xl" onClick={e=>e.stopPropagation()}>
-            <h3 className="text-2xl font-cinzel font-bold mb-6 flex items-center gap-2"><Bell className="text-orange-500"/>Notifications</h3>
+          <div className="w-full max-w-sm bg-white h-full p-6 animate-in slide-in-from-right shadow-2xl overflow-y-auto" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-6">
+              <button onClick={()=>setIsNotifOpen(false)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors text-gray-500 hover:text-black"><ArrowLeft size={20}/></button>
+              <h3 className="text-2xl font-cinzel font-bold flex items-center gap-2"><Bell className="text-orange-500"/>Notifications</h3>
+            </div>
             <div className="space-y-4">
               {notifications.length===0&&<p className="text-gray-400 italic text-center">Aucune nouvelle notification.</p>}
               {notifications.map(n=>(
@@ -2717,16 +2720,16 @@ const App: React.FC = () => {
         hidden={isMenuOpen||isNotifOpen||isEventModalOpen||isRecipeModalOpen||showFreemiumModal||wishlistModalOpen}
       />
 
-      <main className="max-w-7xl mx-auto px-6 pt-28 pb-32 relative z-10">
+      <main className="max-w-7xl mx-auto px-3 md:px-6 pt-24 md:pt-28 pb-32 relative z-10">
 
         {/* ACCUEIL */}
         {currentView==='home'&&(
           isPageLocked('home') ? <MaintenancePage pageName="Accueil" isHome/> : (
           <div className="space-y-16 animate-in fade-in duration-1000" id="top">
-            <section className="relative h-[60vh] rounded-[3rem] overflow-hidden shadow-2xl group">
+            <section className="relative h-[45vh] md:h-[60vh] rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl group">
               <img src={config.welcomeImage} className="w-full h-full object-cover transition-transform duration-[10s] group-hover:scale-110"/>
               <div className="absolute inset-0 bg-black/40 flex flex-col justify-end p-10">
-                <h1 className="text-5xl md:text-8xl font-cinzel font-black text-white leading-none">{config.welcomeTitle}</h1>
+                <h1 className="text-3xl md:text-8xl font-cinzel font-black text-white leading-none">{config.welcomeTitle}</h1>
                 <p className="text-xl text-white/90 italic mt-4">{config.welcomeText}</p>
                 <button onClick={()=>setCurrentView('hub')} className="mt-8 bg-white text-black px-8 py-4 rounded-xl font-bold uppercase tracking-widest shadow-xl flex items-center gap-3 w-fit hover:scale-105 transition-transform"><LayoutDashboard/>Ouvrir le Tableau</button>
               </div>
@@ -2772,7 +2775,7 @@ const App: React.FC = () => {
           isPageLocked('frigo') ? <MaintenancePage pageName="Frigo"/> : (
           <div className="space-y-6">
             <div className="flex flex-col items-center gap-4">
-              <h2 className="text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>MON FRIGO</h2>
+              <h2 className="text-2xl md:text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>MON FRIGO</h2>
               <p className="text-gray-500 italic text-sm">Inventaire intelligent & gestion anti-gaspi</p>
             </div>
             <FrigoView user={user} config={config} isPremium={isCurrentUserPremium()} onShowFreemium={()=>setShowFreemiumModal(true)}/>
@@ -2796,12 +2799,12 @@ const App: React.FC = () => {
         {currentView==='tasks'&&(isPageLocked('tasks') ? <MaintenancePage pageName="Tâches"/> : (
           <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8" id="tasks-table">
             <div className="text-center space-y-4">
-              <h2 className="text-5xl font-cinzel font-black" style={{color:config.primaryColor}}>TÂCHES MÉNAGÈRES</h2>
+              <h2 className="text-2xl md:text-5xl font-cinzel font-black" style={{color:config.primaryColor}}>TÂCHES MÉNAGÈRES</h2>
               <p className="text-gray-500 font-serif italic">{myLetter?`Salut ${myLetter==='G'?'Gabriel':myLetter==='P'?'Pauline':'Valentin'}, à l'attaque !`:"Connecte-toi avec ton compte perso."}</p>
             </div>
             <div className="bg-white/90 backdrop-blur-xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/50">
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[480px]">
                   <thead>
                     <tr className="text-left" style={{backgroundColor:config.primaryColor+'15'}}>
                       <th className="p-4 font-black uppercase text-xs tracking-widest text-gray-500 w-24">Weekend</th>
@@ -2839,7 +2842,7 @@ const App: React.FC = () => {
         {currentView==='calendar'&&(isPageLocked('calendar') ? <MaintenancePage pageName="Calendrier"/> : (
           <div className="max-w-3xl mx-auto space-y-10" id="calendar-view">
             <div className="flex flex-col items-center gap-6">
-              <h2 className="text-5xl font-cinzel font-black" style={{color:config.primaryColor}}>CALENDRIER</h2>
+              <h2 className="text-2xl md:text-5xl font-cinzel font-black" style={{color:config.primaryColor}}>CALENDRIER</h2>
               <button onClick={()=>setIsEventModalOpen(true)} className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl" style={{backgroundColor:config.primaryColor}}><Plus size={20}/>Ajouter un événement</button>
             </div>
             <EventModal isOpen={isEventModalOpen} onClose={setIsEventModalOpen} config={config} addEntry={addEntry} newEvent={newEvent} setNewEvent={setNewEvent}/>
@@ -2872,7 +2875,7 @@ const App: React.FC = () => {
               (user.email===ADMIN_EMAIL||favorites.length>0)?(
                 <>
                   <div className="flex flex-col items-center gap-6">
-                    <h2 className="text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>MES FAVORIS</h2>
+                    <h2 className="text-2xl md:text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>MES FAVORIS</h2>
                     <p className="text-gray-400 italic">Vos accès rapides XSite</p>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
@@ -2906,7 +2909,7 @@ const App: React.FC = () => {
         {currentView==='recipes'&&(isPageLocked('recipes') ? <MaintenancePage pageName="Recettes"/> : (
           <div className="space-y-10" id="recipes-list">
             <div className="flex flex-col items-center gap-6">
-              <h2 className="text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>RECETTES</h2>
+              <h2 className="text-2xl md:text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>RECETTES</h2>
               {!isCurrentUserPremium()&&recipes.length>=15?(
                 <div className="flex flex-col items-center gap-3">
                   <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-4 py-2 rounded-full font-bold">{recipes.length}/15 recettes (limite gratuite)</div>
@@ -2921,7 +2924,7 @@ const App: React.FC = () => {
               {recipes.length===0&&<p className="text-center col-span-full opacity-50">Aucune recette pour le moment.</p>}
               {recipes.map((r:any)=>(
                 <div key={r.id} className="relative group">
-                  <div className="absolute top-4 right-4 z-20 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="absolute top-4 right-4 z-20 flex gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={()=>addRecipeToHub(r)} className="p-2 bg-white/90 rounded-full shadow-md text-orange-500 hover:scale-110 transition-transform"><ShoppingBag size={16}/></button>
                     <button onClick={()=>openEditRecipe(r)} className="p-2 bg-white/90 rounded-full shadow-md text-blue-500 hover:scale-110 transition-transform"><Pencil size={16}/></button>
                     <button onClick={()=>deleteItem('family_recipes',r.id)} className="p-2 bg-white/90 rounded-full shadow-md text-red-500 hover:scale-110 transition-transform"><Trash2 size={16}/></button>
@@ -2959,7 +2962,7 @@ const App: React.FC = () => {
               }}
             />
           ):(
-            <div className="max-w-md mx-auto bg-white/80 p-10 rounded-[3rem] text-center space-y-8 shadow-xl mt-20">
+            <div className="max-w-md mx-auto bg-white/80 p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] text-center space-y-8 shadow-xl mt-20">
               <ShieldAlert className="mx-auto text-red-500" size={48}/>
               <h2 className="text-3xl font-cinzel font-bold text-red-500">ACCÈS REFUSÉ</h2>
               <p className="text-gray-500">Seul l'administrateur peut accéder à cette zone.</p>
