@@ -284,7 +284,7 @@ Réponds UNIQUEMENT avec ce JSON :
 };
 
 // 7. EXTRACTION PRODUIT DEPUIS URL (pour WishList)
-export const extractProductFromUrl = async (url: string): Promise<{name: string, imageUrl: string} | null> => {
+export const extractProductFromUrl = async (url: string): Promise<{name: string, imageUrl: string, price: string} | null> => {
   // Étape 1 : essayer un proxy CORS rapide
   const proxies = [
     `https://corsproxy.io/?${encodeURIComponent(url)}`,
@@ -301,60 +301,67 @@ export const extractProductFromUrl = async (url: string): Promise<{name: string,
       const html: string = data?.contents || await res.text().catch(() => '') || '';
       if (html.length < 200) continue;
 
-      // Parser le HTML
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
+
       const name =
         doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
         doc.querySelector('meta[name="twitter:title"]')?.getAttribute('content') ||
-        doc.querySelector('h1')?.textContent?.trim() ||
-        doc.querySelector('title')?.textContent?.trim() || '';
+        doc.querySelector('h1')?.textContent?.trim() || '';
+
       const imageUrl =
         doc.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
-        doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') || '';
+        doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') ||
+        doc.querySelector('meta[property="og:image:url"]')?.getAttribute('content') || '';
 
-      // Nettoyer le nom (retirer suffixe site " - Amazon.fr" etc.)
-      const cleanName = name.replace(/\s*[|–\-]\s*(Amazon|Cdiscount|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc).*$/i, '').trim();
-      if (cleanName.length > 3) return { name: cleanName, imageUrl };
+      // Tenter d'extraire le prix depuis les balises meta ou schema.org
+      const priceEl =
+        doc.querySelector('[itemprop="price"]')?.getAttribute('content') ||
+        doc.querySelector('[itemprop="price"]')?.textContent?.trim() ||
+        doc.querySelector('meta[property="product:price:amount"]')?.getAttribute('content') ||
+        doc.querySelector('.a-price-whole')?.textContent?.trim() || // Amazon
+        doc.querySelector('[class*="price"]')?.textContent?.trim() || '';
+      const priceMatch = priceEl.match(/[\d\s,]+[.,]\d{2}/);
+      const price = priceMatch ? priceMatch[0].trim() + ' €' : '';
+
+      const cleanName = name.replace(/\s*[|–\-]\s*(Amazon|Cdiscount|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|La Redoute).*$/i, '').trim();
+      if (cleanName.length > 3) return { name: cleanName, imageUrl, price };
     } catch { continue; }
   }
 
-  // Étape 2 : fallback IA — Gemini déduit le nom depuis l'URL seule
+  // Étape 2 : fallback IA Gemini — analyse l'URL pour en déduire nom, image et prix
   try {
     const res = await callGemini({
       contents: [{
         parts: [{
-          text: `Analyse cette URL de boutique en ligne et déduis UNIQUEMENT le nom commercial du produit à partir du chemin URL, des mots-clés et du domaine.
+          text: `Analyse cette URL de boutique en ligne et extrait les informations du produit uniquement à partir de l'URL (domaine, chemin, mots-clés, paramètres).
 URL : ${url}
 
-Règles :
-- Utilise les segments du chemin (après le domaine) pour identifier le produit
-- Pour Amazon, utilise la partie avant "/dp/" ou entre les tirets du chemin
-- Traduis les tirets/underscores en espaces
-- Mets en majuscule la première lettre de chaque mot
-- Ne génère PAS d'informations inventées sur le produit
-- Si vraiment impossible, retourne le dernier segment propre de l'URL
+Instructions :
+- Utilise les segments du chemin pour identifier le nom du produit (tirets → espaces, Title Case)
+- Pour Amazon : utilise la partie du chemin avant "/dp/"
+- Pour le prix : cherche dans les paramètres d'URL ou déduis s'il est présent
+- Pour l'image : ne génère PAS d'URL d'image si tu ne peux pas la confirmer depuis l'URL
 
 Réponds UNIQUEMENT avec ce JSON (pas de markdown) :
-{"name":"Nom du produit","imageUrl":""}`
+{"name":"Nom du produit","imageUrl":"","price":""}`
         }]
       }]
     });
     const parsed = cleanJSON(res);
     if (parsed?.name && parsed.name.length > 2) {
-      return { name: parsed.name, imageUrl: '' };
+      return { name: parsed.name, imageUrl: parsed.imageUrl || '', price: parsed.price || '' };
     }
   } catch { /* ignore */ }
 
   // Étape 3 : extraction brute depuis l'URL
   try {
     const urlObj = new URL(url);
-    const segments = urlObj.pathname.split('/').filter(s => s.length > 3 && !/^(dp|ref|sr|B0|p|s)/.test(s));
+    const segments = urlObj.pathname.split('/').filter(s => s.length > 3 && !/^(dp|ref|sr|B0|p|s|product|item|detail)$/i.test(s));
     const raw = segments[0] || '';
     const name = decodeURIComponent(raw).replace(/[-_+]/g, ' ').replace(/\s+/g, ' ').trim();
-    // Mettre en Title Case
     const titled = name.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-    if (titled.length > 3) return { name: titled, imageUrl: '' };
+    if (titled.length > 3) return { name: titled, imageUrl: '', price: '' };
   } catch { /* ignore */ }
 
   return null;
