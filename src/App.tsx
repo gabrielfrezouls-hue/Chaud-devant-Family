@@ -1178,8 +1178,8 @@ const SideMenu = ({ config, isOpen, close, setView, logout }: any) => {
   );
 };
 
-const BottomNav = ({ config, view, setView }: any) => (
-  <div className="md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 text-white/50 px-4 pb-4 shadow-xl" style={{backgroundColor:config.primaryColor}}>
+const BottomNav = ({ config, view, setView, hidden }: any) => (
+  <div className={`md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 text-white/50 px-4 pb-4 shadow-xl transition-transform duration-300 ${hidden ? 'translate-y-full' : 'translate-y-0'}`} style={{backgroundColor:config.primaryColor}}>
     {[
       {id:'home',i:<Home size={22}/>},
       {id:'hub',i:<LayoutDashboard size={22}/>},
@@ -2002,7 +2002,7 @@ const FreemiumModal = ({ config, onClose, onUpgrade }:{config:SiteConfig,onClose
   </div>
 );
 
-const WishlistView = ({ user, config, siteUsers }: { user:User, config:SiteConfig, siteUsers:any[] }) => {
+const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, config:SiteConfig, siteUsers:any[], onModalChange?:(open:boolean)=>void }) => {
   const isPremium = useIsPremium(user.email, siteUsers);
   const [lists, setLists]     = useState<any[]>([]);
   const [activeList, setActiveList] = useState<any|null>(null);
@@ -2014,10 +2014,14 @@ const WishlistView = ({ user, config, siteUsers }: { user:User, config:SiteConfi
   const [editingList, setEditingList] = useState<any|null>(null);   // liste en cours d'édition
   const [editingItem, setEditingItem] = useState<any|null>(null);   // article en cours d'édition
   const [newList, setNewList]  = useState({name:'', icon:'🎁', category:''});
-  const [newItem, setNewItem]  = useState({name:'', imageUrl:'', url:''});
+  const [newItem, setNewItem]  = useState({name:'', imageUrl:'', url:'', price:''});
   const [urlInput, setUrlInput] = useState('');
   const [urlLoading, setUrlLoading] = useState(false);
   const [urlError, setUrlError]   = useState('');
+
+  // Notifier le parent quand une modale est ouverte (pour cacher la BottomNav)
+  const hasModal = !!(showCreate||showAddItem||showShare||showFreemium||editingList||editingItem);
+  useEffect(()=>{ onModalChange?.(hasModal); }, [hasModal]);
 
   // Toutes les catégories existantes extraites des listes
   const allCategories = Array.from(new Set(lists.map(l=>l.category).filter(Boolean))) as string[];
@@ -2090,9 +2094,9 @@ const WishlistView = ({ user, config, siteUsers }: { user:User, config:SiteConfi
 
   const addItemManual = async () => {
     if(!newItem.name.trim()||!activeList) return;
-    const item = {id:Date.now().toString(), name:newItem.name.trim(), imageUrl:newItem.imageUrl.trim(), url:newItem.url, addedAt:new Date().toISOString()};
+    const item = {id:Date.now().toString(), name:newItem.name.trim(), imageUrl:newItem.imageUrl.trim(), url:newItem.url, price:newItem.price.trim(), addedAt:new Date().toISOString()};
     await updateDoc(doc(db,'wishlists',activeList.id),{items:arrayUnion(item)});
-    setNewItem({name:'',imageUrl:'',url:''}); setShowAddItem(null);
+    setNewItem({name:'',imageUrl:'',url:'',price:''}); setShowAddItem(null);
   };
 
   const saveEditItem = async () => {
@@ -2110,18 +2114,17 @@ const WishlistView = ({ user, config, siteUsers }: { user:User, config:SiteConfi
       const { extractProductFromUrl } = await import('./services/geminiService');
       const result = await extractProductFromUrl(urlInput.trim());
       if(result?.name) {
-        setNewItem({name: result.name, imageUrl: result.imageUrl || '', url: urlInput.trim()});
+        setNewItem({name: result.name, imageUrl: result.imageUrl || '', url: urlInput.trim(), price: result.price || ''});
         setShowAddItem('manual');
         setUrlInput('');
       } else {
-        // Ouvrir quand même le formulaire avec l'URL pré-remplie pour saisie manuelle
-        setNewItem({name: '', imageUrl: '', url: urlInput.trim()});
+        setNewItem({name: '', imageUrl: '', url: urlInput.trim(), price: ''});
         setShowAddItem('manual');
         setUrlInput('');
         setUrlError("Nom non détecté — saisissez-le manuellement.");
       }
     } catch {
-      setNewItem({name: '', imageUrl: '', url: urlInput.trim()});
+      setNewItem({name: '', imageUrl: '', url: urlInput.trim(), price: ''});
       setShowAddItem('manual');
       setUrlInput('');
     }
@@ -2384,11 +2387,14 @@ const WishlistView = ({ user, config, siteUsers }: { user:User, config:SiteConfi
                 <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
                 <h3 className="font-black text-xl">Ajouter un article</h3>
                 <input value={newItem.name} onChange={e=>setNewItem(i=>({...i,name:e.target.value}))} placeholder="Nom du produit..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
+                <div className="flex gap-3">
+                  <input value={newItem.price} onChange={e=>setNewItem(i=>({...i,price:e.target.value}))} placeholder="Prix (ex: 24,99 €)" className="flex-1 p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black text-sm"/>
+                </div>
                 <input value={newItem.imageUrl} onChange={e=>setNewItem(i=>({...i,imageUrl:e.target.value}))} placeholder="URL image (facultatif)..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
                 {newItem.imageUrl&&<img src={newItem.imageUrl} alt="" className="w-full h-32 object-cover rounded-2xl" onError={e=>(e.currentTarget.style.display='none')}/>}
                 {newItem.url&&<div className="text-xs text-gray-400 truncate bg-gray-50 px-3 py-2 rounded-xl"><Link size={10} className="inline mr-1"/>{newItem.url}</div>}
                 <div className="flex gap-3">
-                  <button onClick={()=>{setShowAddItem(null);setNewItem({name:'',imageUrl:'',url:''});setUrlInput('');}} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
+                  <button onClick={()=>{setShowAddItem(null);setNewItem({name:'',imageUrl:'',url:'',price:''});setUrlInput('');}} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
                   <button onClick={addItemManual} disabled={!newItem.name.trim()} className="flex-1 py-3 text-white font-black rounded-2xl disabled:opacity-40" style={{backgroundColor:config.primaryColor}}>Ajouter</button>
                 </div>
               </div>
@@ -2421,6 +2427,7 @@ const WishlistView = ({ user, config, siteUsers }: { user:User, config:SiteConfi
                 <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
                 <h3 className="font-black text-xl">Modifier l'article</h3>
                 <input value={editingItem.name} onChange={e=>setEditingItem((i:any)=>({...i,name:e.target.value}))} className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
+                <input value={editingItem.price||''} onChange={e=>setEditingItem((i:any)=>({...i,price:e.target.value}))} placeholder="Prix (ex: 24,99 €)..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm border-2 border-transparent focus:border-black"/>
                 <input value={editingItem.imageUrl||''} onChange={e=>setEditingItem((i:any)=>({...i,imageUrl:e.target.value}))} placeholder="URL image..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
                 <input value={editingItem.url||''} onChange={e=>setEditingItem((i:any)=>({...i,url:e.target.value}))} placeholder="Lien produit..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
                 {editingItem.imageUrl&&<img src={editingItem.imageUrl} alt="" className="w-full h-28 object-cover rounded-xl" onError={e=>(e.currentTarget.style.display='none')}/>}
@@ -2450,6 +2457,7 @@ const WishlistView = ({ user, config, siteUsers }: { user:User, config:SiteConfi
                   )}
                   <div className="p-3">
                     <p className="font-bold text-sm leading-tight">{item.name}</p>
+                    {item.price&&<p className="text-sm font-black mt-1" style={{color:config.primaryColor}}>{item.price}</p>}
                     {item.url&&<a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 font-bold flex items-center gap-1 mt-1 hover:underline" onClick={e=>e.stopPropagation()}><ExternalLink size={9}/>Voir le produit</a>}
                   </div>
                   {isOwner(activeList)&&(
@@ -2497,6 +2505,7 @@ const App: React.FC = () => {
   const [chatHistory, setChatHistory] = useState<{role:string,text:string}[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [showFreemiumModal, setShowFreemiumModal] = useState(false);
+  const [wishlistModalOpen, setWishlistModalOpen] = useState(false);
 
   // Helper : l'utilisateur courant est-il premium ?
   const isCurrentUserPremium = () => {
@@ -2704,7 +2713,9 @@ const App: React.FC = () => {
       </nav>
 
       <SideMenu config={config} isOpen={isMenuOpen} close={()=>setIsMenuOpen(false)} setView={setCurrentView} logout={handleLogout}/>
-      <BottomNav config={config} view={currentView} setView={setCurrentView}/>
+      <BottomNav config={config} view={currentView} setView={setCurrentView}
+        hidden={isMenuOpen||isNotifOpen||isEventModalOpen||isRecipeModalOpen||showFreemiumModal||wishlistModalOpen}
+      />
 
       <main className="max-w-7xl mx-auto px-6 pt-28 pb-32 relative z-10">
 
@@ -2776,7 +2787,7 @@ const App: React.FC = () => {
         {currentView==='wishlist'&&(
           isPageLocked('wishlist') ? <MaintenancePage pageName="WishLists"/> : (
           <div className="space-y-6" id="wishlist-top">
-            <WishlistView user={user} config={config} siteUsers={siteUsers}/>
+            <WishlistView user={user} config={config} siteUsers={siteUsers} onModalChange={setWishlistModalOpen}/>
           </div>
           )
         )}
