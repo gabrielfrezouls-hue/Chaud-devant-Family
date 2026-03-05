@@ -285,22 +285,29 @@ Réponds UNIQUEMENT avec ce JSON :
 
 // 7. EXTRACTION PRODUIT DEPUIS URL (pour WishList)
 export const extractProductFromUrl = async (url: string): Promise<{name: string, imageUrl: string, price: string} | null> => {
-  // Étape 1 : essayer un proxy CORS rapide
   const proxies = [
     `https://corsproxy.io/?${encodeURIComponent(url)}`,
     `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
   ];
 
+  let html = '';
+
+  // Étape 1 : tenter de récupérer le HTML via proxy
   for (const proxyUrl of proxies) {
     try {
       const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 5000);
+      setTimeout(() => ctrl.abort(), 6000);
       const res = await fetch(proxyUrl, { signal: ctrl.signal });
       if (!res.ok) continue;
       const data = await res.json().catch(() => null);
-      const html: string = data?.contents || await res.text().catch(() => '') || '';
-      if (html.length < 200) continue;
+      const raw: string = data?.contents || await res.text().catch(() => '') || '';
+      if (raw.length > 500) { html = raw; break; }
+    } catch { continue; }
+  }
 
+  // Étape 2 : si on a du HTML, on tente d'abord l'extraction rapide via DOM
+  if (html) {
+    try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
 
@@ -311,56 +318,154 @@ export const extractProductFromUrl = async (url: string): Promise<{name: string,
 
       const imageUrl =
         doc.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
+        doc.querySelector('meta[property="og:image:url"]')?.getAttribute('content') ||
         doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') ||
-        doc.querySelector('meta[property="og:image:url"]')?.getAttribute('content') || '';
+        doc.querySelector('meta[name="twitter:image:src"]')?.getAttribute('content') || '';
 
-      // Tenter d'extraire le prix depuis les balises meta ou schema.org
-      const priceEl =
+      const priceRaw =
         doc.querySelector('[itemprop="price"]')?.getAttribute('content') ||
         doc.querySelector('[itemprop="price"]')?.textContent?.trim() ||
         doc.querySelector('meta[property="product:price:amount"]')?.getAttribute('content') ||
-        doc.querySelector('.a-price-whole')?.textContent?.trim() || // Amazon
-        doc.querySelector('[class*="price"]')?.textContent?.trim() || '';
-      const priceMatch = priceEl.match(/[\d\s,]+[.,]\d{2}/);
-      const price = priceMatch ? priceMatch[0].trim() + ' €' : '';
+        doc.querySelector('meta[name="twitter:data1"]')?.getAttribute('content') ||
+        doc.querySelector('.a-price-whole')?.textContent?.trim() ||
+        doc.querySelector('[class*="price"][class*="current"]')?.textContent?.trim() ||
+        doc.querySelector('[class*="Price"]')?.textContent?.trim() || '';
+      const priceMatch = priceRaw.match(/\d[\d\s]*[.,]\d{2}/);
+      const price = priceMatch ? priceMatch[0].replace(/\s/g, '') + ' €' : '';
 
-      const cleanName = name.replace(/\s*[|–\-]\s*(Amazon|Cdiscount|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|La Redoute).*$/i, '').trim();
-      if (cleanName.length > 3) return { name: cleanName, imageUrl, price };
-    } catch { continue; }
+      const cleanName = name.replace(/\s*[|–\-]\s*(Amazon|Cdiscount|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|La Redoute|Boulanger|Leroy Merlin).*$/i, '').trim();
+
+      // Si on a au moins un nom, retourner — même avec image/prix vides (Gemini complétera)
+      if (cleanName.length > 3) {
+        // Si image ou prix manquants, demander à Gemini de compléter via le HTML
+        if (!imageUrl || !price) {
+          const snippet = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').substring(0, 8000);
+          const res = await callGemini({
+            contents: [{
+              parts: [{
+                text: `Extrait les informations de ce produit depuis ce HTML (extrait de page boutique).
+Nom déjà trouvé : "${cleanName}"
+
+HTML (partiel) :
+${snippet}
+
+Réponds UNIQUEMENT avec ce JSON (pas de markdown) :
+{"name":"${cleanName}","imageUrl":"URL absolue de la photo principale du produit ou vide","price":"Prix avec devise ou vide"}
+
+Règles :
+- imageUrl : URL absolue (commence par http) de la photo principale du produit — cherche src= dans les balises img, ou les balises meta og:image/twitter:image
+- price : format "XX,XX €" — cherche itemprop=price, class contenant price/prix/montant, ou balises meta product:price
+- Si tu ne trouves pas, laisse le champ vide (ne génère pas d'URL inventée)`
+              }]
+            }]
+          });
+          const parsed = cleanJSON(res);
+          if (parsed) {
+            return {
+              name: cleanName,
+              imageUrl: parsed.imageUrl || imageUrl || '',
+              price: parsed.price || price || ''
+            };
+          }
+        }
+        return { name: cleanName, imageUrl, price };
+      }
+
+      // Nom non trouvé via DOM → donner tout le HTML à Gemini
+      const snippet = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').substring(0, 8000);
+      const res = await callGemini({
+        contents: [{
+          parts: [{
+            text: `Extrait les informations de ce produit depuis ce HTML de page boutique en ligne.
+
+HTML (partiel) :
+${snippet}
+
+Réponds UNIQUEMENT avec ce JSON (pas de markdown) :
+{"name":"Nom commercial du produit","imageUrl":"URL absolue de la photo principale ou vide","price":"Prix avec devise ou vide"}
+
+Règles :
+- name : nom commercial du produit (pas le nom du site, pas "Amazon")
+- imageUrl : URL absolue (commence par http) de la photo principale — cherche og:image, twitter:image ou premier img avec grande taille
+- price : format "XX,XX €" — cherche itemprop=price, class price/prix, meta product:price
+- Si champ introuvable, laisser vide`
+          }]
+        }]
+      });
+      const parsed = cleanJSON(res);
+      if (parsed?.name && parsed.name.length > 2) {
+        return { name: parsed.name, imageUrl: parsed.imageUrl || '', price: parsed.price || '' };
+      }
+    } catch { /* ignore, fallback to URL analysis */ }
   }
 
-  // Étape 2 : fallback IA Gemini — analyse l'URL pour en déduire nom, image et prix
+  // Étape 3 : pas de HTML — Gemini analyse l'URL seule
+  // Mais d'abord, tenter l'API Anthropic + web_search si la clé est disponible
+  try {
+    const anthropicKey = (import.meta as any).env?.VITE_ANTHROPIC_KEY || '';
+    if (anthropicKey) {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-beta': 'web-search-2025-03-05',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 400,
+          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+          messages: [{
+            role: 'user',
+            content: `Recherche ce produit en ligne et donne-moi : son nom commercial exact, l'URL directe de son image principale, et son prix actuel.
+URL produit : ${url}
+Réponds UNIQUEMENT en JSON (sans markdown) :
+{"name":"Nom exact","imageUrl":"https://url-image...","price":"XX,XX €"}`
+          }]
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+        const parsed = cleanJSON(text);
+        if (parsed?.name && parsed.name.length > 2) {
+          return { name: parsed.name, imageUrl: parsed.imageUrl || '', price: parsed.price || '' };
+        }
+      }
+    }
+  } catch { /* ignore — Anthropic non configuré */ }
+
+  // Étape 3 : pas de HTML — Gemini analyse l'URL seule
   try {
     const res = await callGemini({
       contents: [{
         parts: [{
-          text: `Analyse cette URL de boutique en ligne et extrait les informations du produit uniquement à partir de l'URL (domaine, chemin, mots-clés, paramètres).
+          text: `Analyse cette URL de boutique en ligne et déduis le nom du produit depuis les segments du chemin.
 URL : ${url}
 
-Instructions :
-- Utilise les segments du chemin pour identifier le nom du produit (tirets → espaces, Title Case)
-- Pour Amazon : utilise la partie du chemin avant "/dp/"
-- Pour le prix : cherche dans les paramètres d'URL ou déduis s'il est présent
-- Pour l'image : ne génère PAS d'URL d'image si tu ne peux pas la confirmer depuis l'URL
+Règles :
+- Utilise les mots du chemin URL (avant /dp/, /p/, etc.)
+- Title Case, tirets → espaces
+- Ne génère PAS d'imageUrl ni de price si tu ne peux pas les confirmer
 
 Réponds UNIQUEMENT avec ce JSON (pas de markdown) :
-{"name":"Nom du produit","imageUrl":"","price":""}`
+{"name":"Nom déduit","imageUrl":"","price":""}`
         }]
       }]
     });
     const parsed = cleanJSON(res);
     if (parsed?.name && parsed.name.length > 2) {
-      return { name: parsed.name, imageUrl: parsed.imageUrl || '', price: parsed.price || '' };
+      return { name: parsed.name, imageUrl: '', price: '' };
     }
   } catch { /* ignore */ }
 
-  // Étape 3 : extraction brute depuis l'URL
+  // Étape 4 : extraction brute depuis l'URL
   try {
     const urlObj = new URL(url);
-    const segments = urlObj.pathname.split('/').filter(s => s.length > 3 && !/^(dp|ref|sr|B0|p|s|product|item|detail)$/i.test(s));
-    const raw = segments[0] || '';
-    const name = decodeURIComponent(raw).replace(/[-_+]/g, ' ').replace(/\s+/g, ' ').trim();
-    const titled = name.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    const segments = urlObj.pathname.split('/').filter(s => s.length > 3 && !/^(dp|ref|sr|B0[A-Z0-9]{8}|p|s|product|item|detail|buy)$/i.test(s));
+    const raw = decodeURIComponent(segments[0] || '').replace(/[-_+]/g, ' ').replace(/\s+/g, ' ').trim();
+    const titled = raw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     if (titled.length > 3) return { name: titled, imageUrl: '', price: '' };
   } catch { /* ignore */ }
 
