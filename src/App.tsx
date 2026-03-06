@@ -821,7 +821,7 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* COURSES */}
         <div className="space-y-4" id="hub-shop">
-          <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><ShoppingCart size={20}/> LISTE DE COURSES</h3>
+          <h3 className="font-bold text-xl tracking-tight text-gray-400 flex items-center gap-2"><ShoppingCart size={20}/> LISTE DE COURSES</h3>
           {sortedShopItems.map(item=>(
             <div key={item.id} className="group flex justify-between items-center p-4 bg-white rounded-2xl shadow-sm border-l-4 border-orange-400 hover:shadow-md transition-all">
               <div>
@@ -846,7 +846,7 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
 
         {/* PENSE-BÊTES */}
         <div className="space-y-4" id="hub-notes">
-          <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><StickyNote size={20}/> PENSE-BÊTES</h3>
+          <h3 className="font-bold text-xl tracking-tight text-gray-400 flex items-center gap-2"><StickyNote size={20}/> PENSE-BÊTES</h3>
           <div className="grid grid-cols-2 gap-2">
             {hubItems.filter(i=>i.type==='note').map(item=>(
               <div key={item.id} className="relative p-4 bg-yellow-50 rounded-xl shadow-sm border border-yellow-100 rotate-1 hover:rotate-0 transition-transform">
@@ -860,7 +860,7 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
 
         {/* LE MUR */}
         <div className="space-y-4" id="hub-msg">
-          <h3 className="font-cinzel font-bold text-xl text-gray-400 flex items-center gap-2"><MessageSquare size={20}/> LE MUR</h3>
+          <h3 className="font-bold text-xl tracking-tight text-gray-400 flex items-center gap-2"><MessageSquare size={20}/> LE MUR</h3>
           {hubItems.filter(i=>i.type==='msg').map(item=>(
             <div key={item.id} className="p-6 bg-blue-500 text-white rounded-tr-3xl rounded-bl-3xl rounded-tl-xl rounded-br-xl shadow-lg relative group">
               <button onClick={()=>deleteItem(item.id)} className="absolute top-2 right-2 text-blue-300 hover:text-white"><X size={14}/></button>
@@ -972,7 +972,7 @@ const WalletView = ({ user, config }: { user:User, config:SiteConfig }) => {
             {debts.map(d=>(
               <div key={d.id} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 relative group">
                 <button onClick={()=>deleteDoc(doc(db,'family_debts',d.id))} className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-red-400"><Trash2 size={16}/></button>
-                <div className="flex justify-between items-center mb-2"><span className="font-cinzel font-bold text-xl">{d.from}<span className="text-gray-300 text-xs mx-1">DOIT À</span>{d.to}</span><span className="text-2xl font-black" style={{color:config.primaryColor}}>{calculateDebt(d)}€</span></div>
+                <div className="flex justify-between items-center mb-2"><span className="font-bold text-xl tracking-tight">{d.from}<span className="text-gray-300 text-xs mx-1">DOIT À</span>{d.to}</span><span className="text-2xl font-black" style={{color:config.primaryColor}}>{calculateDebt(d)}€</span></div>
                 <div className="flex gap-4 text-[10px] font-bold uppercase text-gray-400"><span>Initial:{d.amount}€</span>{d.interest>0&&<span className="text-orange-400 flex items-center"><Percent size={10} className="mr-1"/>Intérêt:{d.interest}%</span>}<span>{new Date(d.createdAt).toLocaleDateString()}</span></div>
               </div>
             ))}
@@ -981,7 +981,7 @@ const WalletView = ({ user, config }: { user:User, config:SiteConfig }) => {
       ):(
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 space-y-6">
-            <div className="relative h-64 w-full"><CircleLiquid fillPercentage={fillPercent}/><div className="absolute inset-0 flex flex-col items-center justify-center"><p className="text-[10px] font-black uppercase text-yellow-800/60 tracking-widest mb-1">Solde Actuel</p><h2 className="text-3xl md:text-5xl font-cinzel font-black text-yellow-900 drop-shadow-sm mb-4">{myWallet.balance?.toFixed(0)}€</h2><div className="flex items-center gap-2 bg-white/40 p-1.5 rounded-2xl backdrop-blur-sm shadow-sm border border-white/50 w-48"><button onClick={()=>updateBalance('sub')} className="p-2 bg-white/50 hover:bg-red-400 hover:text-white rounded-xl transition-colors"><Minus size={16}/></button><input type="number" value={walletAmount} onChange={e=>setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-lg outline-none text-yellow-900 placeholder-yellow-800/40" placeholder="..."/><button onClick={()=>updateBalance('add')} className="p-2 bg-white/50 hover:bg-green-400 hover:text-white rounded-xl transition-colors"><Plus size={16}/></button></div></div></div>
+            <div className="relative h-64 w-full"><CircleLiquid fillPercentage={fillPercent}/><div className="absolute inset-0 flex flex-col items-center justify-center"><p className="text-[10px] font-black uppercase text-yellow-800/60 tracking-widest mb-1">Solde Actuel</p><h2 className="text-3xl md:text-5xl font-black tracking-tight text-yellow-900 drop-shadow-sm mb-4">{myWallet.balance?.toFixed(0)}€</h2><div className="flex items-center gap-2 bg-white/40 p-1.5 rounded-2xl backdrop-blur-sm shadow-sm border border-white/50 w-48"><button onClick={()=>updateBalance('sub')} className="p-2 bg-white/50 hover:bg-red-400 hover:text-white rounded-xl transition-colors"><Minus size={16}/></button><input type="number" value={walletAmount} onChange={e=>setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-lg outline-none text-yellow-900 placeholder-yellow-800/40" placeholder="..."/><button onClick={()=>updateBalance('add')} className="p-2 bg-white/50 hover:bg-green-400 hover:text-white rounded-xl transition-colors"><Plus size={16}/></button></div></div></div>
             <div className="bg-white p-4 rounded-3xl shadow-sm border border-yellow-100 flex items-center gap-3"><div className="p-3 bg-yellow-100 text-yellow-600 rounded-full"><Target size={20}/></div><div className="flex-1"><label className="text-[10px] font-bold uppercase text-gray-400">Objectif</label><input type="number" value={goalInput} onChange={e=>setGoalInput(e.target.value)} onBlur={saveGoal} className="w-full font-black text-gray-700 outline-none" placeholder="Définir..."/>{myWallet.startBalance>0&&<span className="text-[10px] text-gray-300">Départ:{myWallet.startBalance}€</span>}</div>{fillPercent>0&&<span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-1 rounded-lg">{fillPercent.toFixed(0)}%</span>}</div>
             <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><ClipboardList size={14}/> Tâches Rémunérées</h3><div className="flex gap-2 mb-4"><input value={newTask} onChange={e=>setNewTask(e.target.value)} placeholder="Ajouter une tâche..." className="flex-1 bg-gray-50 rounded-xl px-3 text-sm font-bold outline-none"/><button onClick={addWalletTask} className="p-2 bg-gray-200 rounded-xl"><Plus size={16}/></button></div><div className="space-y-2 max-h-40 overflow-y-auto">{(myWallet.tasks||[]).map((t:any)=>(<div key={t.id} className="flex items-center gap-3 group"><button onClick={()=>toggleWalletTask(t.id)}>{t.done?<CheckCircle2 size={16} className="text-green-500"/>:<Square size={16} className="text-gray-300"/>}</button><span className={`text-sm font-bold flex-1 ${t.done?'line-through text-gray-300':'text-gray-600'}`}>{t.text}</span><button onClick={()=>deleteWalletTask(t.id)} className="opacity-0 group-hover:opacity-100 text-red-300"><X size={14}/></button></div>))}</div></div>
           </div>
@@ -1021,7 +1021,7 @@ const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300">
         <button onClick={()=>onClose(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
-        <div className="text-center space-y-2"><div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4"><CalIcon size={32} style={{color:config.primaryColor}}/></div><h3 className="text-2xl font-cinzel font-bold">Nouvel Événement</h3></div>
+        <div className="text-center space-y-2"><div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4"><CalIcon size={32} style={{color:config.primaryColor}}/></div><h3 className="text-2xl font-bold tracking-tight">Nouvel Événement</h3></div>
         <div className="space-y-4">
           <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quoi ?</label><input value={newEvent.title} onChange={e=>setNewEvent({...newEvent,title:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none focus:ring-2" placeholder="Anniversaire..." autoFocus style={{'--tw-ring-color':config.primaryColor} as any}/></div>
           <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quand ?</label><input type="date" value={newEvent.date} onChange={e=>setNewEvent({...newEvent,date:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none cursor-pointer"/></div>
@@ -1074,7 +1074,7 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
           <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto md:hidden absolute top-3 left-1/2 -translate-x-1/2"/>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center hidden md:flex"><ChefHat size={22} style={{color:config.primaryColor}}/></div>
-            <h3 className="text-xl font-cinzel font-bold">{currentRecipe.id?'Modifier la Recette':'Nouvelle Recette'}</h3>
+            <h3 className="text-xl font-bold tracking-tight">{currentRecipe.id?'Modifier la Recette':'Nouvelle Recette'}</h3>
           </div>
           <button onClick={()=>onClose(false)} className="text-gray-400 hover:text-black p-2 rounded-full hover:bg-gray-100"><X size={22}/></button>
         </div>
@@ -1241,7 +1241,7 @@ const BottomNav = ({ config, view, setView, hidden }: any) => (
 const HomeCard = ({ icon, title, label, onClick, color }: any) => (
   <div onClick={onClick} className="bg-white/70 backdrop-blur-md p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] cursor-pointer hover:scale-105 transition-transform shadow-lg border border-white/50 group">
     <div style={{color}} className="mb-6 group-hover:scale-110 transition-transform">{icon}</div>
-    <h3 className="text-xl md:text-3xl font-cinzel font-bold mb-2">{title}</h3>
+    <h3 className="text-xl md:text-3xl font-bold tracking-tight mb-2">{title}</h3>
     <p className="text-[10px] font-bold tracking-widest opacity-50 uppercase flex items-center gap-2">{label}<ChevronRight size={14}/></p>
   </div>
 );
@@ -1276,7 +1276,7 @@ const AutoSaveSettings = ({ localC, save, config, setLocalC, fileRef, handleFile
     <div className="space-y-8 animate-in fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>PARAMÈTRES</h3>
+        <h3 className="text-3xl font-bold tracking-tight" style={{color:config.primaryColor}}>PARAMÈTRES</h3>
         <div className={`flex items-center gap-1.5 text-xs font-bold transition-all duration-300 ${
           saveStatus==='saving' ? 'text-amber-500' :
           saveStatus==='saved'  ? 'text-green-500' :
@@ -1453,7 +1453,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {/* USERS */}
       {tab==='users'&&(
         <div className="space-y-8 animate-in fade-in">
-          <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>UTILISATEURS</h3>
+          <h3 className="text-3xl font-bold tracking-tight" style={{color:config.primaryColor}}>UTILISATEURS</h3>
 
           <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
             <h4 className="font-bold mb-4 text-xs uppercase tracking-widest text-gray-400">Ajouter un membre</h4>
@@ -1521,7 +1521,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {/* NOTIF */}
       {tab==='notif'&&(
         <div className="space-y-8 animate-in fade-in">
-          <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>NOTIFICATIONS</h3>
+          <h3 className="text-3xl font-bold tracking-tight" style={{color:config.primaryColor}}>NOTIFICATIONS</h3>
 
           {/* MODE MANUEL UNIQUEMENT */}
           <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
@@ -1575,7 +1575,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {/* HISTORIQUE */}
       {tab==='history'&&(
         <div className="space-y-6 animate-in fade-in">
-          <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>HISTORIQUE</h3>
+          <h3 className="text-3xl font-bold tracking-tight" style={{color:config.primaryColor}}>HISTORIQUE</h3>
           {/* Input caché pour changer la photo d'une version */}
           <input
             ref={versionImgRef}
@@ -1662,7 +1662,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {/* ARCHITECTE */}
       {tab==='arch'&&(
         <div className="space-y-6 animate-in fade-in">
-          <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>ARCHITECTE IA</h3>
+          <h3 className="text-3xl font-bold tracking-tight" style={{color:config.primaryColor}}>ARCHITECTE IA</h3>
           <textarea value={prompt} onChange={e=>setP(e.target.value)} className="w-full p-6 rounded-3xl border border-gray-200 h-32 focus:ring-4 outline-none" placeholder="Ex: 'Met un thème sombre et doré'..."/>
           <button onClick={arch} disabled={load} className="w-full py-5 text-white rounded-2xl font-black uppercase shadow-xl" style={{backgroundColor:config.primaryColor}}>{load?<Loader2 className="animate-spin mx-auto"/>:"Transformer le design"}</button>
         </div>
@@ -1671,11 +1671,11 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {/* XSITE */}
       {tab==='xsite'&&(
         <div className="space-y-8 animate-in fade-in">
-          <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>GESTION XSITE</h3>
+          <h3 className="text-3xl font-bold tracking-tight" style={{color:config.primaryColor}}>GESTION XSITE</h3>
           {qrCodeUrl&&(
             <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4" onClick={()=>setQrCodeUrl(null)}>
               <div className="bg-white p-8 rounded-3xl text-center space-y-4 animate-in zoom-in-95" onClick={e=>e.stopPropagation()}>
-                <h4 className="font-cinzel font-bold text-xl">Scannez ce code</h4>
+                <h4 className="font-bold text-xl tracking-tight">Scannez ce code</h4>
                 <img src={qrCodeUrl} alt="QR Code" className="mx-auto border-4 border-black rounded-xl"/>
                 <button onClick={()=>setQrCodeUrl(null)} className="mt-4 px-6 py-2 bg-gray-100 rounded-xl font-bold">Fermer</button>
               </div>
@@ -1823,7 +1823,7 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
 
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-3xl font-cinzel font-black" style={{color:config.primaryColor}}>SEMAINIER</h2>
+        <h2 className="text-3xl font-black tracking-tight" style={{color:config.primaryColor}}>SEMAINIER</h2>
         <div className="flex items-center gap-3">
           <button onClick={()=>setWeekOffset(w=>w-1)} className="w-10 h-10 rounded-full border-2 flex items-center justify-center font-black text-lg hover:bg-black hover:text-white transition-colors" style={{borderColor:config.primaryColor,color:config.primaryColor}}>‹</button>
           <span className="font-bold text-sm text-gray-600 min-w-[200px] text-center">{weekLabel}</span>
@@ -1919,7 +1919,7 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
           >
             <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
             <div className="flex justify-between items-center">
-              <h3 className="text-lg font-cinzel font-black" style={{color:config.primaryColor}}>{modal.meal} — {modal.day}</h3>
+              <h3 className="text-lg font-black tracking-tight" style={{color:config.primaryColor}}>{modal.meal} — {modal.day}</h3>
               <button onClick={()=>setModal(null)} className="text-gray-400 hover:text-black p-1"><X size={20}/></button>
             </div>
 
@@ -2020,7 +2020,7 @@ const FreemiumModal = ({ config, onClose, onUpgrade }:{config:SiteConfig,onClose
       <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
       <div className="text-center">
         <div className="text-5xl mb-3">☕</div>
-        <h2 className="font-cinzel font-black text-2xl" style={{color:config.primaryColor}}>CHAUD DEVANT</h2>
+        <h2 className="font-black text-2xl tracking-tight" style={{color:config.primaryColor}}>CHAUD DEVANT</h2>
         <p className="font-black text-lg mt-2">Débloquez tous les services pour<br/>votre gestion familiale</p>
         <p className="text-3xl font-black mt-3" style={{color:config.primaryColor}}>pour 1 CAFÉ par mois !</p>
         <p className="text-xs text-gray-400 mt-1">soit 3,99 € / mois — annulable à tout moment</p>
@@ -2221,7 +2221,7 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
             <ArrowLeft size={20}/> Mes Listes
           </button>
         ) : (
-          <h2 className="text-4xl font-cinzel font-black" style={{color:config.primaryColor}}>WISHLISTS</h2>
+          <h2 className="text-4xl font-black tracking-tight" style={{color:config.primaryColor}}>WISHLISTS</h2>
         )}
         {!activeList&&(
           <button onClick={()=>setShowCreate(true)} className="flex items-center gap-2 px-4 py-2.5 text-white font-black rounded-2xl shadow-lg hover:scale-105 transition-transform text-sm" style={{backgroundColor:config.primaryColor}}>
@@ -2766,7 +2766,7 @@ const App: React.FC = () => {
   if(!isAuthorized) return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-red-50 text-center space-y-8">
       <ShieldAlert className="text-red-500 w-20 h-20"/>
-      <h2 className="text-3xl font-bold text-red-800 font-cinzel">ACCÈS RESTREINT</h2>
+      <h2 className="text-3xl font-bold tracking-tight text-red-800">ACCÈS RESTREINT</h2>
       <p>Contactez Gabriel pour valider votre compte.</p>
       <button onClick={handleLogout} className="px-6 py-4 bg-red-500 text-white font-bold rounded-2xl">Déconnexion</button>
     </div>
@@ -2786,7 +2786,7 @@ const App: React.FC = () => {
           <div className="w-full max-w-sm bg-white h-full p-6 animate-in slide-in-from-right shadow-2xl overflow-y-auto" onClick={e=>e.stopPropagation()}>
             <div className="flex items-center gap-3 mb-6">
               <button onClick={()=>setIsNotifOpen(false)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors text-gray-500 hover:text-black"><ArrowLeft size={20}/></button>
-              <h3 className="text-2xl font-cinzel font-bold flex items-center gap-2"><Bell className="text-orange-500"/>Notifications</h3>
+              <h3 className="text-2xl font-bold tracking-tight flex items-center gap-2"><Bell className="text-orange-500"/>Notifications</h3>
             </div>
             <div className="space-y-4">
               {notifications.length===0&&<p className="text-gray-400 italic text-center">Aucune nouvelle notification.</p>}
@@ -2810,7 +2810,7 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-[100] bg-white flex flex-col animate-in fade-in slide-in-from-bottom-10">
           <div className="h-16 border-b flex items-center justify-between px-4 bg-white shadow-sm z-10">
             <button onClick={()=>setSelectedXSite(null)} className="flex items-center gap-2 text-sm font-bold text-gray-600 hover:text-black"><ArrowLeft size={20}/>Retour</button>
-            <span className="font-cinzel font-bold text-lg truncate">{selectedXSite.name}</span>
+            <span className="font-bold text-lg truncate">{selectedXSite.name}</span>
             <button onClick={()=>toggleFavorite(selectedXSite.id)} className="p-2 transition-transform active:scale-95"><Star size={24} className={favorites.includes(selectedXSite.id)?"fill-yellow-400 text-yellow-400":"text-gray-300"}/></button>
           </div>
           <iframe srcDoc={selectedXSite.html} className="flex-1 w-full border-none" title={selectedXSite.name} sandbox="allow-scripts allow-same-origin"/>
@@ -2898,7 +2898,7 @@ const App: React.FC = () => {
           isPageLocked('frigo') ? <MaintenancePage pageName="Frigo"/> : (
           <div className="space-y-6">
             <div className="flex flex-col items-center gap-4">
-              <h2 className="text-2xl md:text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>MON FRIGO</h2>
+              <h2 className="text-2xl md:text-5xl font-black tracking-tight text-center" style={{color:config.primaryColor}}>MON FRIGO</h2>
               <p className="text-gray-500 italic text-sm">Inventaire intelligent & gestion anti-gaspi</p>
             </div>
             <FrigoView user={user} config={config} isPremium={isCurrentUserPremium()} onShowFreemium={()=>setShowFreemiumModal(true)}/>
@@ -2922,7 +2922,7 @@ const App: React.FC = () => {
         {currentView==='tasks'&&(isPageLocked('tasks') ? <MaintenancePage pageName="Tâches"/> : (
           <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8" id="tasks-table">
             <div className="text-center space-y-4">
-              <h2 className="text-2xl md:text-5xl font-cinzel font-black" style={{color:config.primaryColor}}>TÂCHES MÉNAGÈRES</h2>
+              <h2 className="text-2xl md:text-5xl font-black tracking-tight" style={{color:config.primaryColor}}>TÂCHES MÉNAGÈRES</h2>
               <p className="text-gray-500 font-serif italic">{myLetter?`Salut ${myLetter==='G'?'Gabriel':myLetter==='P'?'Pauline':'Valentin'}, à l'attaque !`:"Connecte-toi avec ton compte perso."}</p>
             </div>
             <div className="bg-white/90 backdrop-blur-xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/50">
@@ -2965,7 +2965,7 @@ const App: React.FC = () => {
         {currentView==='calendar'&&(isPageLocked('calendar') ? <MaintenancePage pageName="Calendrier"/> : (
           <div className="max-w-3xl mx-auto space-y-10" id="calendar-view">
             <div className="flex flex-col items-center gap-6">
-              <h2 className="text-2xl md:text-5xl font-cinzel font-black" style={{color:config.primaryColor}}>CALENDRIER</h2>
+              <h2 className="text-2xl md:text-5xl font-black tracking-tight" style={{color:config.primaryColor}}>CALENDRIER</h2>
               <button onClick={()=>setIsEventModalOpen(true)} className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl" style={{backgroundColor:config.primaryColor}}><Plus size={20}/>Ajouter un événement</button>
             </div>
             <EventModal isOpen={isEventModalOpen} onClose={setIsEventModalOpen} config={config} addEntry={addEntry} newEvent={newEvent} setNewEvent={setNewEvent}/>
@@ -2979,7 +2979,7 @@ const App: React.FC = () => {
                       <div className="text-[10px] uppercase font-bold text-gray-400">{dateObj.toLocaleString('fr-FR',{month:'short'})}</div>
                     </div>
                     <div className="flex-1 border-l pl-6 border-gray-100">
-                      <div className="font-bold text-lg font-cinzel text-gray-800">{ev.title}</div>
+                      <div className="font-bold text-lg tracking-tight text-gray-800">{ev.title}</div>
                       {ev.time&&<div className="text-xs text-gray-400 flex items-center mt-1"><Clock size={10} className="mr-1"/>{ev.time}</div>}
                     </div>
                     <button onClick={()=>deleteItem('family_events',ev.id)} className="opacity-0 group-hover:opacity-100 p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"><Trash2 size={16}/></button>
@@ -2998,7 +2998,7 @@ const App: React.FC = () => {
               (user.email===ADMIN_EMAIL||favorites.length>0)?(
                 <>
                   <div className="flex flex-col items-center gap-6">
-                    <h2 className="text-2xl md:text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>MES FAVORIS</h2>
+                    <h2 className="text-2xl md:text-5xl font-black tracking-tight text-center" style={{color:config.primaryColor}}>MES FAVORIS</h2>
                     <p className="text-gray-400 italic">Vos accès rapides XSite</p>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
@@ -3020,7 +3020,7 @@ const App: React.FC = () => {
               ):(
                 <div className="flex flex-col items-center justify-center py-20 space-y-6 text-center">
                   <div className="p-8 bg-gray-100 rounded-[3rem] animate-pulse"><QrCode size={64} className="text-gray-400"/></div>
-                  <h2 className="text-3xl font-cinzel font-bold text-gray-400">ACCÈS VERROUILLÉ</h2>
+                  <h2 className="text-3xl font-bold tracking-tight text-gray-400">ACCÈS VERROUILLÉ</h2>
                   <p className="text-gray-400 max-w-md">Scannez un QR code pour accéder à un mini-site.</p>
                 </div>
               )
@@ -3032,7 +3032,7 @@ const App: React.FC = () => {
         {currentView==='recipes'&&(isPageLocked('recipes') ? <MaintenancePage pageName="Recettes"/> : (
           <div className="space-y-10" id="recipes-list">
             <div className="flex flex-col items-center gap-6">
-              <h2 className="text-2xl md:text-5xl font-cinzel font-black text-center" style={{color:config.primaryColor}}>RECETTES</h2>
+              <h2 className="text-2xl md:text-5xl font-black tracking-tight text-center" style={{color:config.primaryColor}}>RECETTES</h2>
               {!isCurrentUserPremium()&&recipes.length>=15?(
                 <div className="flex flex-col items-center gap-3">
                   <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-4 py-2 rounded-full font-bold">{recipes.length}/15 recettes (limite gratuite)</div>
@@ -3087,7 +3087,7 @@ const App: React.FC = () => {
           ):(
             <div className="max-w-md mx-auto bg-white/80 p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] text-center space-y-8 shadow-xl mt-20">
               <ShieldAlert className="mx-auto text-red-500" size={48}/>
-              <h2 className="text-3xl font-cinzel font-bold text-red-500">ACCÈS REFUSÉ</h2>
+              <h2 className="text-3xl font-bold tracking-tight text-red-500">ACCÈS REFUSÉ</h2>
               <p className="text-gray-500">Seul l'administrateur peut accéder à cette zone.</p>
             </div>
           )
