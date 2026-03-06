@@ -2519,7 +2519,7 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
               <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
                 <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
                 <h3 className="font-black text-xl">Importer depuis un lien</h3>
-                <p className="text-sm text-gray-500">Collez l'URL — le nom et l'image sont extraits automatiquement. Le prix est à saisir manuellement.</p>
+                <p className="text-sm text-gray-500">Gemini accède à la page et extrait le nom, le prix et l'image.</p>
                 <div className="flex gap-2">
                   <input value={urlInput} onChange={e=>setUrlInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&scrapeUrl()} placeholder="https://amazon.fr/..., ikea.com/..." className="flex-1 p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black text-sm" autoFocus/>
                   <button onClick={scrapeUrl} disabled={!urlInput.trim()||urlLoading} className="p-3 text-white rounded-2xl disabled:opacity-40 flex items-center" style={{backgroundColor:config.primaryColor}}>
@@ -2527,12 +2527,17 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
                   </button>
                 </div>
                 {urlLoading&&(
-                  <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-xl">
-                    <Loader2 size={14} className="animate-spin text-blue-500 shrink-0"/>
-                    <p className="text-xs text-blue-600 font-bold">Extraction du nom et de l'image…</p>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-xl">
+                      <Loader2 size={14} className="animate-spin text-blue-500 shrink-0"/>
+                      <div>
+                        <p className="text-xs text-blue-700 font-black">Gemini cherche le produit…</p>
+                        <p className="text-[10px] text-blue-500">Étape 1/2 : nom + prix · Étape 2/2 : image (~20s)</p>
+                      </div>
+                    </div>
                   </div>
                 )}
-                {urlError&&!urlLoading&&<p className={`text-xs font-bold ${urlError.startsWith('🔍')?'text-blue-500':'text-red-500'}`}>{urlError}</p>}
+                {urlError&&!urlLoading&&<p className="text-xs text-red-500 font-bold">{urlError}</p>}
                 <button onClick={()=>{setShowAddItem(null);setUrlError('');}} className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
               </div>
             </div>
