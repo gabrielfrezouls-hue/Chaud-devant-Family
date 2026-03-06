@@ -285,14 +285,58 @@ Réponds UNIQUEMENT avec ce JSON :
 
 // 7. EXTRACTION PRODUIT DEPUIS URL (pour WishList)
 export const extractProductFromUrl = async (url: string): Promise<{name: string, imageUrl: string, price: string} | null> => {
+
+  // ─── Étape 1 : Microlink API (spécialisé e-commerce, CORS ok, gratuit) ───
+  try {
+    const microlinkUrl = `https://api.microlink.io/?url=${encodeURIComponent(url)}&palette=false&audio=false&video=false&iframe=false`;
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(microlinkUrl, { signal: ctrl.signal });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.status === 'success' && data.data) {
+        const d = data.data;
+        const rawName: string = d.title || d.description || '';
+        const name = rawName
+          .replace(/\s*[|–\-]\s*(Amazon|Cdiscount|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|Boulanger|Leroy Merlin).*$/i, '')
+          .trim();
+        const imageUrl: string = d.image?.url || d.logo?.url || '';
+        // Microlink ne retourne pas toujours le prix — on complétera avec Gemini si vide
+        const price = '';
+        if (name.length > 3) {
+          if (!price) {
+            // Demander le prix à Gemini en connaissant nom + site
+            const domain = new URL(url).hostname.replace('www.', '');
+            const priceRes = await callGemini({
+              contents: [{
+                parts: [{
+                  text: `Quel est le prix actuel de ce produit sur ${domain} ?
+Nom du produit : "${name}"
+URL : ${url}
+
+Réponds UNIQUEMENT avec ce JSON (pas de markdown, pas d'explication) :
+{"price":"XX,XX €"}
+
+Si le prix est inconnu ou variable, réponds : {"price":""}
+Ne génère PAS de prix inventé.`
+                }]
+              }]
+            });
+            const parsedPrice = cleanJSON(priceRes);
+            return { name, imageUrl, price: parsedPrice?.price || '' };
+          }
+          return { name, imageUrl, price };
+        }
+      }
+    }
+  } catch { /* continue */ }
+
+  // ─── Étape 2 : Proxies CORS + parsing DOM ───
   const proxies = [
     `https://corsproxy.io/?${encodeURIComponent(url)}`,
     `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
   ];
-
   let html = '';
-
-  // Étape 1 : tenter de récupérer le HTML via proxy
   for (const proxyUrl of proxies) {
     try {
       const ctrl = new AbortController();
@@ -305,7 +349,6 @@ export const extractProductFromUrl = async (url: string): Promise<{name: string,
     } catch { continue; }
   }
 
-  // Étape 2 : si on a du HTML, on tente d'abord l'extraction rapide via DOM
   if (html) {
     try {
       const parser = new DOMParser();
@@ -335,135 +378,82 @@ export const extractProductFromUrl = async (url: string): Promise<{name: string,
 
       const cleanName = name.replace(/\s*[|–\-]\s*(Amazon|Cdiscount|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|La Redoute|Boulanger|Leroy Merlin).*$/i, '').trim();
 
-      // Si on a au moins un nom, retourner — même avec image/prix vides (Gemini complétera)
       if (cleanName.length > 3) {
-        // Si image ou prix manquants, demander à Gemini de compléter via le HTML
+        // Compléter les champs manquants avec Gemini + HTML
         if (!imageUrl || !price) {
-          const snippet = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').substring(0, 8000);
+          const snippet = html
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .substring(0, 6000);
           const res = await callGemini({
             contents: [{
               parts: [{
-                text: `Extrait les informations de ce produit depuis ce HTML (extrait de page boutique).
-Nom déjà trouvé : "${cleanName}"
+                text: `Voici un extrait HTML d'une page produit boutique en ligne.
+Nom trouvé : "${cleanName}"
+Image trouvée : "${imageUrl || 'non trouvée'}"
+Prix trouvé : "${price || 'non trouvé'}"
 
-HTML (partiel) :
+HTML :
 ${snippet}
 
-Réponds UNIQUEMENT avec ce JSON (pas de markdown) :
-{"name":"${cleanName}","imageUrl":"URL absolue de la photo principale du produit ou vide","price":"Prix avec devise ou vide"}
+Complète uniquement les champs manquants. Réponds UNIQUEMENT en JSON :
+{"imageUrl":"URL absolue commençant par http ou vide si introuvable","price":"XX,XX € ou vide si introuvable"}
 
-Règles :
-- imageUrl : URL absolue (commence par http) de la photo principale du produit — cherche src= dans les balises img, ou les balises meta og:image/twitter:image
-- price : format "XX,XX €" — cherche itemprop=price, class contenant price/prix/montant, ou balises meta product:price
-- Si tu ne trouves pas, laisse le champ vide (ne génère pas d'URL inventée)`
+Règles strictes :
+- imageUrl : URL absolue réelle depuis le HTML (og:image, twitter:image, src d'un img). Ne génère RIEN d'inventé.
+- price : cherche itemprop=price, class *price*, *Price*, meta product:price:amount. Format "XX,XX €".`
               }]
             }]
           });
           const parsed = cleanJSON(res);
           if (parsed) {
-            return {
-              name: cleanName,
-              imageUrl: parsed.imageUrl || imageUrl || '',
-              price: parsed.price || price || ''
-            };
+            return { name: cleanName, imageUrl: parsed.imageUrl || imageUrl, price: parsed.price || price };
           }
         }
         return { name: cleanName, imageUrl, price };
       }
 
-      // Nom non trouvé via DOM → donner tout le HTML à Gemini
-      const snippet = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').substring(0, 8000);
-      const res = await callGemini({
+      // Nom non trouvé — tout passer à Gemini
+      const snippet = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').substring(0, 6000);
+      const r = await callGemini({
         contents: [{
           parts: [{
-            text: `Extrait les informations de ce produit depuis ce HTML de page boutique en ligne.
+            text: `Extrait les informations produit depuis cet HTML de page boutique.
 
-HTML (partiel) :
+HTML :
 ${snippet}
 
-Réponds UNIQUEMENT avec ce JSON (pas de markdown) :
-{"name":"Nom commercial du produit","imageUrl":"URL absolue de la photo principale ou vide","price":"Prix avec devise ou vide"}
+JSON attendu (pas de markdown) :
+{"name":"Nom commercial","imageUrl":"URL absolue image principale ou vide","price":"XX,XX € ou vide"}
 
-Règles :
-- name : nom commercial du produit (pas le nom du site, pas "Amazon")
-- imageUrl : URL absolue (commence par http) de la photo principale — cherche og:image, twitter:image ou premier img avec grande taille
-- price : format "XX,XX €" — cherche itemprop=price, class price/prix, meta product:price
-- Si champ introuvable, laisser vide`
+Règles : name = nom du produit (pas nom du site), imageUrl = URL absolue réelle du HTML, price = prix numérique avec devise.`
           }]
         }]
       });
-      const parsed = cleanJSON(res);
-      if (parsed?.name && parsed.name.length > 2) {
-        return { name: parsed.name, imageUrl: parsed.imageUrl || '', price: parsed.price || '' };
-      }
-    } catch { /* ignore, fallback to URL analysis */ }
+      const p = cleanJSON(r);
+      if (p?.name?.length > 2) return { name: p.name, imageUrl: p.imageUrl || '', price: p.price || '' };
+    } catch { /* ignore */ }
   }
 
-  // Étape 3 : pas de HTML — Gemini analyse l'URL seule
-  // Mais d'abord, tenter l'API Anthropic + web_search si la clé est disponible
-  try {
-    const anthropicKey = (import.meta as any).env?.VITE_ANTHROPIC_KEY || '';
-    if (anthropicKey) {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'web-search-2025-03-05',
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 400,
-          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-          messages: [{
-            role: 'user',
-            content: `Recherche ce produit en ligne et donne-moi : son nom commercial exact, l'URL directe de son image principale, et son prix actuel.
-URL produit : ${url}
-Réponds UNIQUEMENT en JSON (sans markdown) :
-{"name":"Nom exact","imageUrl":"https://url-image...","price":"XX,XX €"}`
-          }]
-        })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const text = (data.content || []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
-        const parsed = cleanJSON(text);
-        if (parsed?.name && parsed.name.length > 2) {
-          return { name: parsed.name, imageUrl: parsed.imageUrl || '', price: parsed.price || '' };
-        }
-      }
-    }
-  } catch { /* ignore — Anthropic non configuré */ }
-
-  // Étape 3 : pas de HTML — Gemini analyse l'URL seule
+  // ─── Étape 3 : Gemini analyse l'URL seule ───
   try {
     const res = await callGemini({
       contents: [{
         parts: [{
-          text: `Analyse cette URL de boutique en ligne et déduis le nom du produit depuis les segments du chemin.
+          text: `Déduis le nom du produit depuis cette URL boutique (segments du chemin, tirets → espaces, Title Case).
 URL : ${url}
-
-Règles :
-- Utilise les mots du chemin URL (avant /dp/, /p/, etc.)
-- Title Case, tirets → espaces
-- Ne génère PAS d'imageUrl ni de price si tu ne peux pas les confirmer
-
-Réponds UNIQUEMENT avec ce JSON (pas de markdown) :
-{"name":"Nom déduit","imageUrl":"","price":""}`
+Réponds UNIQUEMENT : {"name":"Nom déduit","imageUrl":"","price":""}`
         }]
       }]
     });
     const parsed = cleanJSON(res);
-    if (parsed?.name && parsed.name.length > 2) {
-      return { name: parsed.name, imageUrl: '', price: '' };
-    }
+    if (parsed?.name?.length > 2) return { name: parsed.name, imageUrl: '', price: '' };
   } catch { /* ignore */ }
 
-  // Étape 4 : extraction brute depuis l'URL
+  // ─── Étape 4 : extraction brute URL ───
   try {
     const urlObj = new URL(url);
-    const segments = urlObj.pathname.split('/').filter(s => s.length > 3 && !/^(dp|ref|sr|B0[A-Z0-9]{8}|p|s|product|item|detail|buy)$/i.test(s));
+    const segments = urlObj.pathname.split('/').filter(s => s.length > 3 && !/^(dp|ref|sr|B0[A-Z0-9]{6,}|p|s|product|item|detail|buy)$/i.test(s));
     const raw = decodeURIComponent(segments[0] || '').replace(/[-_+]/g, ' ').replace(/\s+/g, ' ').trim();
     const titled = raw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     if (titled.length > 3) return { name: titled, imageUrl: '', price: '' };
