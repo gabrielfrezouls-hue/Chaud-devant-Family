@@ -284,89 +284,111 @@ Réponds UNIQUEMENT avec ce JSON :
 };
 
 // 7. EXTRACTION PRODUIT DEPUIS URL (pour WishList)
-// Stratégie : Open Graph via proxies CORS pour titre + image (fiable).
-// Prix laissé vide → saisie manuelle (impossible à extraire de manière
-// fiable sur les grands e-commerçants sans backend dédié — cf. Cloudflare).
+// Stratégie confirmée après tests :
+//   - Les proxies CORS retournent des pages inutilisables sur Amazon/IKEA (Cloudflare)
+//   - Microlink retourne "Amazon.fr" et une URL de tracking (pas le produit)
+//   - Seul Gemini google_search grounding peut accéder à ces pages
+// Deux appels Gemini séparés : 1) nom+prix (texte simple) 2) image (URL)
 export const extractProductFromUrl = async (url: string): Promise<{name: string, imageUrl: string, price: string} | null> => {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
 
-  // ─── Étape 1 : proxies CORS → balises Open Graph ───
-  const proxies = [
-    (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-    (u: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
-    (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-  ];
+  // Helper : appel Gemini avec google_search grounding
+  const geminiSearch = async (prompt: string, timeoutMs = 15000): Promise<string | null> => {
+    for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            signal: ctrl.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tools: [{ google_search: {} }],
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0 },
+            }),
+          }
+        );
+        clearTimeout(timer);
+        if (!res.ok) continue;
+        const data = await res.json();
+        // Gemini peut retourner plusieurs parts (texte + grounding metadata)
+        const parts = data?.candidates?.[0]?.content?.parts || [];
+        const text = parts.filter((p: any) => p.text).map((p: any) => p.text).join('').trim();
+        if (text) return text;
+      } catch { continue; }
+    }
+    return null;
+  };
 
-  for (const makeProxy of proxies) {
+  // ─── Appel 1 : nom + prix ───
+  // Gemini cherche le produit et répond en texte simple
+  let name = '';
+  let price = '';
+  try {
+    const r1 = await geminiSearch(
+      `Voici l'URL d'un produit en vente en ligne : ${url}
+
+Accède à cette page et donne-moi :
+1. Le NOM EXACT du produit (nom commercial complet, sans le nom du site)
+2. Le PRIX affiché sur la page (avec le symbole €)
+
+Réponds UNIQUEMENT avec ce format JSON, sans markdown :
+{"name":"Nom exact du produit","price":"XX,XX €"}
+
+Si le prix n'est pas trouvé, mets "price":"".
+Ne génère rien d'inventé.`
+    );
+    if (r1) {
+      const parsed = cleanJSON(r1);
+      if (parsed?.name?.length > 2) {
+        name = parsed.name.replace(/\s*[|–\-]\s*(Amazon|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|Boulanger|Leroy Merlin|Cdiscount|La Redoute|Decathlon).*$/i, '').trim();
+        price = parsed.price || '';
+        // Valider que price contient bien "€" ou un nombre
+        if (price && !/[\d€]/.test(price)) price = '';
+      }
+    }
+  } catch { /* continue avec nom vide */ }
+
+  // Si Gemini n'a pas trouvé de nom → fallback URL parsing
+  if (!name) {
     try {
-      const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 7000);
-      const res = await fetch(makeProxy(url), { signal: ctrl.signal });
-      clearTimeout(timeout);
-      if (!res.ok) continue;
-
-      const data = await res.json().catch(() => null);
-      const html: string = data?.contents ?? (await res.text().catch(() => '')) ?? '';
-      if (html.length < 300) continue;
-
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-
-      // Titre : og:title > twitter:title > <title> > <h1>
-      const rawName =
-        doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
-        doc.querySelector('meta[name="twitter:title"]')?.getAttribute('content') ||
-        doc.querySelector('title')?.textContent?.trim() ||
-        doc.querySelector('h1')?.textContent?.trim() || '';
-
-      // Image : og:image > twitter:image
-      const rawImage =
-        doc.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
-        doc.querySelector('meta[property="og:image:url"]')?.getAttribute('content') ||
-        doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') ||
-        doc.querySelector('meta[name="twitter:image:src"]')?.getAttribute('content') || '';
-
-      const name = rawName
-        .replace(/\s*[|–\-]\s*(Amazon|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|Boulanger|Leroy Merlin|Cdiscount|La Redoute|Manomano|Decathlon|Cultura).*$/i, '')
-        .trim();
-
-      const imageUrl = rawImage.startsWith('http') ? rawImage : '';
-
-      if (name.length > 2) return { name, imageUrl, price: '' };
-    } catch { continue; }
+      const urlObj = new URL(url);
+      const segments = urlObj.pathname.split('/').filter(s =>
+        s.length > 3 && !/^(dp|ref|sr|p|s|product|item|detail|buy|catalog|[A-Z0-9]{10})$/i.test(s)
+      );
+      const raw = decodeURIComponent(segments[0] || '').replace(/[-_+]/g, ' ').trim();
+      if (raw.length > 3) {
+        name = raw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      }
+    } catch { /* ignore */ }
   }
 
-  // ─── Étape 2 : Gemini déduit le nom depuis l'URL (proxies bloqués) ───
+  if (!name) return null;
+
+  // ─── Appel 2 : image ───
+  // Demander séparément l'URL de l'image principale (Gemini meilleur sur des questions simples)
+  let imageUrl = '';
   try {
-    const apiKey = getApiKey();
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text:
-            `Déduis le nom commercial du produit depuis cette URL de boutique.\nURL : ${url}\nRègles : segments du chemin (tirets → espaces, Title Case). Pour Amazon → partie avant /dp/. Pour IKEA → nom avant le numéro de référence.\nJSON strict : {"name":"Nom du produit","imageUrl":"","price":""}` }] }]
-        })
-      }
+    const r2 = await geminiSearch(
+      `Voici l'URL d'un produit : ${url}
+Nom du produit : "${name}"
+
+Donne-moi UNIQUEMENT l'URL directe de la photo principale de ce produit (format JPEG/PNG, hébergée sur le CDN du site).
+L'URL doit commencer par https:// et pointer vers une image réelle.
+Réponds UNIQUEMENT avec l'URL, rien d'autre. Pas de markdown, pas d'explication.
+Si tu ne trouves pas une URL d'image certaine, réponds exactement : AUCUNE`,
+      12000
     );
-    if (res.ok) {
-      const data = await res.json();
-      const parsed = cleanJSON(data?.candidates?.[0]?.content?.parts?.[0]?.text || '');
-      if (parsed?.name?.length > 2) return { name: parsed.name, imageUrl: '', price: '' };
+    if (r2 && r2 !== 'AUCUNE' && r2.startsWith('https://') && /\.(jpg|jpeg|png|webp|avif)/i.test(r2)) {
+      imageUrl = r2.trim().split(/\s/)[0]; // prendre uniquement la première URL si plusieurs
     }
-  } catch { /* ignore */ }
+  } catch { /* image reste vide */ }
 
-  // ─── Étape 3 : extraction brute depuis le chemin URL ───
-  try {
-    const urlObj = new URL(url);
-    const segments = urlObj.pathname
-      .split('/')
-      .filter(s => s.length > 3 && !/^(dp|ref|sr|p|s|product|item|detail|buy|catalog|[A-Z0-9]{10})$/i.test(s));
-    const raw = decodeURIComponent(segments[0] || '').replace(/[-_+]/g, ' ').trim();
-    const titled = raw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-    if (titled.length > 3) return { name: titled, imageUrl: '', price: '' };
-  } catch { /* ignore */ }
-
-  return null;
+  return { name, imageUrl, price };
 };
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
   const res = await callGemini({
