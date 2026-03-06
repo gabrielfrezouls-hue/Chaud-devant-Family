@@ -185,6 +185,24 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { us
   const [scanMsg, setScanMsg] = useState('');
   const photoInputRef = useRef<HTMLInputElement>(null);
   const barcodePhotoRef = useRef<HTMLInputElement>(null);
+  // Hub quick-add depuis le Frigo
+  const [hubQuickName, setHubQuickName] = useState('');
+  const [showHubQuick, setShowHubQuick] = useState(false);
+  const [hubQuickLoading, setHubQuickLoading] = useState(false);
+
+  const addToHubQuick = async () => {
+    if(!hubQuickName.trim()) return;
+    setHubQuickLoading(true);
+    try {
+      const cat = categorizeShoppingItem(hubQuickName.trim());
+      await addDoc(collection(db,'hub_items'),{
+        content: hubQuickName.trim(), type:'shop', category: cat,
+        createdAt: new Date().toISOString(), userId: user.email
+      });
+      setHubQuickName(''); setShowHubQuick(false);
+    } catch { /* ignore */ }
+    setHubQuickLoading(false);
+  };
 
   // NETTOYAGE AUTO-GASPI : supprime les articles périmés depuis plus de 5 jours
   useEffect(() => {
@@ -345,6 +363,29 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { us
   return (
     <div className="space-y-6 pb-24 animate-in fade-in" id="frigo-list">
 
+      {/* MODALE AJOUT RAPIDE AU HUB */}
+      {showHubQuick&&(
+        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowHubQuick(false)}>
+          <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+            <h3 className="font-black text-xl flex items-center gap-2"><ShoppingCart size={18}/>Ajouter aux Courses</h3>
+            <input
+              autoFocus value={hubQuickName}
+              onChange={e=>setHubQuickName(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&addToHubQuick()}
+              placeholder="Ex: Lait, tomates..."
+              className="w-full p-4 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black"
+            />
+            <div className="flex gap-3">
+              <button onClick={()=>{setShowHubQuick(false);setHubQuickName('');}} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
+              <button onClick={addToHubQuick} disabled={!hubQuickName.trim()||hubQuickLoading} className="flex-1 py-3 text-white font-black rounded-2xl disabled:opacity-40 flex items-center justify-center gap-2" style={{backgroundColor:config.primaryColor}}>
+                {hubQuickLoading?<Loader2 size={15} className="animate-spin"/>:<Plus size={15}/>}Ajouter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ONGLETS FRIGO / CELLIER */}
       <div className="flex gap-2 bg-white p-1.5 rounded-2xl shadow-sm border border-gray-100">
         <button onClick={()=>setFrigotab('frigo')} className={`flex-1 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${frigotab==='frigo'?'text-white shadow-md':'text-gray-400'}`} style={frigotab==='frigo'?{backgroundColor:config.primaryColor}:{}}>
@@ -451,7 +492,14 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { us
                       {expStatus&&<span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${expStatus.color}`}>{expStatus.icon} {expStatus.label}</span>}
                     </div>
                   </div>
-                  <button onClick={()=>deleteItem(item.id)} className="opacity-30 group-hover:opacity-100 md:opacity-0 text-gray-300 hover:text-red-500 transition-opacity touch-action-manipulation"><X size={16}/></button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={()=>{setHubQuickName(item.name);setShowHubQuick(true);}}
+                      className="opacity-30 group-hover:opacity-100 p-1.5 bg-orange-50 text-orange-500 rounded-lg hover:bg-orange-100 transition-all"
+                      title="Ajouter aux courses"
+                    ><ShoppingCart size={13}/></button>
+                    <button onClick={()=>deleteItem(item.id)} className="opacity-30 group-hover:opacity-100 md:opacity-0 text-gray-300 hover:text-red-500 transition-opacity touch-action-manipulation"><X size={16}/></button>
+                  </div>
                 </div>
               );
             })}
@@ -2008,14 +2056,23 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
   const [showAddItem, setShowAddItem] = useState<'manual'|'url'|null>(null);
   const [showShare, setShowShare]     = useState(false);
   const [showFreemium, setShowFreemium] = useState(false);
-  // Edit modes
-  const [editingList, setEditingList] = useState<any|null>(null);   // liste en cours d'édition
-  const [editingItem, setEditingItem] = useState<any|null>(null);   // article en cours d'édition
+  const [editingList, setEditingList] = useState<any|null>(null);
+  const [editingItem, setEditingItem] = useState<any|null>(null);
   const [newList, setNewList]  = useState({name:'', icon:'🎁', category:''});
   const [newItem, setNewItem]  = useState({name:'', imageUrl:'', url:'', price:''});
   const [urlInput, setUrlInput] = useState('');
   const [urlLoading, setUrlLoading] = useState(false);
   const [urlError, setUrlError]   = useState('');
+  // Cagnotte personnelle
+  const [walletBalance, setWalletBalance] = useState<number|null>(null);
+  useEffect(()=>{
+    if(!user?.email) return;
+    const unsub = onSnapshot(doc(db,'user_wallets',user.email), s=>{
+      if(s.exists()) setWalletBalance((s.data() as any).balance ?? 0);
+      else setWalletBalance(0);
+    });
+    return()=>unsub();
+  },[user]);
 
   // Notifier le parent quand une modale est ouverte (pour cacher la BottomNav)
   const hasModal = !!(showCreate||showAddItem||showShare||showFreemium||editingList||editingItem);
@@ -2177,6 +2234,43 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
           </button>
         )}
       </div>
+
+      {/* WIDGET CAGNOTTE */}
+      {(()=>{
+        // Calcul du total de toutes les listes visibles (ou liste active)
+        const listsToSum = activeList ? [activeList] : lists;
+        let total = 0; let count = 0;
+        listsToSum.forEach((l:any)=>(l.items||[]).forEach((it:any)=>{
+          if(!it.price) return;
+          const n = parseFloat(it.price.replace(/[^\d,.]/g,'').replace(',','.'));
+          if(!isNaN(n)){ total += n; count++; }
+        }));
+        const hasTotal = count > 0;
+        const afterPurchase = walletBalance !== null ? walletBalance - total : null;
+        if(walletBalance === null && !hasTotal) return null;
+        return (
+          <div className="flex items-center gap-3 p-4 rounded-2xl bg-gradient-to-r from-gray-900 to-gray-800 text-white shadow-xl">
+            <div className="text-2xl">🐷</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-widest text-white/50 mb-0.5">Ma Cagnotte</p>
+              <p className="font-black text-lg leading-none">
+                {walletBalance !== null ? `${walletBalance.toFixed(2).replace('.',',')} €` : '—'}
+              </p>
+            </div>
+            {hasTotal&&(
+              <div className="text-right shrink-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-white/50 mb-0.5">
+                  {activeList ? 'Après achat' : 'Après tout acheter'}
+                </p>
+                <p className={`font-black text-lg leading-none ${afterPurchase !== null && afterPurchase < 0 ? 'text-red-400' : 'text-green-400'}`}>
+                  {afterPurchase !== null ? `${afterPurchase.toFixed(2).replace('.',',')} €` : `−${total.toFixed(2).replace('.',',')} €`}
+                </p>
+                <p className="text-[10px] text-white/30 mt-0.5">{count} article{count>1?'s':''} · {total.toFixed(2).replace('.',',')} €</p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* MODALE CRÉATION */}
       {showCreate&&(
