@@ -1362,6 +1362,11 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
     setEditingUser(null);
   };
 
+  const saveUserField = async (userId: string, field: string, value: string) => {
+    await updateDoc(doc(db,'site_users',userId),{[field]:value});
+    showToast("Sauvegardé ✓");
+  };
+
   const sendNotification=async()=>{
     if(!notif.message)return alert("Message vide");
     let scheduledISO=undefined;
@@ -1402,45 +1407,6 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
         <div className="space-y-8 animate-in fade-in">
           <h3 className="text-3xl font-cinzel font-bold" style={{color:config.primaryColor}}>UTILISATEURS</h3>
 
-          {/* MODALE ÉDITION UTILISATEUR */}
-          {editingUser&&(
-            <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setEditingUser(null)}>
-              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
-                <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
-                <h4 className="font-black text-xl">Modifier {editingUser.name||editingUser.id}</h4>
-                <div className="text-xs text-gray-400 bg-gray-50 px-3 py-2 rounded-xl">{editingUser.id}</div>
-                <input value={editingUser.name||''} onChange={e=>setEditingUser((u:any)=>({...u,name:e.target.value}))} placeholder="Prénom" className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black"/>
-                <div className="flex gap-3 items-center">
-                  <label className="text-xs font-black uppercase tracking-widest text-gray-400 w-16 shrink-0">Lettre</label>
-                  <input value={editingUser.letter||''} onChange={e=>setEditingUser((u:any)=>({...u,letter:e.target.value.toUpperCase().slice(0,1)}))} placeholder="G" className="w-16 p-3 rounded-xl bg-gray-50 font-black text-center text-xl outline-none border-2 border-transparent focus:border-black"/>
-                </div>
-                {/* Plan */}
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Accès</label>
-                  <div className="flex gap-3">
-                    <button
-                      onClick={()=>setEditingUser((u:any)=>({...u,plan:'free'}))}
-                      className={`flex-1 py-3 rounded-2xl font-black text-sm transition-all ${editingUser.plan==='free'||!editingUser.plan?'bg-gray-900 text-white':'bg-gray-100 text-gray-400'}`}
-                    >
-                      Gratuit
-                    </button>
-                    <button
-                      onClick={()=>setEditingUser((u:any)=>({...u,plan:'pro'}))}
-                      className={`flex-1 py-3 rounded-2xl font-black text-sm transition-all ${editingUser.plan==='pro'?'text-white shadow-lg scale-105':'bg-gray-100 text-gray-400'}`}
-                      style={editingUser.plan==='pro'?{backgroundColor:config.primaryColor}:{}}
-                    >
-                      ☕ Premium
-                    </button>
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <button onClick={()=>setEditingUser(null)} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
-                  <button onClick={saveEditUser} className="flex-1 py-3 text-white font-black rounded-2xl" style={{backgroundColor:config.primaryColor}}>Enregistrer</button>
-                </div>
-              </div>
-            </div>
-          )}
-
           <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
             <h4 className="font-bold mb-4 text-xs uppercase tracking-widest text-gray-400">Ajouter un membre</h4>
             <div className="flex flex-col md:flex-row gap-4">
@@ -1450,21 +1416,53 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
               <button onClick={registerUser} className="bg-black text-white p-3 rounded-xl"><Plus/></button>
             </div>
           </div>
+
           <div className="space-y-3">
             {users.map((u:any)=>(
-              <div key={u.id} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-100 shadow-sm group">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center font-black text-white text-lg" style={{backgroundColor:config.primaryColor}}>{u.letter||'?'}</div>
-                  <div>
-                    <div className="font-bold">{u.name||'Sans nom'}</div>
-                    <div className="text-xs text-gray-400">{u.id}</div>
-                    <div className="text-[10px] text-gray-400 mt-0.5">{u.lastLogin?`Vu ${new Date(u.lastLogin).toLocaleDateString()}`:'Jamais connecté'}</div>
+              <div key={u.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                {/* Ligne principale */}
+                <div className="flex items-center gap-3 p-4">
+                  {/* Avatar lettre — clic pour modifier */}
+                  <div className="relative group/letter">
+                    <div className="w-11 h-11 rounded-full flex items-center justify-center font-black text-white text-lg shrink-0 cursor-pointer hover:opacity-80 transition-opacity" style={{backgroundColor:config.primaryColor}}>
+                      {u.letter||'?'}
+                    </div>
+                    <input
+                      defaultValue={u.letter||''}
+                      maxLength={1}
+                      onBlur={e=>{const v=e.target.value.toUpperCase().trim();if(v&&v!==u.letter)saveUserField(u.id,'letter',v);}}
+                      onChange={e=>e.target.value=e.target.value.toUpperCase().slice(0,1)}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer rounded-full text-center"
+                      title="Cliquer pour modifier la lettre"
+                    />
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full ${u.plan==='pro'?'text-white':'bg-gray-100 text-gray-400'}`} style={u.plan==='pro'?{backgroundColor:config.primaryColor}:{}}>{u.plan==='pro'?'☕ Premium':'Gratuit'}</span>
-                  <button onClick={()=>setEditingUser({...u})} className="p-2 bg-gray-100 text-gray-400 rounded-xl hover:bg-gray-200 transition-colors opacity-0 group-hover:opacity-100"><Pencil size={14}/></button>
-                  <button onClick={()=>del('site_users',u.id)} className="p-2 bg-red-50 text-red-400 rounded-xl hover:bg-red-100 transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={14}/></button>
+
+                  {/* Nom — cliquable directement */}
+                  <div className="flex-1 min-w-0">
+                    <input
+                      key={u.id+'-name'}
+                      defaultValue={u.name||''}
+                      placeholder="Prénom"
+                      onBlur={e=>{const v=e.target.value.trim();if(v!==u.name)saveUserField(u.id,'name',v);}}
+                      className="font-bold text-gray-800 bg-transparent outline-none border-b-2 border-transparent focus:border-gray-300 w-full transition-colors placeholder-gray-300"
+                    />
+                    <div className="text-[10px] text-gray-400 truncate">{u.id}</div>
+                    <div className="text-[10px] text-gray-300">{u.lastLogin?`Vu ${new Date(u.lastLogin).toLocaleDateString()}`:'Jamais connecté'}</div>
+                  </div>
+
+                  {/* Plan — toggle direct */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={()=>saveUserField(u.id,'plan','free')}
+                      className={`px-3 py-1.5 rounded-xl font-black text-[10px] uppercase transition-all ${!u.plan||u.plan==='free'?'bg-gray-900 text-white':'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+                    >Gratuit</button>
+                    <button
+                      onClick={()=>saveUserField(u.id,'plan','pro')}
+                      className={`px-3 py-1.5 rounded-xl font-black text-[10px] uppercase transition-all ${u.plan==='pro'?'text-white shadow-md':'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+                      style={u.plan==='pro'?{backgroundColor:config.primaryColor}:{}}
+                    >☕ Premium</button>
+                    <button onClick={()=>del('site_users',u.id)} className="p-1.5 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors ml-1"><Trash2 size={14}/></button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -2309,6 +2307,17 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
       {/* VUE DÉTAIL */}
       {activeList&&(
         <div className="space-y-4">
+          {(()=>{
+            // Calcul du total des prix
+            const items: any[] = activeList.items || [];
+            let total = 0; let countPriced = 0;
+            items.forEach((it:any)=>{
+              if(!it.price) return;
+              const n = parseFloat(it.price.replace(/[^\d,.]/g,'').replace(',','.'));
+              if(!isNaN(n)){ total += n; countPriced++; }
+            });
+            const totalStr = countPriced > 0 ? total.toFixed(2).replace('.',',') + ' €' : null;
+            return (
           <div className={`p-5 rounded-[2.5rem] shadow-xl ${isOwner(activeList)?'bg-white border border-gray-100':'bg-blue-50 border-2 border-blue-200'}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -2317,6 +2326,13 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
                   <h3 className="font-black text-2xl">{activeList.name}</h3>
                   {activeList.category&&<span className="text-xs text-gray-400 font-bold uppercase tracking-wide">{activeList.category}</span>}
                   {!isOwner(activeList)&&<div className="flex items-center gap-1 mt-1"><Eye size={10} className="text-blue-500"/><span className="text-[10px] text-blue-600 font-bold">Lecture seule · {activeList.ownerName||activeList.ownerEmail}</span></div>}
+                  {totalStr&&(
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                      <span className="text-xs text-gray-400 font-bold">Total</span>
+                      <span className="text-base font-black" style={{color:config.primaryColor}}>{totalStr}</span>
+                      {countPriced < items.length && <span className="text-[10px] text-gray-300">({countPriced}/{items.length} articles)</span>}
+                    </div>
+                  )}
                 </div>
               </div>
               {isOwner(activeList)&&(
@@ -2336,6 +2352,8 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
               </div>
             )}
           </div>
+            );
+          })()}
 
           {/* Partage modale */}
           {showShare&&isOwner(activeList)&&(
