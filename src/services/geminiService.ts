@@ -284,112 +284,111 @@ Réponds UNIQUEMENT avec ce JSON :
 };
 
 // 7. EXTRACTION PRODUIT DEPUIS URL (pour WishList)
-// Stratégie confirmée après tests :
-//   - Les proxies CORS retournent des pages inutilisables sur Amazon/IKEA (Cloudflare)
-//   - Microlink retourne "Amazon.fr" et une URL de tracking (pas le produit)
-//   - Seul Gemini google_search grounding peut accéder à ces pages
-// Deux appels Gemini séparés : 1) nom+prix (texte simple) 2) image (URL)
+// Approche identique au projet Gemini AI Studio (server.ts) :
+//   Gemini "url_context" tool → Gemini fetch LUI-MÊME l'URL côté serveurs Google
+//   Contourne Cloudflare/Amazon car Gemini s'identifie comme Googlebot
+//   Disponible sur gemini-2.0-flash et suivants, sans backend requis
 export const extractProductFromUrl = async (url: string): Promise<{name: string, imageUrl: string, price: string} | null> => {
   const apiKey = getApiKey();
   if (!apiKey) return null;
 
-  // Helper : appel Gemini avec google_search grounding
-  const geminiSearch = async (prompt: string, timeoutMs = 15000): Promise<string | null> => {
-    for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            signal: ctrl.signal,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              tools: [{ google_search: {} }],
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { temperature: 0 },
-            }),
-          }
-        );
-        clearTimeout(timer);
-        if (!res.ok) continue;
-        const data = await res.json();
-        // Gemini peut retourner plusieurs parts (texte + grounding metadata)
-        const parts = data?.candidates?.[0]?.content?.parts || [];
-        const text = parts.filter((p: any) => p.text).map((p: any) => p.text).join('').trim();
-        if (text) return text;
-      } catch { continue; }
-    }
-    return null;
-  };
+  // ─── Appel Gemini avec url_context (Gemini lit la page lui-même) ───
+  // Un seul appel : nom + prix + image en JSON structuré
+  const models = ['gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash'];
 
-  // ─── Appel 1 : nom + prix ───
-  // Gemini cherche le produit et répond en texte simple
-  let name = '';
-  let price = '';
-  try {
-    const r1 = await geminiSearch(
-      `Voici l'URL d'un produit en vente en ligne : ${url}
-
-Accède à cette page et donne-moi :
-1. Le NOM EXACT du produit (nom commercial complet, sans le nom du site)
-2. Le PRIX affiché sur la page (avec le symbole €)
-
-Réponds UNIQUEMENT avec ce format JSON, sans markdown :
-{"name":"Nom exact du produit","price":"XX,XX €"}
-
-Si le prix n'est pas trouvé, mets "price":"".
-Ne génère rien d'inventé.`
-    );
-    if (r1) {
-      const parsed = cleanJSON(r1);
-      if (parsed?.name?.length > 2) {
-        name = parsed.name.replace(/\s*[|–\-]\s*(Amazon|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|Boulanger|Leroy Merlin|Cdiscount|La Redoute|Decathlon).*$/i, '').trim();
-        price = parsed.price || '';
-        // Valider que price contient bien "€" ou un nombre
-        if (price && !/[\d€]/.test(price)) price = '';
-      }
-    }
-  } catch { /* continue avec nom vide */ }
-
-  // Si Gemini n'a pas trouvé de nom → fallback URL parsing
-  if (!name) {
+  for (const model of models) {
     try {
-      const urlObj = new URL(url);
-      const segments = urlObj.pathname.split('/').filter(s =>
-        s.length > 3 && !/^(dp|ref|sr|p|s|product|item|detail|buy|catalog|[A-Z0-9]{10})$/i.test(s)
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 25000);
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          signal: ctrl.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tools: [{ url_context: {} }],
+            contents: [{
+              parts: [{
+                text: `Accède à cette URL de produit en vente en ligne : ${url}
+
+Lis la page et extrais :
+1. Le NOM EXACT du produit (nom commercial complet, sans mention du site)
+2. Le PRIX affiché (format "XX,XX €" — si non trouvé : chaîne vide)
+3. L'URL directe de la PHOTO principale du produit (commence par https://, extension .jpg/.jpeg/.png/.webp — si non trouvée : chaîne vide)
+
+Réponds UNIQUEMENT avec ce JSON, sans markdown, sans texte avant/après :
+{"name":"Nom exact du produit","price":"XX,XX €","imageUrl":"https://..."}
+
+Règles :
+- Ne génère RIEN d'inventé
+- price vide ("") si introuvable
+- imageUrl vide ("") si introuvable ou incertaine`
+              }]
+            }],
+            generationConfig: { temperature: 0 },
+          }),
+        }
       );
-      const raw = decodeURIComponent(segments[0] || '').replace(/[-_+]/g, ' ').trim();
-      if (raw.length > 3) {
-        name = raw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        const body = await res.text();
+        console.warn(`[extractProduct] ${model} ${res.status}:`, body.slice(0, 200));
+        continue;
       }
-    } catch { /* ignore */ }
+
+      const data = await res.json();
+      // url_context peut retourner plusieurs parts (texte + url_context_metadata)
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      const text = parts.filter((p: any) => p.text).map((p: any) => p.text).join('').trim();
+
+      if (!text) continue;
+
+      const parsed = cleanJSON(text);
+      if (!parsed?.name || parsed.name.length < 2) continue;
+
+      // Nettoyer le nom (retirer " - Amazon", " | Fnac", etc.)
+      const name = parsed.name
+        .replace(/\s*[|–—\-]\s*(Amazon|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|Boulanger|Leroy Merlin|Cdiscount|La Redoute|Decathlon|Cultura|Manomano).*$/i, '')
+        .trim();
+
+      // Valider le prix (doit contenir un chiffre)
+      let price = parsed.price || '';
+      if (price && !/\d/.test(price)) price = '';
+
+      // Valider l'imageUrl (doit être une vraie URL d'image)
+      let imageUrl = parsed.imageUrl || '';
+      if (imageUrl && (!imageUrl.startsWith('https://') || !/\.(jpg|jpeg|png|webp|avif)/i.test(imageUrl))) {
+        imageUrl = '';
+      }
+
+      if (name.length > 1) {
+        return { name, price, imageUrl };
+      }
+    } catch (err) {
+      console.warn(`[extractProduct] ${model} error:`, err);
+      continue;
+    }
   }
 
-  if (!name) return null;
-
-  // ─── Appel 2 : image ───
-  // Demander séparément l'URL de l'image principale (Gemini meilleur sur des questions simples)
-  let imageUrl = '';
+  // ─── Fallback : déduire le nom depuis les segments de l'URL ───
   try {
-    const r2 = await geminiSearch(
-      `Voici l'URL d'un produit : ${url}
-Nom du produit : "${name}"
-
-Donne-moi UNIQUEMENT l'URL directe de la photo principale de ce produit (format JPEG/PNG, hébergée sur le CDN du site).
-L'URL doit commencer par https:// et pointer vers une image réelle.
-Réponds UNIQUEMENT avec l'URL, rien d'autre. Pas de markdown, pas d'explication.
-Si tu ne trouves pas une URL d'image certaine, réponds exactement : AUCUNE`,
-      12000
+    const urlObj = new URL(url);
+    const segments = urlObj.pathname.split('/').filter(s =>
+      s.length > 3 && !/^(dp|ref|sr|p|s|product|item|detail|buy|catalog|[A-Z0-9]{10})$/i.test(s)
     );
-    if (r2 && r2 !== 'AUCUNE' && r2.startsWith('https://') && /\.(jpg|jpeg|png|webp|avif)/i.test(r2)) {
-      imageUrl = r2.trim().split(/\s/)[0]; // prendre uniquement la première URL si plusieurs
+    const raw = decodeURIComponent(segments[0] || '').replace(/[-_+]/g, ' ').trim();
+    if (raw.length > 3) {
+      const name = raw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      return { name, imageUrl: '', price: '' };
     }
-  } catch { /* image reste vide */ }
+  } catch { /* ignore */ }
 
-  return { name, imageUrl, price };
+  return null;
 };
+
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
   const res = await callGemini({
     contents: [{
