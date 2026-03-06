@@ -284,187 +284,137 @@ Réponds UNIQUEMENT avec ce JSON :
 };
 
 // 7. EXTRACTION PRODUIT DEPUIS URL (pour WishList)
-// Même approche que extractRecipeFromUrl : proxies CORS → schema.org/Product → meta OG → Gemini HTML → Gemini URL seule
+// Stratégie : Gemini Search Grounding en priorité (cherche le produit sur Google)
+// + proxies CORS + schema.org en fallback pour les petits sites non-protégés
 export const extractProductFromUrl = async (url: string): Promise<{name: string, imageUrl: string, price: string} | null> => {
+  const apiKey = getApiKey();
 
+  // ─── Étape 1 : Gemini Search Grounding ───
+  // Gemini cherche le produit sur Google — contourne les blocages CORS/Cloudflare
+  // Modèles supportant googleSearch grounding : gemini-2.0-flash, gemini-1.5-flash
+  const groundingModels = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+  for (const model of groundingModels) {
+    try {
+      const groundingUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 15000);
+      const res = await fetch(groundingUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: ctrl.signal,
+        body: JSON.stringify({
+          tools: [{ google_search: {} }],
+          contents: [{
+            parts: [{
+              text: `Recherche ce produit sur internet : ${url}
+
+Donne-moi UNIQUEMENT un JSON avec ces 3 champs (pas de markdown, pas d'explication) :
+{"name":"Nom exact du produit","imageUrl":"URL directe de la photo principale du produit (commence par https)","price":"Prix actuel en euros format XX,XX €"}
+
+Règles strictes :
+- name : nom commercial complet du produit (pas le nom du site)
+- imageUrl : URL HTTPS directe d'une image du produit (depuis le site officiel ou une image cdn). Doit commencer par https://
+- price : prix de vente actuel sur ce site. Format "XX,XX €". Si introuvable, mettre ""
+- Ne génère RIEN d'inventé pour imageUrl. Si tu ne trouves pas l'image, mets ""`
+            }]
+          }]
+        })
+      });
+      if (!res.ok) { console.warn(`Grounding ${model}: HTTP ${res.status}`); continue; }
+      const data = await res.json();
+      const text = data?.candidates?.[0]?.content?.parts?.find((p: any) => p.text)?.text || '';
+      const parsed = cleanJSON(text);
+      if (parsed?.name && parsed.name.length > 2) {
+        // Valider que imageUrl est bien une URL http(s)
+        const imageUrl = (parsed.imageUrl || '').startsWith('http') ? parsed.imageUrl : '';
+        return { name: parsed.name, imageUrl, price: parsed.price || '' };
+      }
+    } catch { continue; }
+  }
+
+  // ─── Étape 2 : proxies CORS + parsing (pour sites sans protection Cloudflare) ───
   const proxies = [
     (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
     (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
     (u: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
   ];
-
   let html: string | null = null;
-
-  // ─── Étape 1 : récupérer le HTML via proxies ───
   for (const makeUrl of proxies) {
     try {
-      const proxyUrl = makeUrl(url);
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(proxyUrl, { signal: controller.signal });
+      const timeout = setTimeout(() => controller.abort(), 7000);
+      const res = await fetch(makeUrl(url), { signal: controller.signal });
       clearTimeout(timeout);
       if (!res.ok) continue;
-      const data = await res.json().catch(async () => null);
-      if (data?.contents) { html = data.contents; break; }
+      const data = await res.json().catch(() => null);
+      if (data?.contents && data.contents.length > 500) { html = data.contents; break; }
       const text = await res.text().catch(() => null);
       if (text && text.length > 500) { html = text; break; }
     } catch { continue; }
   }
 
-  // ─── Étape 2 : parser le HTML ───
   if (html) {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
 
-      // 2a. schema.org/Product (JSON-LD) — la source la plus fiable
-      const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
-      for (const script of scripts) {
+      // schema.org/Product JSON-LD
+      for (const script of Array.from(doc.querySelectorAll('script[type="application/ld+json"]'))) {
         try {
           const json = JSON.parse(script.textContent || '');
           const items = Array.isArray(json) ? json : json['@graph'] ? json['@graph'] : [json];
           for (const item of items) {
-            // Chercher un objet de type Product (ou un sous-type)
             const types: string[] = Array.isArray(item['@type']) ? item['@type'] : [item['@type'] || ''];
-            if (!types.some(t => typeof t === 'string' && t.toLowerCase().includes('product'))) continue;
-
+            if (!types.some((t: string) => typeof t === 'string' && t.toLowerCase().includes('product'))) continue;
             const name: string = item.name || '';
-            // Image : string ou tableau ou objet ImageObject
-            let imageUrl = '';
             const img = item.image;
-            if (typeof img === 'string') imageUrl = img;
-            else if (Array.isArray(img)) imageUrl = typeof img[0] === 'string' ? img[0] : img[0]?.url || '';
-            else if (img?.url) imageUrl = img.url;
-
-            // Prix : dans offers (objet ou tableau)
-            let price = '';
+            let imageUrl = typeof img === 'string' ? img : Array.isArray(img) ? (typeof img[0] === 'string' ? img[0] : img[0]?.url || '') : img?.url || '';
             const offers = item.offers;
+            let price = '';
             if (offers) {
-              const offerArr = Array.isArray(offers) ? offers : [offers];
-              const firstOffer = offerArr[0];
-              if (firstOffer?.price !== undefined) {
-                const currency = firstOffer.priceCurrency || '€';
-                const sym = currency === 'EUR' ? '€' : currency;
-                price = `${String(firstOffer.price).replace('.', ',')} ${sym}`;
-              }
+              const o = Array.isArray(offers) ? offers[0] : offers;
+              if (o?.price !== undefined) price = `${String(o.price).replace('.', ',')} €`;
             }
-
             if (name.length > 2) return { name, imageUrl, price };
           }
         } catch { continue; }
       }
 
-      // 2b. Meta OG + microdata pour nom, image, prix
-      const ogName =
-        doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
-        doc.querySelector('meta[name="twitter:title"]')?.getAttribute('content') ||
-        doc.querySelector('h1')?.textContent?.trim() || '';
-
-      const ogImage =
-        doc.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
-        doc.querySelector('meta[property="og:image:url"]')?.getAttribute('content') ||
-        doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') ||
-        doc.querySelector('meta[name="twitter:image:src"]')?.getAttribute('content') || '';
-
-      const priceRaw =
-        doc.querySelector('[itemprop="price"]')?.getAttribute('content') ||
-        doc.querySelector('[itemprop="price"]')?.textContent?.trim() ||
-        doc.querySelector('meta[property="product:price:amount"]')?.getAttribute('content') ||
-        doc.querySelector('meta[name="twitter:data1"]')?.getAttribute('content') ||
-        doc.querySelector('.a-price-whole')?.textContent?.trim() || '';
-      const priceMatch = priceRaw.match(/\d[\d\s]*[.,]\d{2}/);
+      // Meta OG
+      const ogName = (doc.querySelector('meta[property="og:title"]')?.getAttribute('content') || doc.querySelector('h1')?.textContent || '').trim();
+      const ogImage = doc.querySelector('meta[property="og:image"]')?.getAttribute('content') || doc.querySelector('meta[property="og:image:url"]')?.getAttribute('content') || '';
+      const priceEl = doc.querySelector('[itemprop="price"]')?.getAttribute('content') || doc.querySelector('meta[property="product:price:amount"]')?.getAttribute('content') || '';
+      const priceMatch = priceEl.match(/\d[\d\s]*[.,]\d{2}/);
       const ogPrice = priceMatch ? priceMatch[0].replace(/\s/g, '') + ' €' : '';
+      const cleanName = ogName.replace(/\s*[|–\-]\s*(Amazon|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|Boulanger).*$/i, '').trim();
+      if (cleanName.length > 3) return { name: cleanName, imageUrl: ogImage, price: ogPrice };
 
-      const cleanName = ogName.replace(/\s*[|–\-]\s*(Amazon|Cdiscount|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|La Redoute|Boulanger|Leroy Merlin).*$/i, '').trim();
-
-      if (cleanName.length > 3) {
-        // Si image ou prix manquants → Gemini lit le HTML
-        if (!ogImage || !ogPrice) {
-          const snippet = html
-            .replace(/<script[\s\S]*?<\/script>/gi, '')
-            .replace(/<style[\s\S]*?<\/style>/gi, '')
-            .substring(0, 8000);
-          const r = await callGemini({
-            contents: [{
-              parts: [{
-                text: `Tu es un extracteur de données produit. Voici du HTML partiel d'une page boutique en ligne.
-Nom trouvé : "${cleanName}" | Image : "${ogImage||'?'}" | Prix : "${ogPrice||'?'}"
-
-HTML :
-${snippet}
-
-Extrait les informations manquantes. JSON strict (pas de markdown) :
-{"imageUrl":"URL absolue de l'image principale ou vide","price":"XX,XX € ou vide"}
-
-Règles :
-- imageUrl : URL commençant par http depuis le HTML réel (balises <img src=, og:image, twitter:image, schema.org image). Ne génère RIEN d'inventé.
-- price : cherche JSON-LD offers.price, itemprop=price, class *price*, *prix*, meta product:price:amount. Format "XX,XX €". Ne génère aucun prix inventé.`
-              }]
-            }]
-          });
-          const parsed = cleanJSON(r);
-          return {
-            name: cleanName,
-            imageUrl: parsed?.imageUrl || ogImage,
-            price: parsed?.price || ogPrice,
-          };
-        }
-        return { name: cleanName, imageUrl: ogImage, price: ogPrice };
-      }
-
-      // 2c. Nom introuvable → Gemini analyse tout le HTML
-      const snippet = html
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<style[\s\S]*?<\/style>/gi, '')
-        .substring(0, 8000);
-      const r = await callGemini({
-        contents: [{
-          parts: [{
-            text: `Tu es un extracteur de données produit. Voici du HTML partiel d'une page boutique.
-
-HTML :
-${snippet}
-
-Extrait les informations du produit. JSON strict (pas de markdown) :
-{"name":"Nom commercial du produit","imageUrl":"URL absolue image principale ou vide","price":"XX,XX € ou vide"}
-
-Règles :
-- name : nom du produit (pas le nom du site ni de la marque du site)
-- imageUrl : URL absolue réelle du HTML. Ne génère RIEN d'inventé.
-- price : prix numérique avec devise. Ne génère aucun prix inventé.`
-          }]
-        }]
-      });
-      const p = cleanJSON(r);
-      if (p?.name?.length > 2) return { name: p.name, imageUrl: p.imageUrl || '', price: p.price || '' };
-
-    } catch { /* continue vers fallback */ }
+    } catch { /* ignore */ }
   }
 
-  // ─── Étape 3 : Gemini analyse l'URL seule (nom uniquement) ───
+  // ─── Étape 3 : Gemini déduit le nom depuis l'URL (sans grounding) ───
   try {
-    const res = await callGemini({
-      contents: [{
-        parts: [{
-          text: `Déduis le nom commercial du produit depuis cette URL de boutique en ligne.
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `Déduis le nom commercial du produit depuis cette URL boutique (segments du chemin, tirets → espaces, Title Case). Pour Amazon prends la partie avant /dp/.
 URL : ${url}
-Utilise les segments du chemin (tirets → espaces, Title Case). Pour Amazon, prends la partie avant /dp/.
-Réponds UNIQUEMENT avec ce JSON (pas de markdown) :
-{"name":"Nom déduit","imageUrl":"","price":""}`
-        }]
-      }]
+JSON strict (sans markdown) : {"name":"Nom","imageUrl":"","price":""}` }] }]
+      })
     });
-    const parsed = cleanJSON(res);
-    if (parsed?.name?.length > 2) return { name: parsed.name, imageUrl: '', price: '' };
+    if (res.ok) {
+      const data = await res.json();
+      const parsed = cleanJSON(data?.candidates?.[0]?.content?.parts?.[0]?.text || '');
+      if (parsed?.name?.length > 2) return { name: parsed.name, imageUrl: '', price: '' };
+    }
   } catch { /* ignore */ }
 
-  // ─── Étape 4 : extraction brute URL ───
+  // ─── Étape 4 : extraction brute depuis l'URL ───
   try {
     const urlObj = new URL(url);
-    const segments = urlObj.pathname.split('/').filter(s =>
-      s.length > 3 && !/^(dp|ref|sr|B0[A-Z0-9]{6,}|p|s|product|item|detail|buy|catalog)$/i.test(s)
-    );
-    const raw = decodeURIComponent(segments[0] || '').replace(/[-_+]/g, ' ').replace(/\s+/g, ' ').trim();
+    const segments = urlObj.pathname.split('/').filter(s => s.length > 3 && !/^(dp|ref|sr|B0[A-Z0-9]{6,}|p|s|product|item|detail|buy|catalog)$/i.test(s));
+    const raw = decodeURIComponent(segments[0] || '').replace(/[-_+]/g, ' ').trim();
     const titled = raw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     if (titled.length > 3) return { name: titled, imageUrl: '', price: '' };
   } catch { /* ignore */ }
