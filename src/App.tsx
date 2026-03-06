@@ -2164,7 +2164,7 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
   // Scrape URL via extractProductFromUrl (Gemini Search Grounding + fallbacks)
   const scrapeUrl = async () => {
     if(!urlInput.trim()) return;
-    setUrlLoading(true); setUrlError('🔍 Recherche IA en cours...');
+    setUrlLoading(true); setUrlError('🔍 Extraction en cours…');
     try {
       const { extractProductFromUrl } = await import('./services/geminiService');
       const result = await extractProductFromUrl(urlInput.trim());
@@ -2500,7 +2500,7 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
                 <h3 className="font-black text-xl">Ajouter un article</h3>
                 <input value={newItem.name} onChange={e=>setNewItem(i=>({...i,name:e.target.value}))} placeholder="Nom du produit..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
                 <div className="flex gap-3">
-                  <input value={newItem.price} onChange={e=>setNewItem(i=>({...i,price:e.target.value}))} placeholder="Prix (ex: 24,99 €)" className="flex-1 p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black text-sm"/>
+                  <input value={newItem.price} onChange={e=>setNewItem(i=>({...i,price:e.target.value}))} placeholder="💰 Prix — ex : 24,99 €" className="flex-1 p-3 rounded-2xl bg-amber-50 font-bold outline-none border-2 border-transparent focus:border-amber-400 text-sm" inputMode="decimal"/>
                 </div>
                 <input value={newItem.imageUrl} onChange={e=>setNewItem(i=>({...i,imageUrl:e.target.value}))} placeholder="URL image (facultatif)..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
                 {newItem.imageUrl&&<img src={newItem.imageUrl} alt="" className="w-full h-32 object-cover rounded-2xl" onError={e=>(e.currentTarget.style.display='none')}/>}
@@ -2519,7 +2519,7 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
               <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
                 <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
                 <h3 className="font-black text-xl">Importer depuis un lien</h3>
-                <p className="text-sm text-gray-500">Collez l'URL d'une page produit — Gemini cherche le nom, l'image et le prix.</p>
+                <p className="text-sm text-gray-500">Collez l'URL — le nom et l'image sont extraits automatiquement. Le prix est à saisir manuellement.</p>
                 <div className="flex gap-2">
                   <input value={urlInput} onChange={e=>setUrlInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&scrapeUrl()} placeholder="https://amazon.fr/..., ikea.com/..." className="flex-1 p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black text-sm" autoFocus/>
                   <button onClick={scrapeUrl} disabled={!urlInput.trim()||urlLoading} className="p-3 text-white rounded-2xl disabled:opacity-40 flex items-center" style={{backgroundColor:config.primaryColor}}>
@@ -2529,7 +2529,7 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
                 {urlLoading&&(
                   <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-xl">
                     <Loader2 size={14} className="animate-spin text-blue-500 shrink-0"/>
-                    <p className="text-xs text-blue-600 font-bold">Gemini recherche le produit sur Google… (~10s)</p>
+                    <p className="text-xs text-blue-600 font-bold">Extraction du nom et de l'image…</p>
                   </div>
                 )}
                 {urlError&&!urlLoading&&<p className={`text-xs font-bold ${urlError.startsWith('🔍')?'text-blue-500':'text-red-500'}`}>{urlError}</p>}
