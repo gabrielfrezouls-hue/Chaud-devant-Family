@@ -284,16 +284,10 @@ Réponds UNIQUEMENT avec ce JSON :
 };
 
 // 7. EXTRACTION PRODUIT DEPUIS URL (pour WishList)
-// Approche identique au projet Gemini AI Studio (server.ts) :
-//   Gemini "url_context" tool → Gemini fetch LUI-MÊME l'URL côté serveurs Google
-//   Contourne Cloudflare/Amazon car Gemini s'identifie comme Googlebot
-//   Disponible sur gemini-2.0-flash et suivants, sans backend requis
 export const extractProductFromUrl = async (url: string): Promise<{name: string, imageUrl: string, price: string} | null> => {
   const apiKey = getApiKey();
   if (!apiKey) return null;
 
-  // ─── Appel Gemini avec url_context (Gemini lit la page lui-même) ───
-  // Un seul appel : nom + prix + image en JSON structuré
   const models = ['gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash'];
 
   for (const model of models) {
@@ -340,7 +334,6 @@ Règles :
       }
 
       const data = await res.json();
-      // url_context peut retourner plusieurs parts (texte + url_context_metadata)
       const parts = data?.candidates?.[0]?.content?.parts || [];
       const text = parts.filter((p: any) => p.text).map((p: any) => p.text).join('').trim();
 
@@ -349,16 +342,13 @@ Règles :
       const parsed = cleanJSON(text);
       if (!parsed?.name || parsed.name.length < 2) continue;
 
-      // Nettoyer le nom (retirer " - Amazon", " | Fnac", etc.)
       const name = parsed.name
         .replace(/\s*[|–—\-]\s*(Amazon|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|Boulanger|Leroy Merlin|Cdiscount|La Redoute|Decathlon|Cultura|Manomano).*$/i, '')
         .trim();
 
-      // Valider le prix (doit contenir un chiffre)
       let price = parsed.price || '';
       if (price && !/\d/.test(price)) price = '';
 
-      // Valider l'imageUrl (doit être une vraie URL d'image)
       let imageUrl = parsed.imageUrl || '';
       if (imageUrl && (!imageUrl.startsWith('https://') || !/\.(jpg|jpeg|png|webp|avif)/i.test(imageUrl))) {
         imageUrl = '';
@@ -373,7 +363,6 @@ Règles :
     }
   }
 
-  // ─── Fallback : déduire le nom depuis les segments de l'URL ───
   try {
     const urlObj = new URL(url);
     const segments = urlObj.pathname.split('/').filter(s =>
