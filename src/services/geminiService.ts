@@ -284,125 +284,70 @@ Réponds UNIQUEMENT avec ce JSON :
 };
 
 // 7. EXTRACTION PRODUIT DEPUIS URL (pour WishList)
-// Stratégie : Gemini Search Grounding en priorité (cherche le produit sur Google)
-// + proxies CORS + schema.org en fallback pour les petits sites non-protégés
+// Stratégie : Open Graph via proxies CORS pour titre + image (fiable).
+// Prix laissé vide → saisie manuelle (impossible à extraire de manière
+// fiable sur les grands e-commerçants sans backend dédié — cf. Cloudflare).
 export const extractProductFromUrl = async (url: string): Promise<{name: string, imageUrl: string, price: string} | null> => {
-  const apiKey = getApiKey();
 
-  // ─── Étape 1 : Gemini Search Grounding ───
-  // Gemini cherche le produit sur Google — contourne les blocages CORS/Cloudflare
-  // Modèles supportant googleSearch grounding : gemini-2.0-flash, gemini-1.5-flash
-  const groundingModels = ['gemini-2.0-flash', 'gemini-1.5-flash'];
-  for (const model of groundingModels) {
-    try {
-      const groundingUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 15000);
-      const res = await fetch(groundingUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: ctrl.signal,
-        body: JSON.stringify({
-          tools: [{ google_search: {} }],
-          contents: [{
-            parts: [{
-              text: `Recherche ce produit sur internet : ${url}
-
-Donne-moi UNIQUEMENT un JSON avec ces 3 champs (pas de markdown, pas d'explication) :
-{"name":"Nom exact du produit","imageUrl":"URL directe de la photo principale du produit (commence par https)","price":"Prix actuel en euros format XX,XX €"}
-
-Règles strictes :
-- name : nom commercial complet du produit (pas le nom du site)
-- imageUrl : URL HTTPS directe d'une image du produit (depuis le site officiel ou une image cdn). Doit commencer par https://
-- price : prix de vente actuel sur ce site. Format "XX,XX €". Si introuvable, mettre ""
-- Ne génère RIEN d'inventé pour imageUrl. Si tu ne trouves pas l'image, mets ""`
-            }]
-          }]
-        })
-      });
-      if (!res.ok) { console.warn(`Grounding ${model}: HTTP ${res.status}`); continue; }
-      const data = await res.json();
-      const text = data?.candidates?.[0]?.content?.parts?.find((p: any) => p.text)?.text || '';
-      const parsed = cleanJSON(text);
-      if (parsed?.name && parsed.name.length > 2) {
-        // Valider que imageUrl est bien une URL http(s)
-        const imageUrl = (parsed.imageUrl || '').startsWith('http') ? parsed.imageUrl : '';
-        return { name: parsed.name, imageUrl, price: parsed.price || '' };
-      }
-    } catch { continue; }
-  }
-
-  // ─── Étape 2 : proxies CORS + parsing (pour sites sans protection Cloudflare) ───
+  // ─── Étape 1 : proxies CORS → balises Open Graph ───
   const proxies = [
     (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-    (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
     (u: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+    (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
   ];
-  let html: string | null = null;
-  for (const makeUrl of proxies) {
+
+  for (const makeProxy of proxies) {
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 7000);
-      const res = await fetch(makeUrl(url), { signal: controller.signal });
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 7000);
+      const res = await fetch(makeProxy(url), { signal: ctrl.signal });
       clearTimeout(timeout);
       if (!res.ok) continue;
+
       const data = await res.json().catch(() => null);
-      if (data?.contents && data.contents.length > 500) { html = data.contents; break; }
-      const text = await res.text().catch(() => null);
-      if (text && text.length > 500) { html = text; break; }
+      const html: string = data?.contents ?? (await res.text().catch(() => '')) ?? '';
+      if (html.length < 300) continue;
+
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+
+      // Titre : og:title > twitter:title > <title> > <h1>
+      const rawName =
+        doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
+        doc.querySelector('meta[name="twitter:title"]')?.getAttribute('content') ||
+        doc.querySelector('title')?.textContent?.trim() ||
+        doc.querySelector('h1')?.textContent?.trim() || '';
+
+      // Image : og:image > twitter:image
+      const rawImage =
+        doc.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
+        doc.querySelector('meta[property="og:image:url"]')?.getAttribute('content') ||
+        doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') ||
+        doc.querySelector('meta[name="twitter:image:src"]')?.getAttribute('content') || '';
+
+      const name = rawName
+        .replace(/\s*[|–\-]\s*(Amazon|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|Boulanger|Leroy Merlin|Cdiscount|La Redoute|Manomano|Decathlon|Cultura).*$/i, '')
+        .trim();
+
+      const imageUrl = rawImage.startsWith('http') ? rawImage : '';
+
+      if (name.length > 2) return { name, imageUrl, price: '' };
     } catch { continue; }
   }
 
-  if (html) {
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-
-      // schema.org/Product JSON-LD
-      for (const script of Array.from(doc.querySelectorAll('script[type="application/ld+json"]'))) {
-        try {
-          const json = JSON.parse(script.textContent || '');
-          const items = Array.isArray(json) ? json : json['@graph'] ? json['@graph'] : [json];
-          for (const item of items) {
-            const types: string[] = Array.isArray(item['@type']) ? item['@type'] : [item['@type'] || ''];
-            if (!types.some((t: string) => typeof t === 'string' && t.toLowerCase().includes('product'))) continue;
-            const name: string = item.name || '';
-            const img = item.image;
-            let imageUrl = typeof img === 'string' ? img : Array.isArray(img) ? (typeof img[0] === 'string' ? img[0] : img[0]?.url || '') : img?.url || '';
-            const offers = item.offers;
-            let price = '';
-            if (offers) {
-              const o = Array.isArray(offers) ? offers[0] : offers;
-              if (o?.price !== undefined) price = `${String(o.price).replace('.', ',')} €`;
-            }
-            if (name.length > 2) return { name, imageUrl, price };
-          }
-        } catch { continue; }
-      }
-
-      // Meta OG
-      const ogName = (doc.querySelector('meta[property="og:title"]')?.getAttribute('content') || doc.querySelector('h1')?.textContent || '').trim();
-      const ogImage = doc.querySelector('meta[property="og:image"]')?.getAttribute('content') || doc.querySelector('meta[property="og:image:url"]')?.getAttribute('content') || '';
-      const priceEl = doc.querySelector('[itemprop="price"]')?.getAttribute('content') || doc.querySelector('meta[property="product:price:amount"]')?.getAttribute('content') || '';
-      const priceMatch = priceEl.match(/\d[\d\s]*[.,]\d{2}/);
-      const ogPrice = priceMatch ? priceMatch[0].replace(/\s/g, '') + ' €' : '';
-      const cleanName = ogName.replace(/\s*[|–\-]\s*(Amazon|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|Boulanger).*$/i, '').trim();
-      if (cleanName.length > 3) return { name: cleanName, imageUrl: ogImage, price: ogPrice };
-
-    } catch { /* ignore */ }
-  }
-
-  // ─── Étape 3 : Gemini déduit le nom depuis l'URL (sans grounding) ───
+  // ─── Étape 2 : Gemini déduit le nom depuis l'URL (proxies bloqués) ───
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: `Déduis le nom commercial du produit depuis cette URL boutique (segments du chemin, tirets → espaces, Title Case). Pour Amazon prends la partie avant /dp/.
-URL : ${url}
-JSON strict (sans markdown) : {"name":"Nom","imageUrl":"","price":""}` }] }]
-      })
-    });
+    const apiKey = getApiKey();
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text:
+            `Déduis le nom commercial du produit depuis cette URL de boutique.\nURL : ${url}\nRègles : segments du chemin (tirets → espaces, Title Case). Pour Amazon → partie avant /dp/. Pour IKEA → nom avant le numéro de référence.\nJSON strict : {"name":"Nom du produit","imageUrl":"","price":""}` }] }]
+        })
+      }
+    );
     if (res.ok) {
       const data = await res.json();
       const parsed = cleanJSON(data?.candidates?.[0]?.content?.parts?.[0]?.text || '');
@@ -410,10 +355,12 @@ JSON strict (sans markdown) : {"name":"Nom","imageUrl":"","price":""}` }] }]
     }
   } catch { /* ignore */ }
 
-  // ─── Étape 4 : extraction brute depuis l'URL ───
+  // ─── Étape 3 : extraction brute depuis le chemin URL ───
   try {
     const urlObj = new URL(url);
-    const segments = urlObj.pathname.split('/').filter(s => s.length > 3 && !/^(dp|ref|sr|B0[A-Z0-9]{6,}|p|s|product|item|detail|buy|catalog)$/i.test(s));
+    const segments = urlObj.pathname
+      .split('/')
+      .filter(s => s.length > 3 && !/^(dp|ref|sr|p|s|product|item|detail|buy|catalog|[A-Z0-9]{10})$/i.test(s));
     const raw = decodeURIComponent(segments[0] || '').replace(/[-_+]/g, ' ').trim();
     const titled = raw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     if (titled.length > 3) return { name: titled, imageUrl: '', price: '' };
