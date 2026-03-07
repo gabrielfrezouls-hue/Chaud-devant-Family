@@ -2866,7 +2866,7 @@ const App: React.FC = () => {
   const handleArchitect=async()=>{
     if(!aiPrompt.trim())return;
     const ok = await consumeTokens(20);
-    if(!ok){alert('🔥 Tokens insuffisants (20 requis pour l'Architecte).');return;}
+    if(!ok){alert('🔥 Tokens insuffisants (20 requis pour l\'Architecte).');return;}
     setIsAiLoading(true);const n=await askAIArchitect(aiPrompt,config);if(n)await saveConfig({...config,...n},true);setIsAiLoading(false);
   };
   const handleChat=async()=>{if(!aiPrompt.trim())return;const h=[...chatHistory,{role:'user',text:aiPrompt}];setChatHistory(h);setAiPrompt('');setIsAiLoading(true);const r=await askAIChat(h);setChatHistory([...h,{role:'model',text:r}]);setIsAiLoading(false);};
