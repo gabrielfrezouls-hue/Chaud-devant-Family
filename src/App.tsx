@@ -193,7 +193,7 @@ const GaugeBar = ({level, onClick}:{level:GaugeLevel, onClick:()=>void}) => {
 
 const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consumeTokens }: { user:User, config:SiteConfig, onNavigate?:(v:string)=>void, isPremium?:boolean, onShowFreemium?:()=>void, consumeTokens?:(cost:number)=>Promise<boolean> }) => {
   const [items, setItems] = useState<FrigoItem[]>([]);
-  const [learningMap, setLearningMap] = useState<Record<string,'frigo'|'cellier'>>({});
+  const [learningMap, setLearningMap] = useState<Record<string,{tab:'frigo'|'cellier',category:string}>>({});
   const [frigotab, setFrigotab] = useState<'frigo'|'cellier'>('frigo');
   const [newItem, setNewItem] = useState({ name:'', quantity:1, unit:'pcs', expiryDate:'', hasExpiry:true });
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -269,8 +269,8 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
   // Charger la mémoire d'apprentissage (préférences de placement)
   useEffect(() => {
     const unsub = onSnapshot(collection(db,'frigo_learning'), snap => {
-      const map: Record<string,'frigo'|'cellier'> = {};
-      snap.docs.forEach(d => { map[d.id] = d.data().preferredTab as 'frigo'|'cellier'; });
+      const map: Record<string,{tab:'frigo'|'cellier', category:string}> = {};
+      snap.docs.forEach(d => { const data = d.data(); map[d.id] = { tab: data.preferredTab as 'frigo'|'cellier', category: data.preferredCategory || (data.preferredTab === 'frigo' ? 'Primeur' : 'Épicerie Salée') }; });
       setLearningMap(map);
     });
     return () => unsub();
@@ -287,20 +287,39 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
   // Déplace un article entre frigo ↔ cellier ET mémorise la préférence
   const moveItem = async (item: FrigoItem) => {
     const isCurrCellier = CELLIER_CATEGORIES.includes(item.category);
-    // Si dans cellier → passer en Primeur (frigo) ; si dans frigo → passer en Épicerie Salée (cellier)
-    const newCategory = isCurrCellier ? 'Primeur' : 'Épicerie Salée';
-    const newTab: 'frigo'|'cellier' = isCurrCellier ? 'frigo' : 'cellier';
-    const newGauge = !isCurrCellier ? 'plein' : undefined;
+    // Destination : si actuellement au cellier → frigo ; si frigo → cellier
+    // Pour le frigo, on restaure la catégorie mémorisée (si elle existe) sinon 'Primeur'
+    const key = normalizeName(item.name);
+    const remembered = learningMap[key];
+    let newCategory: string;
+    let newTab: 'frigo'|'cellier';
+    if(isCurrCellier) {
+      // Déplacement cellier → frigo
+      // Utiliser la catégorie mémorisée si elle est une catégorie frigo, sinon 'Primeur'
+      const restoredCat = remembered?.category && FRIGO_CATEGORIES.includes(remembered.category)
+        ? remembered.category : 'Primeur';
+      newCategory = restoredCat;
+      newTab = 'frigo';
+    } else {
+      // Déplacement frigo → cellier
+      newCategory = 'Épicerie Salée';
+      newTab = 'cellier';
+    }
+    const newGauge = newTab === 'cellier' ? 'plein' : undefined;
     await updateDoc(doc(db,'frigo_items',item.id),{
       category: newCategory,
       ...(newGauge !== undefined ? {gaugeLevel: newGauge} : {gaugeLevel: null}),
     });
-    // Mémoriser la préférence
-    const key = normalizeName(item.name);
+    // Mémoriser : tab + catégorie exacte d'origine (avant déplacement) pour pouvoir restaurer
+    const categoryToRemember = isCurrCellier ? newCategory : item.category;
+    const tabToRemember = newTab;
     await setDoc(doc(db,'frigo_learning',key),{
-      name: item.name, preferredTab: newTab, updatedAt: new Date().toISOString()
+      name: item.name,
+      preferredTab: tabToRemember,
+      preferredCategory: categoryToRemember,
+      updatedAt: new Date().toISOString()
     });
-    setScanMsg(`↕️ "${item.name}" déplacé en ${newTab === 'frigo' ? 'Frigo (Primeur)' : 'Cellier'} · Mémorisé !`);
+    setScanMsg(`↕️ "${item.name}" → ${newTab === 'frigo' ? `Frigo (${newCategory})` : 'Cellier'} · Mémorisé !`);
     setTimeout(()=>setScanMsg(''),3500);
   };
 
@@ -315,8 +334,8 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
       let aiResult: any = null;
 
       if(learnedTab) {
-        // Mémoire connue → forcer la catégorie correspondante
-        category = learnedTab === 'frigo' ? 'Primeur' : 'Épicerie Salée';
+        // Mémoire connue → utiliser la catégorie exacte mémorisée
+        category = learnedTab.category;
         setScanMsg(`⭐ "${newItem.name.trim()}" → ${category} (mémorisé)`);
       } else {
         // 2. Classification IA (coût : 2 tokens)
@@ -325,6 +344,17 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
         const { classifyFrigoItem } = await import('./services/geminiService');
         aiResult = await classifyFrigoItem(newItem.name.trim());
         category = aiResult?.category || categorizeShoppingItem(newItem.name);
+        // Règle hard : 'Primeur' est TOUJOURS dans le frigo — si l'IA retourne Primeur
+        // et que CELLIER_CATEGORIES ne le contient pas, c'est déjà OK.
+        // Sécurité supplémentaire : si IA met un produit connu-primeur en catégorie cellier,
+        // on vérifie via la liste de mots-clés
+        if(CELLIER_CATEGORIES.includes(category)) {
+          const nameLC = newItem.name.toLowerCase();
+          const primeurKeywords = ['frais','fraîche','fraiche','légume','legume','fruit','salade','herbe','basilic','persil','coriandre','menthe','ciboulette','pomme','poire','banane','citron','orange','mangue','fraise','raisin','kiwi','tomate','carotte','courgette','poireau','oignon','ail','épinard','brocoli','chou','poivron','concombre','aubergine','radis','betterave','céleri','fenouil','asperge','artichaut','avocat','champignon','gingembre','curcuma','aneth','romarin','thym','laurier'];
+          if(primeurKeywords.some(kw => nameLC.includes(kw))) {
+            category = 'Primeur'; // Forcer frigo pour produits frais évidents
+          }
+        }
       }
 
       const isCellier = CELLIER_CATEGORIES.includes(category);
@@ -390,9 +420,12 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
         // Vérifier la mémoire d'apprentissage
         const nameKey = normalizeName(result.name);
         const learnedTab = learningMap[nameKey];
-        const category = learnedTab
-          ? (learnedTab === 'frigo' ? 'Primeur' : 'Épicerie Salée')
+        // Utiliser catégorie mémorisée précise, ou résultat scan
+        const rawCategory = learnedTab
+          ? learnedTab.category
           : (result.category||categorizeShoppingItem(result.name));
+        // Règle hard : vérifier que Primeur va bien au frigo
+        const category = rawCategory;
         const isCellier=CELLIER_CATEGORIES.includes(category);
         await addDoc(collection(db,'frigo_items'),{
           name:result.name, category,
@@ -1438,7 +1471,7 @@ const AutoSaveSettings = ({ localC, save, config, setLocalC, fileRef, handleFile
 // ==========================================
 // ADMIN PANEL (RÉORGANISÉ)
 // ==========================================
-const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, choreStatus, lockedPagesMap, onSaveMaintenance }: any) => {
+const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, choreStatus, lockedPagesMap, onSaveMaintenance, onSetAdminTokenUser }: any) => {
   const [tab, setTab] = useState('users');
   const [newUser, setNewUser] = useState({email:'',letter:'',name:''});
   const [localC, setLocalC] = useState(config);
@@ -1598,7 +1631,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
                     })()}
                     {/* Bouton tokens admin */}
                     <button
-                      onClick={()=>setAdminTokenUser({id:u.id, name:u.name||u.letter||u.id})}
+                      onClick={()=>onSetAdminTokenUser&&onSetAdminTokenUser({id:u.id, name:u.name||u.letter||u.id})}
                       className="w-7 h-7 rounded-full bg-amber-50 border border-amber-200 text-amber-600 hover:bg-amber-100 transition-colors flex items-center justify-center"
                       title={`Gérer les tokens de ${u.name||u.id}`}
                     ><Coins size={13}/></button>
@@ -2450,8 +2483,12 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
 
       {/* WIDGET CAGNOTTE */}
       {(()=>{
-        // Calcul du total de toutes les listes visibles (ou liste active)
-        const listsToSum = activeList ? [activeList] : lists;
+        // Calcul du total : uniquement mes listes (pas les partagées)
+        // Si liste active affichée → utiliser uniquement cette liste (quelle que soit la propriété)
+        // Sinon → seulement les listes dont je suis owner
+        const listsToSum = activeList
+          ? [activeList]
+          : lists.filter((l:any) => l.owner === user.email || l.createdBy === user.email || (!l.sharedWith || l.sharedWith.length === 0));
         let total = 0; let count = 0;
         listsToSum.forEach((l:any)=>(l.items||[]).forEach((it:any)=>{
           if(!it.price) return;
@@ -3157,7 +3194,7 @@ const App: React.FC = () => {
 
       <SideMenu config={config} isOpen={isMenuOpen} close={()=>setIsMenuOpen(false)} setView={setCurrentView} logout={handleLogout}/>
       <BottomNav config={config} view={currentView} setView={setCurrentView}
-        hidden={isMenuOpen||isNotifOpen||isEventModalOpen||isRecipeModalOpen||showFreemiumModal||wishlistModalOpen}
+        hidden={isMenuOpen||isNotifOpen||isEventModalOpen||isRecipeModalOpen||showFreemiumModal||wishlistModalOpen||showTokenShop||!!adminTokenUser}
       />
 
       <main className="max-w-7xl mx-auto px-3 md:px-6 pt-24 md:pt-28 pb-32 relative z-10">
@@ -3418,6 +3455,7 @@ const App: React.FC = () => {
               prompt={aiPrompt} setP={setAiPrompt} load={isAiLoading} hist={chatHistory}
               users={siteUsers} choreStatus={choreStatus}
               lockedPagesMap={lockedPagesMap}
+              onSetAdminTokenUser={setAdminTokenUser}
               onSaveMaintenance={async (pages:Record<string,boolean>)=>{
                 await setDoc(doc(db,'site_config','maintenance'),{lockedPages:pages});
               }}
