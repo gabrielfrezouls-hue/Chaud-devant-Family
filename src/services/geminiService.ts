@@ -29,32 +29,38 @@ const fileToBase64 = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-// Modèle fonctionnel sur free tier EU
+// Tes modèles fonctionnels (Impératif)
 const MODELS = [
   "gemini-2.5-flash-lite",
-  "gemini-2.5-flash-lite-preview-06-17", // alias alternatif
+  "gemini-2.5-flash-lite-preview-06-17",
 ];
 
 const callGeminiModel = async (model: string, payload: any): Promise<string | null> => {
   const apiKey = getApiKey();
   if (!apiKey) { console.error("⛔ VITE_GEMINI_KEY manquante"); return null; }
+  
+  // Utilisation de v1beta pour supporter les fonctionnalités avancées
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    
     if (res.status === 429) return "__QUOTA__"; // signal quota dépassé
+    
     if (!res.ok) {
       const body = await res.text();
-      console.error(`Erreur Gemini ${model} ${res.status}:`, body);
+      console.error(`[Gemini Error] ${model} ${res.status}:`, body.slice(0, 200));
       return null;
     }
+    
     const data = await res.json();
     return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
   } catch (err) {
-    console.error(`Erreur réseau Gemini ${model}:`, err);
+    console.error(`[Network Error] Gemini ${model}:`, err);
     return null;
   }
 };
@@ -108,7 +114,7 @@ export const askAIChat = async (history: { role: string; text: string }[]) => {
   return res.type === "text" ? res.data : "Action effectuée.";
 };
 
-// 2b. APPEL DIRECT GEMINI (pour usage interne avancé, ex: notifications IA)
+// 2b. APPEL DIRECT GEMINI
 export const callGeminiDirect = async (history: { role: string; text: string }[]): Promise<string | null> => {
   const contents = history.map(h => ({
     role: h.role === 'user' ? 'user' : 'model',
@@ -137,7 +143,7 @@ export const readBarcodeFromImage = async (file: File): Promise<string | null> =
   }
 };
 
-// 4b. CLASSIFIER UN PRODUIT PAR NOM (texte → catégorie + date estimée)
+// 4b. CLASSIFIER UN PRODUIT PAR NOM
 export const classifyFrigoItem = async (productName: string) => {
   const today = new Date().toISOString().split('T')[0];
   const res = await callGemini({
@@ -149,53 +155,40 @@ Réponds UNIQUEMENT avec un JSON strict sans markdown :
   "category": "UNE de ces catégories exactes : Boucherie/Poisson | Boulangerie | Plat préparé | Primeur | Frais & Crèmerie | Épicerie Salée | Épicerie Sucrée | Boissons | Surgelés | Divers",
   "expiryDate": "YYYY-MM-DD"
 }
-Règles pour expiryDate à partir du ${today} :
-- Boucherie/Poisson → +3 jours
-- Boulangerie → +3 jours  
-- Plat préparé → +4 jours
-- Primeur (légumes, fruits) → +7 jours
-- Frais & Crèmerie (lait, yaourt, fromage, œufs) → +10 jours
-- Épicerie Salée / Épicerie Sucrée → +90 jours
-- Boissons → +90 jours
-- Surgelés → +180 jours
-- Divers → +14 jours`
+Règles pour expiryDate à partir du ${today} : Boucherie/Poisson +3j, Boulangerie +3j, Plat préparé +4j, Primeur +7j, Frais & Crèmerie +10j, Épicerie +90j, Surgelés +180j.`
       }]
     }]
   });
   return cleanJSON(res);
 };
+
+// 4c. SCAN PRODUIT IMAGE
 export const scanProductImage = async (file: File) => {
   try {
     const b64 = await fileToBase64(file);
-    // Sur mobile, file.type peut être vide — fallback sur image/jpeg
     const mimeType = file.type || "image/jpeg";
     const today = new Date().toISOString().split('T')[0];
     const res = await callGemini({
       contents: [{
         parts: [
           {
-            text: `Identifie ce produit alimentaire sur la photo. Réponds UNIQUEMENT avec ce JSON (sans markdown, sans texte avant ou après) :
+            text: `Identifie ce produit alimentaire sur la photo. Réponds UNIQUEMENT avec ce JSON (sans markdown) :
 {"name":"Nom en français","category":"Boucherie/Poisson ou Boulangerie ou Plat préparé ou Primeur ou Frais & Crèmerie ou Épicerie Salée ou Épicerie Sucrée ou Boissons ou Surgelés ou Divers","expiryDate":"YYYY-MM-DD"}
-Calcule expiryDate à partir du ${today} : Boucherie/Poisson +3j, Boulangerie +3j, Plat préparé +4j, Primeur +7j, Frais & Crèmerie +10j, Épicerie/Boissons +90j, Surgelés +180j. Si une date limite est lisible sur l'emballage, utilise-la.`,
+Calcule expiryDate à partir du ${today}.`,
           },
           { inline_data: { mime_type: mimeType, data: b64 } },
         ],
       }],
     });
-    console.log("[scanProductImage] raw:", res);
-    const parsed = cleanJSON(res);
-    console.log("[scanProductImage] parsed:", parsed);
-    return parsed;
+    return cleanJSON(res);
   } catch(err) {
     console.error("[scanProductImage] error:", err);
     return null;
   }
 };
 
-// 5. IMPORTATEUR DE RECETTES depuis URL
-// Cascade de proxies CORS + fallback IA Gemini
+// 5. IMPORTATEUR DE RECETTES
 export const extractRecipeFromUrl = async (url: string) => {
-  // Liste de proxies CORS gratuits à essayer dans l'ordre
   const proxies = [
     (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
     (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
@@ -203,135 +196,81 @@ export const extractRecipeFromUrl = async (url: string) => {
   ];
 
   let html: string | null = null;
-
-  // Essai de chaque proxy
   for (const makeUrl of proxies) {
     try {
       const proxyUrl = makeUrl(url);
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(proxyUrl, { signal: controller.signal });
-      clearTimeout(timeout);
+      const res = await fetch(proxyUrl);
       if (!res.ok) continue;
-      const data = await res.json().catch(async () => {
-        // Certains proxies renvoient du HTML direct (pas JSON)
-        return null;
-      });
-      if (data?.contents) { html = data.contents; break; }
-      // Fallback si proxy renvoie texte brut
-      const text = await res.text().catch(() => null);
+      const text = await res.text();
       if (text && text.length > 500) { html = text; break; }
     } catch { continue; }
   }
 
-  // Si on a du HTML → tente schema.org/Recipe
   if (html) {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, "text/html");
       const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
-
       for (const script of scripts) {
         try {
           const json = JSON.parse(script.textContent || "");
           const items = Array.isArray(json) ? json : json["@graph"] ? json["@graph"] : [json];
           for (const item of items) {
-            const recipe = item["@type"] === "Recipe" ? item : null;
-            if (!recipe) continue;
-            const ingredients = (recipe.recipeIngredient || []).join("\n");
-            const stepsRaw = recipe.recipeInstructions || [];
-            const steps = stepsRaw.map((s: any) => typeof s === "string" ? s : s.text || "").filter(Boolean).join("\n");
-            const chef = typeof recipe.author === "string" ? recipe.author : recipe.author?.name || "";
-            const cat = (recipe.recipeCategory || "plat").toLowerCase();
-            return {
-              title: recipe.name || "Recette importée",
-              chef,
-              category: cat.includes("dessert") ? "dessert" : cat.includes("entr") ? "entrée" : "plat",
-              ingredients,
-              steps,
-            };
+            if (item["@type"] === "Recipe") {
+              return {
+                title: item.name || "Recette importée",
+                chef: item.author?.name || "",
+                category: "plat",
+                ingredients: (item.recipeIngredient || []).join("\n"),
+                steps: (item.recipeInstructions || []).map((s: any) => s.text || s).join("\n"),
+              };
+            }
           }
         } catch { continue; }
       }
-
-      // Fallback meta
-      const title = doc.querySelector('meta[property="og:title"]')?.getAttribute("content")
-        || doc.querySelector("h1")?.textContent?.trim() || "Recette importée";
-      return { title, chef: "", category: "plat",
-        ingredients: "⚠️ Ingrédients non détectés — à saisir manuellement",
-        steps: "⚠️ Étapes non détectées — à saisir manuellement" };
-    } catch { /* continue to AI fallback */ }
+    } catch { /* fallback */ }
   }
 
-  // Fallback IA : demande à Gemini d'extraire depuis l'URL
-  try {
-    const res = await callGemini({
-      contents: [{
-        parts: [{
-          text: `Extrait les informations de la recette à cette URL : ${url}
-Si tu ne peux pas accéder à l'URL, génère une recette plausible basée sur le titre dans l'URL.
-Réponds UNIQUEMENT avec ce JSON :
-{"title":"Titre","chef":"","category":"plat","ingredients":"ingrédient 1\\ningrédient 2","steps":"Étape 1\\nÉtape 2"}`
-        }]
+  const res = await callGemini({
+    contents: [{
+      parts: [{
+        text: `Extrait la recette de cette URL : ${url}. Réponds UNIQUEMENT avec ce JSON : {"title":"Titre","chef":"","category":"plat","ingredients":"ingrédient 1\\ningrédient 2","steps":"Étape 1\\nÉtape 2"}`
       }]
-    });
-    const parsed = cleanJSON(res);
-    if (parsed?.title) return parsed;
-  } catch { /* ignore */ }
-
-  console.error("Erreur import recette: tous les proxies ont échoué");
-  return null;
+    }]
+  });
+  return cleanJSON(res);
 };
 
-// 7. EXTRACTION PRODUIT DEPUIS URL (pour WishList)
+// 7. EXTRACTION PRODUIT DEPUIS URL (WishList)
 export const extractProductFromUrl = async (url: string): Promise<{name: string, imageUrl: string, price: string} | null> => {
   const apiKey = getApiKey();
   if (!apiKey) return null;
 
-  const models = ['gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash'];
-
-  for (const model of models) {
+  // Utilisation exclusive de tes modèles fonctionnels
+  for (const model of MODELS) {
     try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 25000);
-
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
-          signal: ctrl.signal,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            tools: [{ url_context: {} }],
+            // Note: url_context n'est pas supporté par tous les modèles, on l'utilise avec précaution
+            tools: [{ url_context: {} }], 
             contents: [{
               parts: [{
-                text: `Accède à cette URL de produit en vente en ligne : ${url}
-
-Lis la page et extrais :
-1. Le NOM EXACT du produit (nom commercial complet, sans mention du site)
-2. Le PRIX affiché (format "XX,XX €" — si non trouvé : chaîne vide)
-3. L'URL directe de la PHOTO principale du produit (commence par https://, extension .jpg/.jpeg/.png/.webp — si non trouvée : chaîne vide)
-
-Réponds UNIQUEMENT avec ce JSON, sans markdown, sans texte avant/après :
-{"name":"Nom exact du produit","price":"XX,XX €","imageUrl":"https://..."}
-
-Règles :
-- Ne génère RIEN d'inventé
-- price vide ("") si introuvable
-- imageUrl vide ("") si introuvable ou incertaine`
+                text: `Accède à cette URL de produit : ${url}
+Extraie le NOM EXACT, le PRIX (XX,XX €) et l'URL de la PHOTO principale.
+Réponds UNIQUEMENT avec ce JSON : {"name":"Nom","price":"XX,XX €","imageUrl":"https://..."}`
               }]
             }],
             generationConfig: { temperature: 0 },
           }),
         }
       );
-      clearTimeout(timer);
 
-      if (!res.ok) {
-        const body = await res.text();
-        console.warn(`[extractProduct] ${model} ${res.status}:`, body.slice(0, 200));
-        continue;
-      }
+      if (res.status === 429) continue; // Quota
+      if (!res.ok) continue; // Erreur (404, etc.)
 
       const data = await res.json();
       const parts = data?.candidates?.[0]?.content?.parts || [];
@@ -340,51 +279,27 @@ Règles :
       if (!text) continue;
 
       const parsed = cleanJSON(text);
-      if (!parsed?.name || parsed.name.length < 2) continue;
-
-      const name = parsed.name
-        .replace(/\s*[|–—\-]\s*(Amazon|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|Boulanger|Leroy Merlin|Cdiscount|La Redoute|Decathlon|Cultura|Manomano).*$/i, '')
-        .trim();
-
-      let price = parsed.price || '';
-      if (price && !/\d/.test(price)) price = '';
-
-      let imageUrl = parsed.imageUrl || '';
-      if (imageUrl && (!imageUrl.startsWith('https://') || !/\.(jpg|jpeg|png|webp|avif)/i.test(imageUrl))) {
-        imageUrl = '';
-      }
-
-      if (name.length > 1) {
-        return { name, price, imageUrl };
+      if (parsed?.name) {
+        return {
+          name: parsed.name.split(/[|–—\-]/)[0].trim(),
+          price: parsed.price || '',
+          imageUrl: parsed.imageUrl || ''
+        };
       }
     } catch (err) {
-      console.warn(`[extractProduct] ${model} error:`, err);
       continue;
     }
   }
 
-  try {
-    const urlObj = new URL(url);
-    const segments = urlObj.pathname.split('/').filter(s =>
-      s.length > 3 && !/^(dp|ref|sr|p|s|product|item|detail|buy|catalog|[A-Z0-9]{10})$/i.test(s)
-    );
-    const raw = decodeURIComponent(segments[0] || '').replace(/[-_+]/g, ' ').trim();
-    if (raw.length > 3) {
-      const name = raw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-      return { name, imageUrl: '', price: '' };
-    }
-  } catch { /* ignore */ }
-
   return null;
 };
 
+// 8. ARCHITECTE UI
 export const askAIArchitect = async (prompt: string, currentConfig: SiteConfig) => {
   const res = await callGemini({
     contents: [{
       parts: [{
-        text: `Tu es un expert UI/UX. Modifie la configuration JSON du site selon cette demande : "${prompt}".
-Renvoie UNIQUEMENT le JSON modifié sans markdown ni explication.
-Config actuelle : ${JSON.stringify(currentConfig)}`,
+        text: `Modifie cette config JSON : "${prompt}". Renvoie UNIQUEMENT le JSON. Config : ${JSON.stringify(currentConfig)}`,
       }],
     }],
   });
