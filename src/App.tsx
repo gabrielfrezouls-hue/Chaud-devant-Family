@@ -6,7 +6,7 @@ import {
   where, getDoc, getDocs, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import {
-  Lock, Menu, X, Home, BookHeart, ChefHat, Wallet, PiggyBank, ArrowLeftRight,
+  Lock, Menu, X, Home, BookHeart, ChefHat, Wallet, PiggyBank, ArrowLeftRight, Crown, Coins,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
@@ -1577,17 +1577,31 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
                     <div className="text-[10px] text-gray-300">{u.lastLogin?`Vu ${new Date(u.lastLogin).toLocaleDateString()}`:'Jamais connecté'}</div>
                   </div>
 
-                  {/* Plan — toggle direct */}
+                  {/* Plan — bouton unique toggle + bouton tokens */}
                   <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Bouton forfait : affiche l'état actuel, clic bascule vers l'autre */}
+                    {(() => {
+                      const isPro = u.plan === 'pro' || u.plan === 'premium';
+                      return (
+                        <button
+                          onClick={()=>saveUserField(u.id,'plan', isPro ? 'free' : 'pro')}
+                          className={`flex items-center gap-1 px-3 py-1.5 rounded-xl font-black text-[10px] uppercase transition-all ${
+                            isPro ? 'text-white shadow-md' : 'bg-gray-900 text-white'
+                          }`}
+                          style={isPro ? {backgroundColor: config.primaryColor} : {}}
+                          title={isPro ? 'Cliquer pour passer en Gratuit' : 'Cliquer pour passer en Premium'}
+                        >
+                          <Crown size={10} fill={isPro ? 'white' : 'none'} className={isPro ? 'text-white' : 'text-gray-400'}/>
+                          {isPro ? 'Premium' : 'Gratuit'}
+                        </button>
+                      );
+                    })()}
+                    {/* Bouton tokens admin */}
                     <button
-                      onClick={()=>saveUserField(u.id,'plan','free')}
-                      className={`px-3 py-1.5 rounded-xl font-black text-[10px] uppercase transition-all ${!u.plan||u.plan==='free'?'bg-gray-900 text-white':'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
-                    >Gratuit</button>
-                    <button
-                      onClick={()=>saveUserField(u.id,'plan','pro')}
-                      className={`px-3 py-1.5 rounded-xl font-black text-[10px] uppercase transition-all ${u.plan==='pro'?'text-white shadow-md':'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
-                      style={u.plan==='pro'?{backgroundColor:config.primaryColor}:{}}
-                    >☕ Premium</button>
+                      onClick={()=>setAdminTokenUser({id:u.id, name:u.name||u.letter||u.id})}
+                      className="w-7 h-7 rounded-full bg-amber-50 border border-amber-200 text-amber-600 hover:bg-amber-100 transition-colors flex items-center justify-center"
+                      title={`Gérer les tokens de ${u.name||u.id}`}
+                    ><Coins size={13}/></button>
                     <button onClick={()=>del('site_users',u.id)} className="p-1.5 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors ml-1"><Trash2 size={14}/></button>
                   </div>
                 </div>
@@ -2093,6 +2107,121 @@ const useIsPremium = (userEmail:string|null|undefined, siteUsers:any[]) => {
 };
 
 // Modale freemium générique
+// ── Modal achat / recharge tokens ──
+const TokenShopModal = ({ config, onClose, balance, isPremium, onRequestUpgrade }:{
+  config:SiteConfig, onClose:()=>void, balance:number, isPremium:boolean, onRequestUpgrade:()=>void
+}) => {
+  const packs = [
+    { tokens: 200,  label: '☕ Petit Coup de Boost',  price: '0,99 €',  color: 'border-gray-200' },
+    { tokens: 600,  label: '⚡ Pack Semaine',          price: '1,99 €',  color: 'border-amber-300' },
+    { tokens: 1500, label: '🔥 Pack Mensuel',          price: '3,99 €',  color: 'border-orange-400', popular: true },
+  ];
+  return (
+    <div className="fixed inset-0 z-[400] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={onClose}>
+      <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-8 w-full md:max-w-md shadow-2xl space-y-5" onClick={e=>e.stopPropagation()}>
+        <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
+        <div className="text-center space-y-1">
+          <div className="text-4xl">🔥</div>
+          <h2 className="font-black text-2xl tracking-tight">Tokens IA</h2>
+          <p className="text-gray-500 text-sm">Solde actuel : <strong className={balance < 50 ? 'text-red-600' : 'text-gray-800'}>{balance.toLocaleString('fr-FR')} tokens</strong></p>
+          {balance < 50 && <p className="text-xs text-red-500 font-bold animate-pulse">⚠️ Solde faible — l'IA est bloquée</p>}
+        </div>
+        {/* Reset mensuel info */}
+        <div className={`rounded-2xl p-4 text-center text-sm border ${isPremium ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+          <Crown size={16} className={`inline mr-1.5 ${isPremium ? 'text-amber-500' : 'text-gray-400'}`} fill={isPremium ? '#f59e0b' : 'none'}/>
+          <strong>{isPremium ? 'Premium' : 'Gratuit'}</strong> — reset mensuel : <strong>{isPremium ? '2 000' : '500'} tokens</strong>
+          {!isPremium && (
+            <button onClick={onRequestUpgrade} className="block mt-2 mx-auto text-xs font-bold underline text-amber-600 hover:text-amber-800">
+              Passer Premium → 2 000 tokens/mois ☕
+            </button>
+          )}
+        </div>
+        {/* Packs tokens */}
+        <div className="space-y-2">
+          <p className="text-xs text-gray-400 font-bold uppercase tracking-wider text-center">Recharge immédiate</p>
+          {packs.map(pack => (
+            <div key={pack.tokens} className={`relative flex justify-between items-center p-4 rounded-2xl border-2 ${pack.popular ? 'border-orange-400 bg-orange-50' : pack.color + ' bg-white'} cursor-pointer hover:shadow-md transition-all`}
+              onClick={()=>alert('💳 Paiement en ligne bientôt disponible !')}>
+              {pack.popular && <span className="absolute -top-2.5 left-4 bg-orange-500 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full">Populaire</span>}
+              <div>
+                <div className="font-black text-gray-800">{pack.label}</div>
+                <div className="text-xs text-gray-400">+{pack.tokens.toLocaleString('fr-FR')} tokens</div>
+              </div>
+              <div className="font-black text-lg text-gray-800">{pack.price}</div>
+            </div>
+          ))}
+        </div>
+        <p className="text-center text-[10px] text-gray-300">Les tokens se rechargent aussi automatiquement chaque mois.</p>
+        <button onClick={onClose} className="w-full py-3 rounded-2xl bg-gray-100 text-gray-500 font-bold hover:bg-gray-200 transition-colors">Fermer</button>
+      </div>
+    </div>
+  );
+};
+
+// ── Modal gestion tokens admin ──
+const TokenAdminModal = ({ config, user: targetUser, onClose }:{
+  config:SiteConfig, user:{id:string,name:string}, onClose:()=>void
+}) => {
+  const [bal, setBal] = React.useState<number|null>(null);
+  const [adding, setAdding] = React.useState('');
+  React.useEffect(()=>{
+    const ref = doc(db,'user_tokens',targetUser.id);
+    const unsub = onSnapshot(ref, snap => {
+      setBal(snap.exists() ? (snap.data().balance ?? 0) : 0);
+    });
+    return ()=>unsub();
+  },[targetUser.id]);
+
+  const adjust = async (delta: number) => {
+    const ref = doc(db,'user_tokens',targetUser.id);
+    const snap = await getDoc(ref);
+    const cur = snap.exists() ? (snap.data().balance ?? 0) : 0;
+    const newBal = Math.max(0, cur + delta);
+    await setDoc(ref, { balance: newBal, resetMonth: snap.exists() ? snap.data().resetMonth : new Date().toISOString().slice(0,7) }, { merge: true });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[500] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-[2rem] p-7 w-full max-w-sm shadow-2xl space-y-5" onClick={e=>e.stopPropagation()}>
+        <div className="text-center">
+          <div className="text-3xl mb-2">🪙</div>
+          <h3 className="font-black text-xl tracking-tight">{targetUser.name}</h3>
+          <p className="text-gray-400 text-xs">{targetUser.id}</p>
+        </div>
+        <div className="text-center bg-gray-50 rounded-2xl py-5">
+          <div className="text-4xl font-black text-gray-800">{bal !== null ? bal.toLocaleString('fr-FR') : '…'}</div>
+          <div className="text-xs text-gray-400 mt-1">tokens actuels</div>
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          {[-200,-50,+50,+200].map(d=>(
+            <button key={d} onClick={()=>adjust(d)}
+              className={`py-2 rounded-xl font-black text-sm transition-all hover:scale-105 ${d<0?'bg-red-50 text-red-600 border border-red-200':'bg-green-50 text-green-700 border border-green-200'}`}>
+              {d>0?'+':''}{d}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="number" placeholder="Montant libre…"
+            value={adding} onChange={e=>setAdding(e.target.value)}
+            className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-gray-400"
+          />
+          <button onClick={()=>{const n=parseInt(adding);if(!isNaN(n)){adjust(n);setAdding('');}}}
+            className="px-4 rounded-xl font-black text-sm text-white transition-all"
+            style={{backgroundColor:config.primaryColor}}>OK</button>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={()=>adjust(-(bal||0))}
+            className="py-2 rounded-xl bg-gray-100 text-gray-500 font-bold text-xs hover:bg-gray-200">Vider</button>
+          <button onClick={()=>adjust(1000-(bal||0))}
+            className="py-2 rounded-xl bg-black text-white font-bold text-xs hover:bg-gray-800">Reset 1 000</button>
+        </div>
+        <button onClick={onClose} className="w-full py-3 rounded-2xl bg-gray-50 text-gray-400 font-bold text-sm hover:bg-gray-100">Fermer</button>
+      </div>
+    </div>
+  );
+};
+
 const FreemiumModal = ({ config, onClose, onUpgrade }:{config:SiteConfig,onClose:()=>void,onUpgrade:()=>void}) => (
   <div className="fixed inset-0 z-[300] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={onClose}>
     <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-8 w-full md:max-w-md shadow-2xl space-y-5" onClick={e=>e.stopPropagation()}>
@@ -2714,6 +2843,8 @@ const App: React.FC = () => {
   const [showFreemiumModal, setShowFreemiumModal] = useState(false);
   const [wishlistModalOpen, setWishlistModalOpen] = useState(false);
   const [tokenBalance, setTokenBalance] = useState<number|null>(null);
+  const [showTokenShop, setShowTokenShop] = useState(false);   // modal achat tokens
+  const [adminTokenUser, setAdminTokenUser] = useState<{id:string,name:string}|null>(null); // modal tokens admin
 
   // Helper : l'utilisateur courant est-il premium ?
   const isCurrentUserPremium = () => {
@@ -2733,7 +2864,8 @@ const App: React.FC = () => {
     let data = snap.exists() ? snap.data() : null;
     // Reset mensuel si nouveau mois
     if(!data || data.resetMonth !== currentMonth) {
-      const isPro = isCurrentUserPremium();
+      const userDoc = siteUsers.find(u => u.id === user?.email);
+      const isPro = userDoc?.plan === 'pro' || userDoc?.plan === 'premium';
       const resetBal = isPro ? TOKEN_PRO_RESET : TOKEN_FREE_RESET;
       data = { balance: data ? resetBal : TOKEN_WELCOME, resetMonth: currentMonth };
       await setDoc(ref, data);
@@ -2953,14 +3085,37 @@ const App: React.FC = () => {
         <div onClick={()=>setCurrentView('home')} className="flex items-center gap-3 cursor-pointer">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg" style={{backgroundColor:config.primaryColor}}><Home className="text-white" size={20}/></div>
           <span className="font-cinzel font-black text-xl hidden md:block" style={{color:config.primaryColor}}>CHAUD.DEVANT</span>
-          {tokenBalance !== null && (
-            <div className={`hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black border transition-all ${
-              tokenBalance > 200 ? 'bg-green-50 text-green-700 border-green-200' :
-              tokenBalance > 50  ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                   'bg-red-50 text-red-700 border-red-200 animate-pulse'
-            }`}>
-              <Flame size={11}/>
-              <span>{tokenBalance.toLocaleString('fr-FR')}</span>
+          {/* Couronne plan + tokens */}
+          {user && (
+            <div className="hidden md:flex items-center gap-2">
+              {/* Couronne plan */}
+              {(() => {
+                const isPro = isCurrentUserPremium();
+                return (
+                  <button
+                    onClick={isPro ? undefined : ()=>setShowFreemiumModal(true)}
+                    className={`p-1.5 rounded-full transition-all ${isPro ? 'cursor-default' : 'hover:bg-amber-50 cursor-pointer'}`}
+                    title={isPro ? 'Premium ☕' : 'Passer Premium'}
+                  >
+                    <Crown size={18} className={isPro ? 'text-amber-400' : 'text-gray-300'} fill={isPro ? '#fbbf24' : 'none'}/>
+                  </button>
+                );
+              })()}
+              {/* Badge tokens cliquable */}
+              {tokenBalance !== null && (
+                <button
+                  onClick={()=>setShowTokenShop(true)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black border transition-all hover:scale-105 ${
+                    tokenBalance > 200 ? 'bg-green-50 text-green-700 border-green-200' :
+                    tokenBalance > 50  ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                         'bg-red-50 text-red-700 border-red-200 animate-pulse'
+                  }`}
+                  title="Mes tokens IA — cliquer pour recharger"
+                >
+                  <Flame size={11}/>
+                  <span>{tokenBalance.toLocaleString('fr-FR')}</span>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -2970,13 +3125,25 @@ const App: React.FC = () => {
               <button key={v} onClick={()=>setCurrentView(v)} className="text-xs font-black tracking-widest opacity-40 hover:opacity-100 uppercase" style={{color:currentView===v?config.primaryColor:'inherit'}}>{config.navigationLabels[v as keyof typeof config.navigationLabels]||v}</button>
             ))}
           </div>
-          {tokenBalance !== null && (
-            <div className={`md:hidden flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black border ${
-              tokenBalance > 200 ? 'bg-green-50 text-green-700 border-green-200' :
-              tokenBalance > 50  ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                   'bg-red-50 text-red-700 border-red-200 animate-pulse'
-            }`}>
-              <Flame size={9}/>{tokenBalance.toLocaleString('fr-FR')}
+          {user && (
+            <div className="md:hidden flex items-center gap-1.5">
+              {/* Couronne mobile */}
+              <button onClick={isCurrentUserPremium() ? undefined : ()=>setShowFreemiumModal(true)} className="p-1">
+                <Crown size={15} className={isCurrentUserPremium() ? 'text-amber-400' : 'text-gray-300'} fill={isCurrentUserPremium() ? '#fbbf24' : 'none'}/>
+              </button>
+              {/* Tokens mobile cliquable */}
+              {tokenBalance !== null && (
+                <button
+                  onClick={()=>setShowTokenShop(true)}
+                  className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-black border ${
+                    tokenBalance > 200 ? 'bg-green-50 text-green-700 border-green-200' :
+                    tokenBalance > 50  ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                         'bg-red-50 text-red-700 border-red-200 animate-pulse'
+                  }`}
+                >
+                  <Flame size={9}/>{tokenBalance.toLocaleString('fr-FR')}
+                </button>
+              )}
             </div>
           )}
           <button onClick={()=>setIsNotifOpen(true)} className="relative p-2 text-gray-400 hover:text-black transition-colors">
@@ -3023,6 +3190,26 @@ const App: React.FC = () => {
 
         {/* MODALE FREEMIUM GLOBALE */}
         {showFreemiumModal&&<FreemiumModal config={config} onClose={()=>setShowFreemiumModal(false)} onUpgrade={requestPremiumUpgrade}/>}
+
+        {/* Modal achat tokens */}
+        {showTokenShop&&tokenBalance!==null&&(
+          <TokenShopModal
+            config={config}
+            onClose={()=>setShowTokenShop(false)}
+            balance={tokenBalance}
+            isPremium={isCurrentUserPremium()}
+            onRequestUpgrade={()=>{setShowTokenShop(false);setShowFreemiumModal(true);}}
+          />
+        )}
+
+        {/* Modal admin tokens utilisateur */}
+        {adminTokenUser&&(
+          <TokenAdminModal
+            config={config}
+            user={adminTokenUser}
+            onClose={()=>setAdminTokenUser(null)}
+          />
+        )}
 
         {/* HUB */}
         {currentView==='hub'&&(isPageLocked('hub')?<MaintenancePage pageName="Le Tableau"/>:(
