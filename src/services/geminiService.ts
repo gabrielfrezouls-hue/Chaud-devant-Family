@@ -201,14 +201,59 @@ Réponds UNIQUEMENT en JSON sans markdown :
 // EXTRACTION PRODUIT DEPUIS URL (WishList)
 // Utilise le tool "url_context" : Gemini fetch lui-même la page côté serveurs Google.
 // Contourne Cloudflare/Amazon sans backend. Dispo sur gemini-2.5-flash-lite + gemini-2.0-flash.
+// Normalise une URL e-commerce pour maximiser la compatibilité avec url_context
+// Amazon : extrait l'ASIN et reconstruit une URL canonique /dp/ASIN
+// Autres sites : supprime les paramètres tracking
+const normalizeProductUrl = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname;
+
+    // ── Amazon : URL canonique /dp/ASIN (sans query params) ──
+    if (host.includes("amazon.")) {
+      const asinMatch = path.match(/\/dp\/([A-Z0-9]{10})/);
+      if (asinMatch) {
+        const domain = host.includes("amazon.fr") ? "www.amazon.fr"
+          : host.includes("amazon.co.uk") ? "www.amazon.co.uk"
+          : host.includes("amazon.de") ? "www.amazon.de"
+          : "www.amazon.com";
+        return `https://${domain}/dp/${asinMatch[1]}`;
+      }
+    }
+
+    // ── Sites courants : supprimer les query params tracking ──
+    const cleanHosts = ["fnac.", "darty.", "ikea.", "boulanger.", "cdiscount.",
+                        "zalando.", "decathlon.", "leroy", "manomano.", "cultura.",
+                        "rakuten.", "ldlc.", "rue-du-commerce.", "materiel.net"];
+    if (cleanHosts.some(s => host.includes(s))) {
+      return `${parsed.protocol}//${parsed.host}${path}`.replace(/\/$/, "");
+    }
+
+    return url;
+  } catch {
+    return url;
+  }
+};
+
 export const extractProductFromUrl = async (url: string): Promise<{ name: string; imageUrl: string; price: string } | null> => {
   const apiKey = getApiKey();
   if (!apiKey) return null;
 
-  for (const model of MODELS) {
+  // Normaliser l'URL (Amazon ASIN propre, supprimer tracking params)
+  const cleanUrl = normalizeProductUrl(url);
+  console.log(`[extractProduct] URL originale: ${url}`);
+  console.log(`[extractProduct] URL normalisée: ${cleanUrl}`);
+
+  // url_context fonctionne mieux avec gemini-2.0-flash — on le met en premier ici
+  const urlContextModels = MODELS.includes("gemini-2.0-flash")
+    ? ["gemini-2.0-flash", ...MODELS.filter(m => m !== "gemini-2.0-flash")]
+    : MODELS;
+
+  for (const model of urlContextModels) {
     try {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 25000);
+      const timer = setTimeout(() => ctrl.abort(), 30000);
 
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -220,7 +265,7 @@ export const extractProductFromUrl = async (url: string): Promise<{ name: string
             tools: [{ url_context: {} }],
             contents: [{
               parts: [{
-                text: `Accède à cette URL de produit : ${url}
+                text: `Accède à cette URL de produit : ${cleanUrl}
 
 Lis la page et extrais :
 1. Le NOM EXACT du produit (nom commercial complet, sans mention du site vendeur)
