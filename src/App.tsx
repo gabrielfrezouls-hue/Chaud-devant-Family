@@ -6,7 +6,7 @@ import {
   where, getDoc, getDocs, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import {
-  Lock, Menu, X, Home, BookHeart, ChefHat, Wallet, PiggyBank,
+  Lock, Menu, X, Home, BookHeart, ChefHat, Wallet, PiggyBank, ArrowLeftRight,
   Calendar as CalIcon, Settings, Code, Sparkles, Send, History,
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
@@ -20,6 +20,21 @@ import RecipeCard from './components/RecipeCard';
 
 // --- SÉCURITÉ ---
 const ADMIN_EMAIL = "gabriel.frezouls@gmail.com";
+
+// ── SYSTÈME DE TOKENS IA ──
+// Coût en tokens par opération (calibré pour ~1000 tokens = 1 mois normal)
+const TOKEN_COSTS = {
+  majordome:       8,   // Chat Majordome IA
+  classify:        2,   // Classifier un produit frigo (texte simple)
+  scanPhoto:      15,   // Scan photo produit (vision = coûteux)
+  scanBarcode:     5,   // Lecture code-barre photo
+  extractRecipe:  10,   // Importer une recette depuis URL
+  extractProduct: 12,   // Extraire produit pour WishList (url_context)
+  architect:      20,   // Architecte IA (gros JSON)
+};
+const TOKEN_WELCOME   = 1000; // Tokens offerts à l'inscription
+const TOKEN_FREE_RESET  = 500;  // Tokens au reset mensuel (gratuit)
+const TOKEN_PRO_RESET  = 2000; // Tokens au reset mensuel (premium)
 
 // --- LISTE MAGASINS ---
 const COMMON_STORES = [
@@ -176,8 +191,9 @@ const GaugeBar = ({level, onClick}:{level:GaugeLevel, onClick:()=>void}) => {
   );
 };
 
-const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { user:User, config:SiteConfig, onNavigate?:(v:string)=>void, isPremium?:boolean, onShowFreemium?:()=>void }) => {
+const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consumeTokens }: { user:User, config:SiteConfig, onNavigate?:(v:string)=>void, isPremium?:boolean, onShowFreemium?:()=>void, consumeTokens?:(cost:number)=>Promise<boolean> }) => {
   const [items, setItems] = useState<FrigoItem[]>([]);
+  const [learningMap, setLearningMap] = useState<Record<string,'frigo'|'cellier'>>({});
   const [frigotab, setFrigotab] = useState<'frigo'|'cellier'>('frigo');
   const [newItem, setNewItem] = useState({ name:'', quantity:1, unit:'pcs', expiryDate:'', hasExpiry:true });
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -234,6 +250,9 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { us
     const file = e.target.files?.[0]; if(!file) return; e.target.value='';
     setIsLoading(true); setScanMsg('⏳ Lecture du code-barre...');
     try {
+      // Barcode photo = 5 tokens
+      const canRun = !consumeTokens || await consumeTokens(5);
+      if(!canRun) { setScanMsg('🔥 Tokens insuffisants (5 requis)'); setIsLoading(false); return; }
       const { readBarcodeFromImage } = await import('./services/geminiService');
       const code = await readBarcodeFromImage(file);
       if(code) { setScanMsg(`✅ Code : ${code} — Recherche...`); await fetchProductByBarcode(code); }
@@ -247,27 +266,75 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { us
     return ()=>unsub();
   },[]);
 
+  // Charger la mémoire d'apprentissage (préférences de placement)
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db,'frigo_learning'), snap => {
+      const map: Record<string,'frigo'|'cellier'> = {};
+      snap.docs.forEach(d => { map[d.id] = d.data().preferredTab as 'frigo'|'cellier'; });
+      setLearningMap(map);
+    });
+    return () => unsub();
+  },[]);
+
   const SHELF_LIFE: Record<string,number> = {
     'Boucherie/Poisson':3,'Boulangerie':3,'Plat préparé':4,'Restes':4,'Primeur':7,
     'Frais & Crèmerie':10,'Épicerie Salée':90,'Épicerie Sucrée':90,'Boissons':90,'Surgelés':90,'Divers':14,
   };
 
+  // Normalise un nom pour la clé de mémoire (minuscules, sans accents, sans espaces superflus)
+  const normalizeName = (name: string) => name.toLowerCase().trim().replace(/\s+/g,'_').replace(/[àâä]/g,'a').replace(/[éèêë]/g,'e').replace(/[îï]/g,'i').replace(/[ôö]/g,'o').replace(/[ùûü]/g,'u').replace(/[^a-z0-9_]/g,'');
+
+  // Déplace un article entre frigo ↔ cellier ET mémorise la préférence
+  const moveItem = async (item: FrigoItem) => {
+    const isCurrCellier = CELLIER_CATEGORIES.includes(item.category);
+    // Si dans cellier → passer en Primeur (frigo) ; si dans frigo → passer en Épicerie Salée (cellier)
+    const newCategory = isCurrCellier ? 'Primeur' : 'Épicerie Salée';
+    const newTab: 'frigo'|'cellier' = isCurrCellier ? 'frigo' : 'cellier';
+    const newGauge = !isCurrCellier ? 'plein' : undefined;
+    await updateDoc(doc(db,'frigo_items',item.id),{
+      category: newCategory,
+      ...(newGauge !== undefined ? {gaugeLevel: newGauge} : {gaugeLevel: null}),
+    });
+    // Mémoriser la préférence
+    const key = normalizeName(item.name);
+    await setDoc(doc(db,'frigo_learning',key),{
+      name: item.name, preferredTab: newTab, updatedAt: new Date().toISOString()
+    });
+    setScanMsg(\`↕️ "${item.name}" déplacé en \${newTab === 'frigo' ? 'Frigo (Primeur)' : 'Cellier'} · Mémorisé !\`);
+    setTimeout(()=>setScanMsg(''),3500);
+  };
+
   const addItem = async () => {
     if(!newItem.name.trim()) return;
     setIsLoading(true); setScanMsg('⏳ Classification IA...');
+    const nameKey = normalizeName(newItem.name);
     try {
-      const { classifyFrigoItem } = await import('./services/geminiService');
-      const aiResult = await classifyFrigoItem(newItem.name.trim());
-      const category = aiResult?.category || categorizeShoppingItem(newItem.name);
+      // 1. Vérifier d'abord la mémoire d'apprentissage
+      const learnedTab = learningMap[nameKey];
+      let category: string;
+      let aiResult: any = null;
+
+      if(learnedTab) {
+        // Mémoire connue → forcer la catégorie correspondante
+        category = learnedTab === 'frigo' ? 'Primeur' : 'Épicerie Salée';
+        setScanMsg(\`⭐ "\${newItem.name.trim()}" → \${category} (mémorisé)\`);
+      } else {
+        // 2. Classification IA (coût : 2 tokens)
+        const canRun = !consumeTokens || await consumeTokens(2);
+        if(!canRun) { setScanMsg('🔥 Tokens insuffisants — rechargement mensuel automatique'); setIsLoading(false); return; }
+        const { classifyFrigoItem } = await import('./services/geminiService');
+        aiResult = await classifyFrigoItem(newItem.name.trim());
+        category = aiResult?.category || categorizeShoppingItem(newItem.name);
+      }
+
       const isCellier = CELLIER_CATEGORIES.includes(category);
-      // Pour le cellier, pas de date de péremption (sauf si forcée)
       const expiryDate = (!isCellier && newItem.hasExpiry) ? (newItem.expiryDate || aiResult?.expiryDate || '') : '';
       await addDoc(collection(db,'frigo_items'),{
         ...newItem, name:newItem.name.trim(), category, expiryDate,
         gaugeLevel: isCellier ? 'plein' : undefined,
         addedAt: new Date().toISOString()
       });
-      setScanMsg(`✅ "${newItem.name.trim()}" → ${category}${expiryDate?` · péremption ${expiryDate}`:isCellier?' · Cellier':''}`);
+      if(!learnedTab) setScanMsg(\`✅ "\${newItem.name.trim()}" → \${category}\${expiryDate?' · péremption '+expiryDate:isCellier?' · Cellier':''}\`);
       setNewItem({name:'',quantity:1,unit:'pcs',expiryDate:'',hasExpiry:true});
       setTimeout(()=>setScanMsg(''),4000);
     } catch {
@@ -315,15 +382,25 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { us
     }
     setIsLoading(true); setScanMsg('⏳ Analyse IA...');
     try {
+      // Scan photo = vision = 15 tokens
+      const canRun = !consumeTokens || await consumeTokens(15);
+      if(!canRun) { setScanMsg('🔥 Tokens insuffisants (15 requis) — rechargement mensuel automatique'); setIsLoading(false); return; }
       const result = await scanProductImage(file);
       if(result?.name) {
-        const isCellier=CELLIER_CATEGORIES.includes(result.category||'');
+        // Vérifier la mémoire d'apprentissage
+        const nameKey = normalizeName(result.name);
+        const learnedTab = learningMap[nameKey];
+        const category = learnedTab
+          ? (learnedTab === 'frigo' ? 'Primeur' : 'Épicerie Salée')
+          : (result.category||categorizeShoppingItem(result.name));
+        const isCellier=CELLIER_CATEGORIES.includes(category);
         await addDoc(collection(db,'frigo_items'),{
-          name:result.name, category:result.category||categorizeShoppingItem(result.name),
+          name:result.name, category,
           expiryDate:isCellier?'':(result.expiryDate||''),
           gaugeLevel:isCellier?'plein':undefined, quantity:1, unit:'pcs', addedAt:new Date().toISOString()
         });
-        setScanMsg(`✅ "${result.name}" (${result.category})`);
+        setScanMsg(`✅ "${result.name}" (${category})${learnedTab?' ⭐':''}`);
+
       } else setScanMsg('❌ Non reconnu.');
     } catch { setScanMsg('❌ Erreur analyse.'); }
     setIsLoading(false);
@@ -498,6 +575,11 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { us
                       className="opacity-30 group-hover:opacity-100 p-1.5 bg-orange-50 text-orange-500 rounded-lg hover:bg-orange-100 transition-all"
                       title="Ajouter aux courses"
                     ><ShoppingCart size={13}/></button>
+                    <button
+                      onClick={()=>moveItem(item)}
+                      className="opacity-30 group-hover:opacity-100 p-1.5 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100 transition-all"
+                      title="Déplacer au Cellier (mémoriser)"
+                    ><ArrowLeftRight size={13}/></button>
                     <button onClick={()=>deleteItem(item.id)} className="opacity-30 group-hover:opacity-100 md:opacity-0 text-gray-300 hover:text-red-500 transition-opacity touch-action-manipulation"><X size={16}/></button>
                   </div>
                 </div>
@@ -530,6 +612,11 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { us
                     </div>
                     <div className="flex items-center gap-2">
                       <GaugeBar level={(item as any).gaugeLevel||'plein'} onClick={()=>cycleGauge(item)}/>
+                      <button
+                        onClick={()=>moveItem(item)}
+                        className="opacity-30 group-hover:opacity-100 p-1.5 bg-blue-50 text-blue-500 rounded-lg hover:bg-blue-100 transition-all"
+                        title="Déplacer au Frigo (mémoriser)"
+                      ><ArrowLeftRight size={12}/></button>
                       <button onClick={()=>deleteItem(item.id)} className="opacity-30 group-hover:opacity-100 md:opacity-0 text-gray-300 hover:text-red-500 transition-opacity"><X size={14}/></button>
                     </div>
                   </div>
@@ -546,7 +633,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium }: { us
 // ==========================================
 // COMPOSANT MAJORDOME IA (Flottant dans HUB)
 // ==========================================
-const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecipe, onAddSemainier, isPremium, onShowFreemium }: { user:User, config:SiteConfig, hubItems:any[], addHubItem:(content:string)=>void, recipes?:any[], onAddRecipe?:(r:any)=>void, onAddSemainier?:(title:string)=>void, isPremium?:boolean, onShowFreemium?:()=>void }) => {
+const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecipe, onAddSemainier, isPremium, onShowFreemium, consumeTokens }: { user:User, config:SiteConfig, hubItems:any[], addHubItem:(content:string)=>void, recipes?:any[], onAddRecipe?:(r:any)=>void, onAddSemainier?:(title:string)=>void, isPremium?:boolean, onShowFreemium?:()=>void, consumeTokens?:(cost:number)=>Promise<boolean> }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Array<ChatMessage & {actions?:any[]}>>([
     { role:'assistant', text:'Bonjour ! Je suis votre Majordome. Je peux vous conseiller, suggérer des recettes selon votre frigo, ou ajouter des éléments à vos listes. Que puis-je faire ?' }
@@ -566,16 +653,13 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecip
   const send = async () => {
     if(!input.trim()||isLoading) return;
 
-    // Garde freemium
-    if(!isPremium) {
-      const weekKey = getWeekKey();
-      const stored = JSON.parse(localStorage.getItem('butler_quota')||'{}');
-      const count = stored[weekKey] || 0;
-      if(count >= 3) {
-        if(onShowFreemium) onShowFreemium();
+    // Garde tokens (8 tokens par message Majordome)
+    if(consumeTokens) {
+      const ok = await consumeTokens(8);
+      if(!ok) {
+        setMessages(prev => [...prev, { role:'assistant' as const, text:'🔥 Tokens IA insuffisants. Votre solde se recharge automatiquement chaque mois (500 en gratuit, 2000 en premium).' }]);
         return;
       }
-      localStorage.setItem('butler_quota', JSON.stringify({...stored,[weekKey]:count+1}));
     }
     const userMsg = input.trim();
     setInput('');
@@ -619,18 +703,13 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecip
     setIsLoading(false);
   };
 
-  // Calcul quota restant affiché
-  const weekKey = getWeekKey();
-  const storedQuota = typeof window!=='undefined' ? JSON.parse(localStorage.getItem('butler_quota')||'{}') : {};
-  const usedThisWeek = storedQuota[weekKey] || 0;
-  const remainingQuota = isPremium ? null : Math.max(0, 3 - usedThisWeek);
+  // Plus de quota hebdomadaire — remplacé par le système de tokens global
 
   return (
     <>
       <button onClick={()=>setIsOpen(true)} className="fixed bottom-28 md:bottom-8 right-6 z-50 w-14 h-14 rounded-full text-white shadow-2xl flex items-center justify-center hover:scale-110 transition-transform relative" style={{backgroundColor:config.primaryColor}}>
         <Bot size={24}/>
-        {remainingQuota===0&&<span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-400 rounded-full text-white text-[9px] font-black flex items-center justify-center">!</span>}
-        {remainingQuota!==null&&remainingQuota>0&&<span className="absolute -top-1 -right-1 w-5 h-5 bg-gray-900 rounded-full text-white text-[9px] font-black flex items-center justify-center">{remainingQuota}</span>}
+        {/* Badge tokens géré dans la navbar principale */}
       </button>
 
       {isOpen&&(
@@ -641,7 +720,7 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecip
               <div>
                 <div className="font-black text-white text-sm">LE MAJORDOME</div>
                 <div className="text-white/60 text-[10px]">
-                  {isPremium ? 'Conseiller IA — Recettes, Courses, Frigo' : `${remainingQuota} requête${remainingQuota!==1?'s':''} restante${remainingQuota!==1?'s':''} cette semaine`}
+                  {'Conseiller IA — Recettes, Courses, Frigo'}
                 </div>
               </div>
             </div>
@@ -682,7 +761,7 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecip
 // ==========================================
 // COMPOSANT HUB (TABLEAU)
 // ==========================================
-const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemainier, isPremium, onShowFreemium }: { user:User, config:SiteConfig, usersMapping:any, recipes?:any[], onAddRecipe?:(r:any)=>void, onAddSemainier?:(title:string)=>void, isPremium?:boolean, onShowFreemium?:()=>void }) => {
+const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemainier, isPremium, onShowFreemium, consumeTokens }: { user:User, config:SiteConfig, usersMapping:any, recipes?:any[], onAddRecipe?:(r:any)=>void, onAddSemainier?:(title:string)=>void, isPremium?:boolean, onShowFreemium?:()=>void, consumeTokens?:(cost:number)=>Promise<boolean> }) => {
   const [hubItems, setHubItems] = useState<any[]>([]);
   const [newItem, setNewItem] = useState('');
   const [storeSearch, setStoreSearch] = useState('');
@@ -880,6 +959,7 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
         onAddSemainier={onAddSemainier}
         isPremium={isPremium}
         onShowFreemium={onShowFreemium}
+        consumeTokens={consumeTokens}
       />
     </div>
   );
@@ -1050,7 +1130,6 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
     if(!recipeUrl.trim()) return;
     setIsImporting(true);
     try {
-      // extractRecipeFromUrl retourne { title, chef, category, ingredients, steps }
       const parsed = await extractRecipeFromUrl(recipeUrl.trim());
       if(parsed && parsed.title) {
         setCurrentRecipe({...currentRecipe, ...parsed});
@@ -2048,7 +2127,7 @@ const FreemiumModal = ({ config, onClose, onUpgrade }:{config:SiteConfig,onClose
   </div>
 );
 
-const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, config:SiteConfig, siteUsers:any[], onModalChange?:(open:boolean)=>void }) => {
+const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }: { user:User, config:SiteConfig, siteUsers:any[], onModalChange?:(open:boolean)=>void, consumeTokens?:(cost:number)=>Promise<boolean> }) => {
   const isPremium = useIsPremium(user.email, siteUsers);
   const [lists, setLists]     = useState<any[]>([]);
   const [activeList, setActiveList] = useState<any|null>(null);
@@ -2164,6 +2243,11 @@ const WishlistView = ({ user, config, siteUsers, onModalChange }: { user:User, c
   // Scrape URL via extractProductFromUrl (Gemini Search Grounding + fallbacks)
   const scrapeUrl = async () => {
     if(!urlInput.trim()) return;
+    // Vérification tokens (12 tokens pour url_context)
+    if(consumeTokens) {
+      const ok = await consumeTokens(12);
+      if(!ok) { setUrlError('🔥 Tokens insuffisants (12 requis). Recharge mensuelle automatique.'); return; }
+    }
     setUrlLoading(true); setUrlError('🔍 Extraction en cours…');
     try {
       const { extractProductFromUrl } = await import('./services/geminiService');
@@ -2629,12 +2713,35 @@ const App: React.FC = () => {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [showFreemiumModal, setShowFreemiumModal] = useState(false);
   const [wishlistModalOpen, setWishlistModalOpen] = useState(false);
+  const [tokenBalance, setTokenBalance] = useState<number|null>(null);
 
   // Helper : l'utilisateur courant est-il premium ?
   const isCurrentUserPremium = () => {
     if(!user?.email) return false;
     const u = siteUsers.find(u=>u.id===user.email);
     return u?.plan==='pro' || u?.plan==='premium';
+  };
+
+  // ── Consommer des tokens IA ──
+  // Retourne true si OK, false si solde insuffisant
+  const consumeTokens = async (cost: number): Promise<boolean> => {
+    if(!user?.email) return false;
+    const ref = doc(db,'user_tokens',user.email);
+    const snap = await getDoc(ref);
+    const now = new Date();
+    const currentMonth = now.toISOString().slice(0,7); // "2026-03"
+    let data = snap.exists() ? snap.data() : null;
+    // Reset mensuel si nouveau mois
+    if(!data || data.resetMonth !== currentMonth) {
+      const isPro = isCurrentUserPremium();
+      const resetBal = isPro ? TOKEN_PRO_RESET : TOKEN_FREE_RESET;
+      data = { balance: data ? resetBal : TOKEN_WELCOME, resetMonth: currentMonth };
+      await setDoc(ref, data);
+    }
+    if(data.balance < cost) return false; // Solde insuffisant
+    await updateDoc(ref,{ balance: data.balance - cost });
+    setTokenBalance(data.balance - cost);
+    return true;
   };
 
   // Demande d'upgrade → notif admin
@@ -2678,6 +2785,25 @@ const App: React.FC = () => {
     const unsubV=onSnapshot(query(collection(db,'site_versions'),orderBy('date','desc')),s=>setVersions(s.docs.map(d=>({...d.data(),id:d.id} as SiteVersion))),ignoreError);
     const unsubT=onSnapshot(collection(db,'chores_status'),s=>{const status:Record<string,any>={};s.docs.forEach(d=>{status[d.id]=d.data();});setChoreStatus(status);},ignoreError);
     const unsubU=onSnapshot(collection(db,'site_users'),s=>{const users=s.docs.map(d=>({id:d.id,...d.data()}));setSiteUsers(users);const newMap:Record<string,string>={};users.forEach((u:any)=>{if(u.letter)newMap[u.id]=u.letter;});setUsersMapping(newMap);},ignoreError);
+    // Écouter le solde de tokens en temps réel
+    const unsubTokens = onSnapshot(doc(db,'user_tokens',user.email!), async snap => {
+      const now = new Date();
+      const currentMonth = now.toISOString().slice(0,7);
+      if(snap.exists()) {
+        const data = snap.data();
+        if(data.resetMonth !== currentMonth) {
+          // Nouveau mois → reset
+          const isPro = siteUsers.find(u=>u.id===user.email)?.plan === 'pro' || siteUsers.find(u=>u.id===user.email)?.plan === 'premium';
+          await setDoc(doc(db,'user_tokens',user.email!),{ balance: isPro ? TOKEN_PRO_RESET : TOKEN_FREE_RESET, resetMonth: currentMonth });
+        } else {
+          setTokenBalance(data.balance ?? TOKEN_WELCOME);
+        }
+      } else {
+        // Première connexion → tokens de bienvenue
+        await setDoc(doc(db,'user_tokens',user.email!),{ balance: TOKEN_WELCOME, resetMonth: currentMonth });
+        setTokenBalance(TOKEN_WELCOME);
+      }
+    });
     const unsubN=onSnapshot(query(collection(db,'notifications'),orderBy('createdAt','desc')),s=>{
       const raw=s.docs.map(d=>({id:d.id,...d.data()} as AppNotification));
       const visible=raw.filter(n=>{
@@ -2694,7 +2820,7 @@ const App: React.FC = () => {
       });
       setNotifications(visible);
     },ignoreError);
-    return()=>{unsubC();unsubM();unsubX();unsubR();unsubE();unsubV();unsubT();unsubU();unsubN();};
+    return()=>{unsubC();unsubM();unsubX();unsubR();unsubE();unsubV();unsubT();unsubU();unsubN();unsubTokens();};
   },[user]);
 
   // DEEP LINKING
@@ -2737,7 +2863,12 @@ const App: React.FC = () => {
   const toggleChore=async(weekId:string,letter:string)=>{try{const current=choreStatus[weekId]?.[letter]||false;await setDoc(doc(db,'chores_status',weekId),{[letter]:!current},{merge:true});}catch(e){console.error("Erreur coche",e);}};
   const toggleFavorite=async(siteId:string)=>{if(!user||!user.email)return;const ref=doc(db,'user_prefs',user.email);try{if(favorites.includes(siteId)){await setDoc(ref,{favorites:arrayRemove(siteId)},{merge:true});setFavorites(prev=>prev.filter(id=>id!==siteId));}else{await setDoc(ref,{favorites:arrayUnion(siteId)},{merge:true});setFavorites(prev=>[...prev,siteId]);}}catch(e){console.error("Error toggle fav",e);}};
   const openEditRecipe=(recipe:any)=>{const ingredientsStr=Array.isArray(recipe.ingredients)?recipe.ingredients.join('\n'):recipe.ingredients;const stepsStr=recipe.steps||recipe.instructions||'';setCurrentRecipe({...recipe,ingredients:ingredientsStr,steps:stepsStr});setIsRecipeModalOpen(true);};
-  const handleArchitect=async()=>{if(!aiPrompt.trim())return;setIsAiLoading(true);const n=await askAIArchitect(aiPrompt,config);if(n)await saveConfig({...config,...n},true);setIsAiLoading(false);};
+  const handleArchitect=async()=>{
+    if(!aiPrompt.trim())return;
+    const ok = await consumeTokens(20);
+    if(!ok){alert('🔥 Tokens insuffisants (20 requis pour l'Architecte).');return;}
+    setIsAiLoading(true);const n=await askAIArchitect(aiPrompt,config);if(n)await saveConfig({...config,...n},true);setIsAiLoading(false);
+  };
   const handleChat=async()=>{if(!aiPrompt.trim())return;const h=[...chatHistory,{role:'user',text:aiPrompt}];setChatHistory(h);setAiPrompt('');setIsAiLoading(true);const r=await askAIChat(h);setChatHistory([...h,{role:'model',text:r}]);setIsAiLoading(false);};
   const addRecipeToHub=async(recipe:any)=>{if(!confirm(`Ajouter les ingrédients de "${recipe.title}" à la liste de courses ?`))return;const ingredients=Array.isArray(recipe.ingredients)?recipe.ingredients:(typeof recipe.ingredients==='string'?recipe.ingredients.split('\n'):[]);let count=0;for(let ing of ingredients){const cleanIng=ing.trim();if(cleanIng){await addDoc(collection(db,'hub_items'),{type:'shop',content:cleanIng,category:categorizeShoppingItem(cleanIng),author:'Chef',createdAt:new Date().toISOString(),done:false});count++;}}alert(`${count} ingrédients ajoutés au Tableau !`);};
   const markNotifRead=async(notifId:string)=>{if(!user?.email)return;await setDoc(doc(db,'notifications',notifId),{readBy:{[user.email]:new Date().toISOString()}},{merge:true});};
@@ -2822,6 +2953,16 @@ const App: React.FC = () => {
         <div onClick={()=>setCurrentView('home')} className="flex items-center gap-3 cursor-pointer">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg" style={{backgroundColor:config.primaryColor}}><Home className="text-white" size={20}/></div>
           <span className="font-cinzel font-black text-xl hidden md:block" style={{color:config.primaryColor}}>CHAUD.DEVANT</span>
+          {tokenBalance !== null && (
+            <div className={`hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black border transition-all ${
+              tokenBalance > 200 ? 'bg-green-50 text-green-700 border-green-200' :
+              tokenBalance > 50  ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                   'bg-red-50 text-red-700 border-red-200 animate-pulse'
+            }`}>
+              <Flame size={11}/>
+              <span>{tokenBalance.toLocaleString('fr-FR')}</span>
+            </div>
+          )}
         </div>
         <div className="flex gap-4 items-center">
           <div className="hidden md:flex gap-6">
@@ -2829,6 +2970,15 @@ const App: React.FC = () => {
               <button key={v} onClick={()=>setCurrentView(v)} className="text-xs font-black tracking-widest opacity-40 hover:opacity-100 uppercase" style={{color:currentView===v?config.primaryColor:'inherit'}}>{config.navigationLabels[v as keyof typeof config.navigationLabels]||v}</button>
             ))}
           </div>
+          {tokenBalance !== null && (
+            <div className={`md:hidden flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-black border ${
+              tokenBalance > 200 ? 'bg-green-50 text-green-700 border-green-200' :
+              tokenBalance > 50  ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                   'bg-red-50 text-red-700 border-red-200 animate-pulse'
+            }`}>
+              <Flame size={9}/>{tokenBalance.toLocaleString('fr-FR')}
+            </div>
+          )}
           <button onClick={()=>setIsNotifOpen(true)} className="relative p-2 text-gray-400 hover:text-black transition-colors">
             <Bell size={24}/>
             {notifications.length>0&&<span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"/>}
@@ -2881,6 +3031,7 @@ const App: React.FC = () => {
             recipes={recipes}
             isPremium={isCurrentUserPremium()}
             onShowFreemium={()=>setShowFreemiumModal(true)}
+            consumeTokens={consumeTokens}
             onAddRecipe={(r:any)=>addEntry('family_recipes',r)}
             onAddSemainier={(title:string)=>{
               const today=new Date();
@@ -2901,7 +3052,7 @@ const App: React.FC = () => {
               <h2 className="text-2xl md:text-5xl font-black tracking-tight text-center" style={{color:config.primaryColor}}>MON FRIGO</h2>
               <p className="text-gray-500 italic text-sm">Inventaire intelligent & gestion anti-gaspi</p>
             </div>
-            <FrigoView user={user} config={config} isPremium={isCurrentUserPremium()} onShowFreemium={()=>setShowFreemiumModal(true)}/>
+            <FrigoView user={user} config={config} isPremium={isCurrentUserPremium()} onShowFreemium={()=>setShowFreemiumModal(true)} consumeTokens={consumeTokens}/>
           </div>
           )
         )}
@@ -2913,7 +3064,7 @@ const App: React.FC = () => {
         {currentView==='wishlist'&&(
           isPageLocked('wishlist') ? <MaintenancePage pageName="WishLists"/> : (
           <div className="space-y-6" id="wishlist-top">
-            <WishlistView user={user} config={config} siteUsers={siteUsers} onModalChange={setWishlistModalOpen}/>
+            <WishlistView user={user} config={config} siteUsers={siteUsers} onModalChange={setWishlistModalOpen} consumeTokens={consumeTokens}/>
           </div>
           )
         )}
