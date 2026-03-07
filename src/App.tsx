@@ -300,7 +300,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
     await setDoc(doc(db,'frigo_learning',key),{
       name: item.name, preferredTab: newTab, updatedAt: new Date().toISOString()
     });
-    setScanMsg(\`↕️ "${item.name}" déplacé en \${newTab === 'frigo' ? 'Frigo (Primeur)' : 'Cellier'} · Mémorisé !\`);
+    setScanMsg(`↕️ "${item.name}" déplacé en ${newTab === 'frigo' ? 'Frigo (Primeur)' : 'Cellier'} · Mémorisé !`);
     setTimeout(()=>setScanMsg(''),3500);
   };
 
@@ -317,7 +317,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
       if(learnedTab) {
         // Mémoire connue → forcer la catégorie correspondante
         category = learnedTab === 'frigo' ? 'Primeur' : 'Épicerie Salée';
-        setScanMsg(\`⭐ "\${newItem.name.trim()}" → \${category} (mémorisé)\`);
+        setScanMsg(`⭐ "${newItem.name.trim()}" → ${category} (mémorisé)`);
       } else {
         // 2. Classification IA (coût : 2 tokens)
         const canRun = !consumeTokens || await consumeTokens(2);
@@ -334,7 +334,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
         gaugeLevel: isCellier ? 'plein' : undefined,
         addedAt: new Date().toISOString()
       });
-      if(!learnedTab) setScanMsg(\`✅ "\${newItem.name.trim()}" → \${category}\${expiryDate?' · péremption '+expiryDate:isCellier?' · Cellier':''}\`);
+      if(!learnedTab) setScanMsg(`✅ "${newItem.name.trim()}" → ${category}${expiryDate?' · péremption '+expiryDate:isCellier?' · Cellier':''}`);
       setNewItem({name:'',quantity:1,unit:'pcs',expiryDate:'',hasExpiry:true});
       setTimeout(()=>setScanMsg(''),4000);
     } catch {
