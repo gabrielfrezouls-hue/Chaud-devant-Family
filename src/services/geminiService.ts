@@ -133,10 +133,31 @@ export const classifyFrigoItem = async (productName: string) => {
   const res = await callGemini({
     contents: [{
       parts: [{
-        text: `Classifie ce produit alimentaire : "${productName}".
+        text: `Classifie ce produit pour un frigo/cellier familial : "${productName}".
+
+RÈGLE CRITIQUE — Primeur (FRIGO, se conserve au froid) :
+Tout fruit ou légume FRAIS va en "Primeur" : pomme, poire, banane, citron, orange, mangue, fraise, raisin, kiwi, tomate, carotte, courgette, poireau, oignon, ail, salade, épinard, brocoli, choufleur, chou, poivron, concombre, aubergine, radis, betterave, céleri, poireau, fenouil, asperge, artichaut, avocat, champignon, gingembre, curcuma frais, herbes fraîches (basilic, persil, coriandre, menthe, ciboulette), pomme de terre (si non stockée en cave).
+
+DIFFÉRENCE épicerie vs primeur :
+- Gingembre FRAIS → Primeur (frigo)
+- Gingembre EN POUDRE → Épicerie Salée (cellier)
+- Ail FRAIS → Primeur
+- Ail EN POUDRE → Épicerie Salée
+- Jus de fruit (bouteille) → Boissons (cellier)
+
 Réponds UNIQUEMENT en JSON sans markdown :
 {"category":"Boucherie/Poisson|Boulangerie|Plat préparé|Primeur|Frais & Crèmerie|Épicerie Salée|Épicerie Sucrée|Boissons|Surgelés|Divers","expiryDate":"YYYY-MM-DD"}
-Calcule expiryDate depuis ${today} : Boucherie/Poisson +3j, Boulangerie +3j, Plat préparé +4j, Primeur +7j, Frais & Crèmerie +10j, Épicerie +90j, Boissons +90j, Surgelés +180j, Divers +14j.`
+
+Calcule expiryDate depuis ${today} :
+- Boucherie/Poisson : +3j
+- Boulangerie : +3j
+- Plat préparé : +4j
+- Primeur (fruits/légumes) : +7j (fragiles comme fraise/salade : +4j)
+- Frais & Crèmerie : +10j
+- Épicerie Salée/Sucrée : +90j
+- Boissons : +90j
+- Surgelés : +180j
+- Divers : +14j`
       }]
     }]
   });
