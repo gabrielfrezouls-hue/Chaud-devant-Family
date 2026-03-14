@@ -349,3 +349,7 @@ Config actuelle : ${JSON.stringify(currentConfig)}`,
   const json = cleanJSON(res);
   return json ? { ...currentConfig, ...json } : null;
 };
+
+import { GoogleAuthProvider } from 'firebase/auth';
+export const googleCalendarProvider = new GoogleAuthProvider();
+googleCalendarProvider.addScope('https://www.googleapis.com/auth/calendar.events');
