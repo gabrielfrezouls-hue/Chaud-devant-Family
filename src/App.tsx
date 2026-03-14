@@ -1170,8 +1170,8 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
   }, []);
 
   const handleLierAgenda = async () => {
-    await lierAgenda(user.email!);
-    setGcalLinked(!!getGcalToken());
+    const ok = await lierAgenda(user.email!);
+    setGcalLinked(ok && !!getGcalToken());
   };
 
   const handleAddEvent = async () => {
@@ -1397,67 +1397,104 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
         </div>
       )}
 
-      {/* ══ ONGLET TABLEAU ══ */}
-      {calTab === 'table' && (
-        <div className="space-y-6">
-          {/* À venir */}
-          <div className="space-y-2">
-            <p className="text-xs font-black uppercase tracking-widest text-gray-400">À venir</p>
-            {upcomingItems.length === 0 && <p className="text-center text-gray-300 py-6 italic text-sm">Rien de prévu</p>}
-            {upcomingItems.map(item => {
-              const d = new Date(item.date + 'T12:00:00');
-              const isEvent = item._type === 'event';
-              return (
-                <div key={item.id} className="group flex items-center gap-3 p-3.5 rounded-2xl bg-white border border-gray-100 hover:shadow-sm transition-all">
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isEvent?'bg-blue-50 text-blue-500':'bg-amber-50 text-amber-600'}`}>
-                    {isEvent ? <CalendarDays size={15}/> : <ListTodo size={15}/>}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold text-gray-800 text-sm truncate">{item.title}</div>
-                    <div className="text-[10px] text-gray-400 mt-0.5">
-                      {d.toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'})}
-                      {isEvent && (item as FamilyEvent).time && ` · ${(item as FamilyEvent).time}`}
-                    </div>
-                  </div>
-                  <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${isEvent?'bg-blue-50 text-blue-400':'bg-amber-50 text-amber-500'}`}>
-                    {isEvent ? 'Événement' : 'Tâche'}
-                  </span>
-                  <button onClick={()=>delItem(isEvent?'family_events':'family_tasks', item.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 text-red-300 hover:text-red-500 rounded-xl transition-all">
-                    <Trash2 size={13}/>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+      {/* ══ ONGLET TABLEAU — grille calendrier mensuelle ══ */}
+      {calTab === 'table' && (() => {
+        const [tableOffset, setTableOffset] = React.useState(0);
+        const viewDate = new Date();
+        viewDate.setMonth(viewDate.getMonth() + tableOffset);
+        const year = viewDate.getFullYear();
+        const month = viewDate.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay  = new Date(year, month + 1, 0);
+        // Lundi = 0
+        const startDow = (firstDay.getDay() + 6) % 7;
+        const daysInMonth = lastDay.getDate();
+        const JOURS_SEMAINE = ['L','M','M','J','V','S','D'];
+        const MOIS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+        // Construire la grille
+        const cells: (number|null)[] = [
+          ...Array(startDow).fill(null),
+          ...Array.from({length: daysInMonth}, (_, i) => i + 1)
+        ];
+        // Compléter à multiple de 7
+        while (cells.length % 7 !== 0) cells.push(null);
 
-          {/* Passé */}
-          {pastItems.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-black uppercase tracking-widest text-gray-300">Passé</p>
-              {pastItems.slice(0, 5).map(item => {
-                const d = new Date(item.date + 'T12:00:00');
-                const isEvent = item._type === 'event';
-                return (
-                  <div key={item.id} className="group flex items-center gap-3 p-3 rounded-2xl bg-gray-50 border border-gray-100 opacity-50 hover:opacity-80 transition-all">
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isEvent?'bg-blue-50 text-blue-400':'bg-amber-50 text-amber-400'}`}>
-                      {isEvent ? <CalendarDays size={13}/> : <ListTodo size={13}/>}
-                    </div>
-                    <div className="flex-1 text-sm font-bold text-gray-500 truncate">{item.title}</div>
-                    <div className="text-[10px] text-gray-400">
-                      {d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'})}
-                    </div>
-                    <button onClick={()=>delItem(isEvent?'family_events':'family_tasks', item.id)}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 text-red-300 hover:text-red-500 rounded-xl transition-all">
-                      <Trash2 size={12}/>
-                    </button>
-                  </div>
-                );
-              })}
+        return (
+          <div className="space-y-4">
+            {/* Navigation mois */}
+            <div className="flex items-center justify-between">
+              <button onClick={()=>setTableOffset(o=>o-1)}
+                className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all">
+                <ArrowLeft size={16}/>
+              </button>
+              <span className="font-black text-lg tracking-tight">
+                {MOIS_FR[month]} {year}
+              </span>
+              <button onClick={()=>setTableOffset(o=>o+1)}
+                className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all">
+                <ArrowLeft size={16} className="rotate-180"/>
+              </button>
             </div>
-          )}
-        </div>
-      )}
+
+            {/* Grille */}
+            <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
+              {/* En-têtes jours */}
+              <div className="grid grid-cols-7 border-b border-gray-100">
+                {JOURS_SEMAINE.map((j, i) => (
+                  <div key={i} className={`py-2 text-center text-[10px] font-black uppercase tracking-widest ${i >= 5 ? 'text-gray-300' : 'text-gray-400'}`}>
+                    {j}
+                  </div>
+                ))}
+              </div>
+              {/* Semaines */}
+              {Array.from({length: cells.length / 7}, (_, week) => (
+                <div key={week} className="grid grid-cols-7 border-b border-gray-50 last:border-0">
+                  {cells.slice(week*7, week*7+7).map((day, dow) => {
+                    if (!day) return <div key={dow} className="min-h-[72px] bg-gray-50/50"/>;
+                    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                    const isToday = dateStr === today;
+                    const isWeekend = dow >= 5;
+                    const dayEvents = allItems.filter(i => i.date === dateStr);
+                    return (
+                      <div key={dow}
+                        className={`min-h-[72px] p-1.5 border-r border-gray-50 last:border-0 transition-colors ${
+                          isToday ? 'bg-blue-50/60' : isWeekend ? 'bg-gray-50/40' : 'bg-white hover:bg-gray-50/60'
+                        }`}>
+                        {/* Numéro du jour */}
+                        <div className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-black mb-1 ${
+                          isToday ? 'text-white' : 'text-gray-600'
+                        }`} style={isToday ? {backgroundColor: config.primaryColor} : {}}>
+                          {day}
+                        </div>
+                        {/* Événements du jour */}
+                        <div className="space-y-0.5">
+                          {dayEvents.slice(0, 2).map(item => (
+                            <div key={item.id}
+                              title={item.title}
+                              className={`text-[9px] font-bold px-1 py-0.5 rounded-md truncate leading-tight cursor-default ${
+                                item._type === 'event' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
+                              }`}>
+                              {item.title}
+                            </div>
+                          ))}
+                          {dayEvents.length > 2 && (
+                            <div className="text-[8px] text-gray-400 font-bold pl-1">+{dayEvents.length - 2}</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+            {/* Légende */}
+            <div className="flex gap-4 justify-center text-[10px] font-bold text-gray-400">
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-blue-100 inline-block"/>Événements</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-100 inline-block"/>Tâches</span>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
@@ -3203,26 +3240,55 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
 // APP COMPONENT
 // ==========================================
 // ── Google Calendar : lier l'agenda + pousser un événement ──
-const lierAgenda = async (userEmail?: string) => {
+const lierAgenda = async (userEmail?: string): Promise<boolean> => {
   try {
-    const result = await signInWithPopup(auth, googleCalendarProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    const token = credential?.accessToken;
-    if (token) {
-      const expiry = Date.now() + 55 * 60 * 1000; // 55 min (marge avant 1h)
-      localStorage.setItem('gcal_token', token);
-      localStorage.setItem('gcal_expiry', String(expiry));
-      if (userEmail) {
-        // Stocker l'état lié dans Firestore pour affichage cross-device
-        await setDoc(doc(db, 'gcal_links', userEmail), {
-          linked: true, linkedAt: new Date().toISOString()
-        }, { merge: true });
+    // Utiliser Google Identity Services (tokenClient) pour demander
+    // UNIQUEMENT le scope calendar sans interférer avec l'auth Firebase
+    return await new Promise<boolean>((resolve) => {
+      const tokenClient = (window as any).google?.accounts?.oauth2?.initTokenClient({
+        client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
+        scope: 'https://www.googleapis.com/auth/calendar.events',
+        callback: async (response: any) => {
+          if (response.error) { resolve(false); return; }
+          const token = response.access_token;
+          const expiry = Date.now() + (response.expires_in - 60) * 1000;
+          localStorage.setItem('gcal_token', token);
+          localStorage.setItem('gcal_expiry', String(expiry));
+          if (userEmail) {
+            await setDoc(doc(db, 'gcal_links', userEmail), {
+              linked: true, linkedAt: new Date().toISOString()
+            }, { merge: true });
+          }
+          resolve(true);
+        },
+        error_callback: () => resolve(false),
+      });
+      if (tokenClient) {
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+      } else {
+        // Fallback : signInWithPopup Firebase si GIS pas dispo
+        signInWithPopup(auth, googleCalendarProvider)
+          .then(result => {
+            const credential = GoogleAuthProvider.credentialFromResult(result);
+            const token = credential?.accessToken;
+            if (token) {
+              const expiry = Date.now() + 55 * 60 * 1000;
+              localStorage.setItem('gcal_token', token);
+              localStorage.setItem('gcal_expiry', String(expiry));
+              if (userEmail) {
+                setDoc(doc(db, 'gcal_links', userEmail), {
+                  linked: true, linkedAt: new Date().toISOString()
+                }, { merge: true });
+              }
+              resolve(true);
+            } else resolve(false);
+          })
+          .catch(() => resolve(false));
       }
-    }
+    });
   } catch (err: any) {
-    if (err?.code !== 'auth/popup-closed-by-user') {
-      console.error('Agenda non lié :', err);
-    }
+    console.error('Agenda non lié :', err);
+    return false;
   }
 };
 
@@ -3321,9 +3387,40 @@ const App: React.FC = () => {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [showFreemiumModal, setShowFreemiumModal] = useState(false);
   const [wishlistModalOpen, setWishlistModalOpen] = useState(false);
+  const [xsiteData, setXsiteData] = useState<Record<string,string>>({}); // données localStorage xsite
+  const xsiteIframeRef = useRef<HTMLIFrameElement>(null);
   const [tokenBalance, setTokenBalance] = useState<number|null>(null);
   const [showTokenShop, setShowTokenShop] = useState(false);   // modal achat tokens
   const [adminTokenUser, setAdminTokenUser] = useState<{id:string,name:string}|null>(null); // modal tokens admin
+
+  // ── XSite : intercepter localStorage de l'iframe via postMessage ──
+  useEffect(() => {
+    if (!user?.email || !selectedXSite) return;
+    const siteKey = `${user.email}_${selectedXSite.id}`;
+    // Charger les données sauvegardées depuis Firestore
+    const loadData = async () => {
+      const snap = await getDoc(doc(db, 'xsite_data', siteKey));
+      const saved = snap.exists() ? (snap.data() as Record<string,string>) : {};
+      setXsiteData(saved);
+      // Envoyer les données à l'iframe une fois chargée
+      setTimeout(() => {
+        xsiteIframeRef.current?.contentWindow?.postMessage(
+          { type: 'XSITE_INIT', data: saved }, '*'
+        );
+      }, 500);
+    };
+    loadData();
+    // Écouter les écritures de l'iframe
+    const onMsg = async (e: MessageEvent) => {
+      if (e.data?.type !== 'XSITE_SET') return;
+      const { key, value } = e.data;
+      const newData = { ...xsiteData, [key]: value };
+      setXsiteData(newData);
+      await setDoc(doc(db, 'xsite_data', siteKey), newData);
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [selectedXSite, user?.email]);
 
   // Helper : l'utilisateur courant est-il premium ?
   const isCurrentUserPremium = () => {
@@ -3555,7 +3652,40 @@ const App: React.FC = () => {
             <span className="font-bold text-lg truncate">{selectedXSite.name}</span>
             <button onClick={()=>toggleFavorite(selectedXSite.id)} className="p-2 transition-transform active:scale-95"><Star size={24} className={favorites.includes(selectedXSite.id)?"fill-yellow-400 text-yellow-400":"text-gray-300"}/></button>
           </div>
-          <iframe srcDoc={selectedXSite.html} className="flex-1 w-full border-none" title={selectedXSite.name} sandbox="allow-scripts allow-same-origin"/>
+          <iframe ref={xsiteIframeRef}
+          srcDoc={(() => {
+            const interceptScript = `<script>
+(function() {
+  var _store = {};
+  // Recevoir données initiales depuis le parent
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'XSITE_INIT') {
+      _store = e.data.data || {};
+    }
+  });
+  // Redéfinir localStorage
+  Object.defineProperty(window, 'localStorage', {
+    value: {
+      getItem: function(k) { return _store[k] !== undefined ? _store[k] : null; },
+      setItem: function(k, v) {
+        _store[k] = String(v);
+        window.parent.postMessage({ type: 'XSITE_SET', key: k, value: String(v) }, '*');
+      },
+      removeItem: function(k) { delete _store[k]; },
+      clear: function() { _store = {}; },
+      get length() { return Object.keys(_store).length; },
+      key: function(i) { return Object.keys(_store)[i] || null; }
+    },
+    writable: false, configurable: true
+  });
+})();
+<\/script>`;
+            const html = selectedXSite.html || '';
+            return html.includes('<head>') ? html.replace('<head>', '<head>' + interceptScript) : interceptScript + html;
+          })()}
+          className="flex-1 w-full border-none"
+          title={selectedXSite.name}
+          sandbox="allow-scripts allow-same-origin"/>
         </div>
       )}
 
