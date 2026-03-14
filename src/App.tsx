@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { auth, googleProvider, googleCalendarProvider, db } from './firebase';
+import { auth, googleProvider, db } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User, GoogleAuthProvider } from 'firebase/auth';
+
+// Fournisseur OAuth dédié Google Calendar (scope events)
+const googleCalendarProvider = new GoogleAuthProvider();
+googleCalendarProvider.addScope('https://www.googleapis.com/auth/calendar.events');
+googleCalendarProvider.setCustomParameters({ prompt: 'consent', access_type: 'online' });
 import {
   collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc,
   where, getDoc, getDocs, arrayUnion, arrayRemove
