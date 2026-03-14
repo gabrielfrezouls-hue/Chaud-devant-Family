@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { auth, googleProvider, db } from './firebase';
+import { auth, googleProvider, googleCalendarProvider, db } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import {
   collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc,
@@ -1830,7 +1830,32 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
 
       {/* PARAMÈTRES (Regroupement Accueil + Semainier + Maintenance) */}
       {tab==='settings'&&(
-        <AutoSaveSettings localC={localC} save={save} config={config} setLocalC={setLocalC} fileRef={fileRef} handleFile={handleFile} lockedPagesMap={lockedPagesMap||{}} onSaveMaintenance={onSaveMaintenance}/>
+        <div className="space-y-8">
+          <AutoSaveSettings localC={localC} save={save} config={config} setLocalC={setLocalC} fileRef={fileRef} handleFile={handleFile} lockedPagesMap={lockedPagesMap||{}} onSaveMaintenance={onSaveMaintenance}/>
+          {/* ── Intégration Google Calendar ── */}
+          <div className="bg-blue-50 border border-blue-200 rounded-3xl p-6 space-y-3">
+            <h4 className="font-black text-lg tracking-tight flex items-center gap-2">
+              <span>📅</span> Google Agenda
+            </h4>
+            <p className="text-sm text-gray-500">
+              Liez votre compte Google pour que les repas du Semainier apparaissent automatiquement dans votre Google Agenda.
+              Le jeton est valable <strong>1 heure</strong> — relancez la liaison avant d'ajouter des repas si vous avez attendu.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={lierAgenda}
+                className="flex items-center gap-2 px-5 py-3 bg-white border-2 border-blue-300 text-blue-700 rounded-2xl font-black text-sm hover:bg-blue-100 transition-all shadow-sm"
+              >
+                <span>🔑</span> Lier mon agenda Google
+              </button>
+              {typeof window !== 'undefined' && localStorage.getItem('gcal_token') && (
+                <span className="text-xs text-green-600 font-bold flex items-center gap-1">
+                  ✅ Agenda lié
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1873,6 +1898,19 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
 
   const saveEntry = async (key:string, entry:any) => {
     await setDoc(doc(db,'semainier_meals',key), entry);
+    // Push Google Calendar (silencieux si non lié)
+    if(entry.day && entry.weekKey) {
+      // Reconstruire une date approximative depuis day+weekKey (ex: "Lundi_2026_W12")
+      const jourIndex = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'].indexOf(entry.day);
+      const wkParts = entry.weekKey.match(/^(\d{4})_W(\d+)$/);
+      if(wkParts && jourIndex >= 0) {
+        const year = parseInt(wkParts[1]), week = parseInt(wkParts[2]);
+        const jan4 = new Date(year, 0, 4);
+        const mon = new Date(jan4.getTime() - ((jan4.getDay()||7)-1)*86400000 + (week-1)*7*86400000);
+        const eventDate = new Date(mon.getTime() + jourIndex*86400000 + (entry.mealTime==='Midi'?12:19)*3600000);
+        pousserVersGoogleCalendar(`🍽 ${entry.platName}`, eventDate.toISOString());
+      }
+    }
   };
 
   const deleteEntry = async (key:string) => {
@@ -2851,6 +2889,46 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
 // ==========================================
 // APP COMPONENT
 // ==========================================
+// ── Google Calendar : lier l'agenda + pousser un événement ──
+const lierAgenda = async () => {
+  try {
+    const result = await signInWithPopup(auth, googleCalendarProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    const token = credential?.accessToken;
+    if (token) {
+      localStorage.setItem('gcal_token', token);
+      alert('📅 Agenda lié avec succès (valable 1h). Revenez ici pour renouveler avant utilisation.');
+    }
+  } catch (err) {
+    console.error('Agenda non lié :', err);
+  }
+};
+
+const pousserVersGoogleCalendar = async (titre: string, dateIso: string) => {
+  const token = localStorage.getItem('gcal_token');
+  if (!token) return; // Silencieux : pas bloquant
+  const debut = new Date(dateIso);
+  const fin   = new Date(debut.getTime() + 60 * 60 * 1000);
+  const payload = {
+    summary: titre,
+    start: { dateTime: debut.toISOString(), timeZone: 'Europe/Paris' },
+    end:   { dateTime: fin.toISOString(),   timeZone: 'Europe/Paris' }
+  };
+  try {
+    const rep = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!rep.ok && rep.status === 401) {
+      localStorage.removeItem('gcal_token');
+      alert('📅 Connexion agenda expirée. Relancez "Lier mon agenda" dans les paramètres.');
+    }
+  } catch (e) {
+    console.error('Google Calendar réseau :', e);
+  }
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User|null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
@@ -3262,7 +3340,9 @@ const App: React.FC = () => {
               const dayName=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][today.getDay()];
               const getWN=(d:Date)=>{const t=new Date(d.valueOf());const dn=(d.getDay()+6)%7;t.setDate(t.getDate()-dn+3);const ft=t.valueOf();t.setMonth(0,1);if(t.getDay()!==4)t.setMonth(0,1+((4-t.getDay())+7)%7);return 1+Math.ceil((ft-t.valueOf())/604800000);};
               const weekKey=`${today.getFullYear()}_W${String(getWN(today)).padStart(2,'0')}`;
-              setDoc(doc(db,`semainier_meals`,`${dayName}_Soir_${weekKey}`),{platName:title,participants:['G','P','V'],mealTime:'Soir',day:dayName,weekKey,updatedAt:new Date().toISOString()});
+              const semEntry={platName:title,participants:['G','P','V'],mealTime:'Soir',day:dayName,weekKey,updatedAt:new Date().toISOString()};
+              setDoc(doc(db,`semainier_meals`,`${dayName}_Soir_${weekKey}`),semEntry);
+              pousserVersGoogleCalendar(`🍽 ${title}`, new Date(new Date().setHours(19,0,0,0)).toISOString());
               alert(`✅ "${title}" planifié ce soir !`);
             }}
           />
