@@ -1134,6 +1134,95 @@ const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, m
 // MODALS
 // ==========================================
 
+// ── Grille calendrier mensuelle (composant séparé pour les hooks) ──
+const CalendarTableGrid = ({ allItems, today, config, delItem }: {
+  allItems: any[], today: string, config: SiteConfig,
+  delItem: (col: string, id: string) => Promise<void>
+}) => {
+  const [tableOffset, setTableOffset] = React.useState(0);
+  const viewDate = new Date();
+  viewDate.setMonth(viewDate.getMonth() + tableOffset);
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startDow = (firstDay.getDay() + 6) % 7;
+  const JOURS = ['L','M','M','J','V','S','D'];
+  const MOIS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const cells: (number|null)[] = [
+    ...Array(startDow).fill(null),
+    ...Array.from({length: daysInMonth}, (_,i) => i+1)
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks = Array.from({length: cells.length/7}, (_,i) => cells.slice(i*7, i*7+7));
+
+  return (
+    <div className="space-y-4">
+      {/* Navigation mois */}
+      <div className="flex items-center justify-between">
+        <button onClick={()=>setTableOffset(o=>o-1)}
+          className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all">
+          <ArrowLeft size={16}/>
+        </button>
+        <span className="font-black text-lg tracking-tight">{MOIS_FR[month]} {year}</span>
+        <button onClick={()=>setTableOffset(o=>o+1)}
+          className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all">
+          <ArrowLeft size={16} className="rotate-180"/>
+        </button>
+      </div>
+      {/* Grille */}
+      <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
+        {/* En-têtes */}
+        <div className="grid grid-cols-7 border-b border-gray-100">
+          {JOURS.map((j,i) => (
+            <div key={i} className={`py-2 text-center text-[10px] font-black uppercase tracking-widest ${i>=5?'text-gray-300':'text-gray-400'}`}>{j}</div>
+          ))}
+        </div>
+        {/* Semaines */}
+        {weeks.map((week, wi) => (
+          <div key={wi} className="grid grid-cols-7 border-b border-gray-50 last:border-0">
+            {week.map((day, dow) => {
+              if(!day) return <div key={dow} className="min-h-[72px] bg-gray-50/30"/>;
+              const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+              const isToday = dateStr === today;
+              const isWeekend = dow >= 5;
+              const dayItems = allItems.filter(i => i.date === dateStr);
+              return (
+                <div key={dow} className={`min-h-[72px] p-1.5 border-r border-gray-50 last:border-0 ${
+                  isToday ? 'bg-blue-50/70' : isWeekend ? 'bg-gray-50/50' : 'bg-white hover:bg-gray-50/40'
+                }`}>
+                  <div className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-black mb-1 ${
+                    isToday ? 'text-white' : 'text-gray-600'
+                  }`} style={isToday ? {backgroundColor:config.primaryColor} : {}}>
+                    {day}
+                  </div>
+                  <div className="space-y-0.5">
+                    {dayItems.slice(0,2).map(item => (
+                      <div key={item.id} title={item.title}
+                        className={`text-[9px] font-bold px-1 py-0.5 rounded-md truncate leading-tight ${
+                          item._type==='event' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
+                        }`}>
+                        {item.title}
+                      </div>
+                    ))}
+                    {dayItems.length > 2 && <div className="text-[8px] text-gray-400 font-bold pl-1">+{dayItems.length-2}</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      {/* Légende */}
+      <div className="flex gap-4 justify-center text-[10px] font-bold text-gray-400">
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-100 inline-block"/>Événements</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-100 inline-block"/>Tâches</span>
+      </div>
+    </div>
+  );
+};
+
+
 // ══════════════════════════════════════════════════════════════
 // CALENDAR VIEW — Événements + Tâches + Tableau + Google Agenda
 // ══════════════════════════════════════════════════════════════
@@ -1398,103 +1487,9 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
       )}
 
       {/* ══ ONGLET TABLEAU — grille calendrier mensuelle ══ */}
-      {calTab === 'table' && (() => {
-        const [tableOffset, setTableOffset] = React.useState(0);
-        const viewDate = new Date();
-        viewDate.setMonth(viewDate.getMonth() + tableOffset);
-        const year = viewDate.getFullYear();
-        const month = viewDate.getMonth();
-        const firstDay = new Date(year, month, 1);
-        const lastDay  = new Date(year, month + 1, 0);
-        // Lundi = 0
-        const startDow = (firstDay.getDay() + 6) % 7;
-        const daysInMonth = lastDay.getDate();
-        const JOURS_SEMAINE = ['L','M','M','J','V','S','D'];
-        const MOIS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-        // Construire la grille
-        const cells: (number|null)[] = [
-          ...Array(startDow).fill(null),
-          ...Array.from({length: daysInMonth}, (_, i) => i + 1)
-        ];
-        // Compléter à multiple de 7
-        while (cells.length % 7 !== 0) cells.push(null);
-
-        return (
-          <div className="space-y-4">
-            {/* Navigation mois */}
-            <div className="flex items-center justify-between">
-              <button onClick={()=>setTableOffset(o=>o-1)}
-                className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all">
-                <ArrowLeft size={16}/>
-              </button>
-              <span className="font-black text-lg tracking-tight">
-                {MOIS_FR[month]} {year}
-              </span>
-              <button onClick={()=>setTableOffset(o=>o+1)}
-                className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all">
-                <ArrowLeft size={16} className="rotate-180"/>
-              </button>
-            </div>
-
-            {/* Grille */}
-            <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
-              {/* En-têtes jours */}
-              <div className="grid grid-cols-7 border-b border-gray-100">
-                {JOURS_SEMAINE.map((j, i) => (
-                  <div key={i} className={`py-2 text-center text-[10px] font-black uppercase tracking-widest ${i >= 5 ? 'text-gray-300' : 'text-gray-400'}`}>
-                    {j}
-                  </div>
-                ))}
-              </div>
-              {/* Semaines */}
-              {Array.from({length: cells.length / 7}, (_, week) => (
-                <div key={week} className="grid grid-cols-7 border-b border-gray-50 last:border-0">
-                  {cells.slice(week*7, week*7+7).map((day, dow) => {
-                    if (!day) return <div key={dow} className="min-h-[72px] bg-gray-50/50"/>;
-                    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-                    const isToday = dateStr === today;
-                    const isWeekend = dow >= 5;
-                    const dayEvents = allItems.filter(i => i.date === dateStr);
-                    return (
-                      <div key={dow}
-                        className={`min-h-[72px] p-1.5 border-r border-gray-50 last:border-0 transition-colors ${
-                          isToday ? 'bg-blue-50/60' : isWeekend ? 'bg-gray-50/40' : 'bg-white hover:bg-gray-50/60'
-                        }`}>
-                        {/* Numéro du jour */}
-                        <div className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-black mb-1 ${
-                          isToday ? 'text-white' : 'text-gray-600'
-                        }`} style={isToday ? {backgroundColor: config.primaryColor} : {}}>
-                          {day}
-                        </div>
-                        {/* Événements du jour */}
-                        <div className="space-y-0.5">
-                          {dayEvents.slice(0, 2).map(item => (
-                            <div key={item.id}
-                              title={item.title}
-                              className={`text-[9px] font-bold px-1 py-0.5 rounded-md truncate leading-tight cursor-default ${
-                                item._type === 'event' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
-                              }`}>
-                              {item.title}
-                            </div>
-                          ))}
-                          {dayEvents.length > 2 && (
-                            <div className="text-[8px] text-gray-400 font-bold pl-1">+{dayEvents.length - 2}</div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-            {/* Légende */}
-            <div className="flex gap-4 justify-center text-[10px] font-bold text-gray-400">
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-blue-100 inline-block"/>Événements</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-100 inline-block"/>Tâches</span>
-            </div>
-          </div>
-        );
-      })()}
+      {calTab === 'table' && (
+        <CalendarTableGrid allItems={allItems} today={today} config={config} delItem={delItem}/>
+      )}
     </div>
   );
 };
@@ -3242,52 +3237,33 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
 // ── Google Calendar : lier l'agenda + pousser un événement ──
 const lierAgenda = async (userEmail?: string): Promise<boolean> => {
   try {
-    // Utiliser Google Identity Services (tokenClient) pour demander
-    // UNIQUEMENT le scope calendar sans interférer avec l'auth Firebase
-    return await new Promise<boolean>((resolve) => {
-      const tokenClient = (window as any).google?.accounts?.oauth2?.initTokenClient({
-        client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
-        scope: 'https://www.googleapis.com/auth/calendar.events',
-        callback: async (response: any) => {
-          if (response.error) { resolve(false); return; }
-          const token = response.access_token;
-          const expiry = Date.now() + (response.expires_in - 60) * 1000;
-          localStorage.setItem('gcal_token', token);
-          localStorage.setItem('gcal_expiry', String(expiry));
-          if (userEmail) {
-            await setDoc(doc(db, 'gcal_links', userEmail), {
-              linked: true, linkedAt: new Date().toISOString()
-            }, { merge: true });
-          }
-          resolve(true);
-        },
-        error_callback: () => resolve(false),
-      });
-      if (tokenClient) {
-        tokenClient.requestAccessToken({ prompt: 'consent' });
-      } else {
-        // Fallback : signInWithPopup Firebase si GIS pas dispo
-        signInWithPopup(auth, googleCalendarProvider)
-          .then(result => {
-            const credential = GoogleAuthProvider.credentialFromResult(result);
-            const token = credential?.accessToken;
-            if (token) {
-              const expiry = Date.now() + 55 * 60 * 1000;
-              localStorage.setItem('gcal_token', token);
-              localStorage.setItem('gcal_expiry', String(expiry));
-              if (userEmail) {
-                setDoc(doc(db, 'gcal_links', userEmail), {
-                  linked: true, linkedAt: new Date().toISOString()
-                }, { merge: true });
-              }
-              resolve(true);
-            } else resolve(false);
-          })
-          .catch(() => resolve(false));
-      }
-    });
+    // signInWithPopup avec prompt consent force Google à afficher l'écran de scopes
+    // Le token retourné contiendra le scope calendar.events
+    googleCalendarProvider.setCustomParameters({ prompt: 'consent', access_type: 'online' });
+    const result = await signInWithPopup(auth, googleCalendarProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    const token = credential?.accessToken;
+    if (!token) return false;
+    // Vérifier que le token a bien le scope calendar en testant l'API
+    const test = await fetch(
+      'https://www.googleapis.com/calendar/v3/calendars/primary?fields=id',
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!test.ok) {
+      console.error('Token Google sans scope calendar — statut:', test.status);
+      return false;
+    }
+    const expiry = Date.now() + 55 * 60 * 1000;
+    localStorage.setItem('gcal_token', token);
+    localStorage.setItem('gcal_expiry', String(expiry));
+    if (userEmail) {
+      await setDoc(doc(db, 'gcal_links', userEmail), {
+        linked: true, linkedAt: new Date().toISOString()
+      }, { merge: true });
+    }
+    return true;
   } catch (err: any) {
-    console.error('Agenda non lié :', err);
+    if (err?.code !== 'auth/popup-closed-by-user') console.error('Agenda non lié :', err);
     return false;
   }
 };
@@ -3402,21 +3378,21 @@ const App: React.FC = () => {
       const snap = await getDoc(doc(db, 'xsite_data', siteKey));
       const saved = snap.exists() ? (snap.data() as Record<string,string>) : {};
       setXsiteData(saved);
-      // Envoyer les données à l'iframe une fois chargée
-      setTimeout(() => {
-        xsiteIframeRef.current?.contentWindow?.postMessage(
-          { type: 'XSITE_INIT', data: saved }, '*'
-        );
-      }, 500);
+      // Envoyer les données à l'iframe via l'event onLoad (plus fiable que setTimeout)
+      // On stocke les données pour que le handler onLoad puisse les envoyer
+      (window as any).__xsiteInitData = saved;
     };
     loadData();
     // Écouter les écritures de l'iframe
     const onMsg = async (e: MessageEvent) => {
       if (e.data?.type !== 'XSITE_SET') return;
       const { key, value } = e.data;
-      const newData = { ...xsiteData, [key]: value };
-      setXsiteData(newData);
-      await setDoc(doc(db, 'xsite_data', siteKey), newData);
+      // Lire depuis Firestore pour éviter le stale closure
+      const snap = await getDoc(doc(db, 'xsite_data', siteKey));
+      const current = snap.exists() ? (snap.data() as Record<string,string>) : {};
+      const updated = { ...current, [key]: value };
+      setXsiteData(updated);
+      await setDoc(doc(db, 'xsite_data', siteKey), updated);
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
@@ -3685,6 +3661,10 @@ const App: React.FC = () => {
           })()}
           className="flex-1 w-full border-none"
           title={selectedXSite.name}
+          onLoad={() => {
+            const data = (window as any).__xsiteInitData || {};
+            xsiteIframeRef.current?.contentWindow?.postMessage({ type: 'XSITE_INIT', data }, '*');
+          }}
           sandbox="allow-scripts allow-same-origin"/>
         </div>
       )}
