@@ -11,7 +11,8 @@ import {
   MessageSquare, ChevronRight, LogIn, Loader2, ShieldAlert, RotateCcw, ArrowLeft, Trash2, Pencil, ClipboardList,
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
   Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail, CornerDownRight, Store, CalendarClock,
-  Refrigerator, Scan, Camera, AlertTriangle, Bot, Flame, Info, Package, Barcode, Brain, Cloud
+  Refrigerator, Scan, Camera, AlertTriangle, Bot, Flame, Info, Package, Barcode, Brain, Cloud,
+  ListTodo, LayoutList, CalendarDays, Link2, CheckCheck, Circle
 } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat, askButlerAgent, scanProductImage, extractRecipeFromUrl } from './services/geminiService';
@@ -1127,6 +1128,335 @@ const TaskCell = ({ weekId, letter, label, isLocked, choreStatus, toggleChore, m
 // ==========================================
 // MODALS
 // ==========================================
+
+// ══════════════════════════════════════════════════════════════
+// CALENDAR VIEW — Événements + Tâches + Tableau + Google Agenda
+// ══════════════════════════════════════════════════════════════
+const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
+  user: User, config: SiteConfig,
+  events: FamilyEvent[],
+  addEntry: (col: string, data: any) => Promise<void>,
+  deleteItem: (col: string, id: string) => Promise<void>
+}) => {
+  const [calTab, setCalTab] = React.useState<'events'|'tasks'|'table'>('events');
+  const [showEventForm, setShowEventForm] = React.useState(false);
+  const [showTaskForm, setShowTaskForm] = React.useState(false);
+  const [gcalLinked, setGcalLinked] = React.useState(false);
+  const [tasks, setTasks] = React.useState<any[]>([]);
+  const [newEvt, setNewEvt] = React.useState({ title:'', date: new Date().toISOString().split('T')[0], time:'', isAllDay: true });
+  const [newTask, setNewTask] = React.useState({ title:'', date: new Date().toISOString().split('T')[0], done: false });
+  const [submitting, setSubmitting] = React.useState(false);
+
+  // Vérifier si agenda lié (token valide)
+  React.useEffect(() => {
+    const check = () => setGcalLinked(!!getGcalToken());
+    check();
+    const timer = setInterval(check, 30000); // check toutes les 30s
+    return () => clearInterval(timer);
+  }, []);
+
+  // Charger les tâches depuis Firestore
+  React.useEffect(() => {
+    const unsub = onSnapshot(
+      query(collection(db, 'family_tasks'), orderBy('date', 'asc')),
+      snap => setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+    return () => unsub();
+  }, []);
+
+  const handleLierAgenda = async () => {
+    await lierAgenda(user.email!);
+    setGcalLinked(!!getGcalToken());
+  };
+
+  const handleAddEvent = async () => {
+    if (!newEvt.title || !newEvt.date) return;
+    setSubmitting(true);
+    await addEntry('family_events', {
+      title: newEvt.title,
+      date: newEvt.date,
+      time: newEvt.isAllDay ? null : newEvt.time,
+    });
+    // Push Google Calendar
+    const dateTime = newEvt.isAllDay
+      ? `${newEvt.date}T12:00:00`
+      : `${newEvt.date}T${(newEvt.time||'12:00').replace('h',':')}:00`;
+    pousserVersGoogleCalendar(newEvt.title, dateTime);
+    setNewEvt({ title:'', date: new Date().toISOString().split('T')[0], time:'', isAllDay:true });
+    setShowEventForm(false);
+    setSubmitting(false);
+  };
+
+  const handleAddTask = async () => {
+    if (!newTask.title || !newTask.date) return;
+    setSubmitting(true);
+    await addEntry('family_tasks', {
+      title: newTask.title,
+      date: newTask.date,
+      done: false,
+      createdBy: user.email,
+    });
+    // Push Google Calendar comme événement all-day
+    pousserTacheVersGoogleCalendar(newTask.title, newTask.date);
+    setNewTask({ title:'', date: new Date().toISOString().split('T')[0], done: false });
+    setShowTaskForm(false);
+    setSubmitting(false);
+  };
+
+  const toggleTask = async (task: any) => {
+    await updateDoc(doc(db, 'family_tasks', task.id), { done: !task.done });
+  };
+
+  // Fusionner events + tasks pour la vue tableau
+  const today = new Date().toISOString().split('T')[0];
+  const allItems = [
+    ...events.map(e => ({ ...e, _type: 'event' as const })),
+    ...tasks.map(t => ({ ...t, _type: 'task' as const })),
+  ].sort((a, b) => (a.date > b.date ? 1 : -1));
+
+  const upcomingItems = allItems.filter(i => i.date >= today);
+  const pastItems = allItems.filter(i => i.date < today).reverse();
+
+  const MONTHS_FR = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+
+  return (
+    <div className="max-w-3xl mx-auto space-y-6" id="calendar-view">
+
+      {/* ── En-tête + bouton Google Agenda ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <h2 className="text-2xl md:text-4xl font-black tracking-tight" style={{color:config.primaryColor}}>CALENDRIER</h2>
+        <button
+          onClick={gcalLinked ? undefined : handleLierAgenda}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-sm transition-all ${
+            gcalLinked
+              ? 'bg-green-50 text-green-700 border border-green-200 cursor-default'
+              : 'bg-white border-2 border-gray-200 text-gray-700 hover:border-gray-400 hover:shadow-sm'
+          }`}
+        >
+          {gcalLinked ? (
+            <><CheckCheck size={16} className="text-green-600"/><span>Compte connecté</span></>
+          ) : (
+            <><Link2 size={16}/><span>Lier mon compte Google</span></>
+          )}
+        </button>
+      </div>
+
+      {/* ── Onglets ── */}
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-2xl">
+        {([
+          { id: 'events', label: 'Événements', icon: <CalendarDays size={15}/> },
+          { id: 'tasks',  label: 'Tâches',     icon: <ListTodo size={15}/> },
+          { id: 'table',  label: 'Tableau',     icon: <LayoutList size={15}/> },
+        ] as const).map(tab => (
+          <button key={tab.id} onClick={()=>setCalTab(tab.id)}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-sm transition-all ${
+              calTab===tab.id ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-700'
+            }`}
+          >
+            {tab.icon}{tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ══ ONGLET ÉVÉNEMENTS ══ */}
+      {calTab === 'events' && (
+        <div className="space-y-4">
+          <button onClick={()=>setShowEventForm(v=>!v)}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm text-white shadow-lg hover:scale-[1.01] transition-transform"
+            style={{backgroundColor:config.primaryColor}}>
+            <Plus size={18}/> Nouvel événement
+          </button>
+
+          {showEventForm && (
+            <div className="bg-white border border-gray-100 rounded-3xl p-6 space-y-4 shadow-lg animate-in slide-in-from-top-2">
+              <input autoFocus value={newEvt.title} onChange={e=>setNewEvt(v=>({...v,title:e.target.value}))}
+                placeholder="Titre de l'événement…"
+                className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none text-lg"/>
+              <div className="flex gap-3">
+                <input type="date" value={newEvt.date} onChange={e=>setNewEvt(v=>({...v,date:e.target.value}))}
+                  className="flex-1 p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none cursor-pointer"/>
+                <button onClick={()=>setNewEvt(v=>({...v,isAllDay:!v.isAllDay}))}
+                  className={`px-4 rounded-xl font-bold text-sm border-2 transition-all ${newEvt.isAllDay?'bg-gray-900 text-white border-gray-900':'bg-white border-gray-200 text-gray-500'}`}>
+                  {newEvt.isAllDay ? 'Toute la journée' : 'Heure précise'}
+                </button>
+              </div>
+              {!newEvt.isAllDay && (
+                <input type="time" value={newEvt.time} onChange={e=>setNewEvt(v=>({...v,time:e.target.value}))}
+                  className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none"/>
+              )}
+              <div className="flex gap-2">
+                <button onClick={handleAddEvent} disabled={submitting}
+                  className="flex-1 py-3 rounded-2xl font-black text-white text-sm disabled:opacity-50"
+                  style={{backgroundColor:config.primaryColor}}>
+                  {submitting ? 'Ajout…' : '✓ Ajouter'}
+                </button>
+                <button onClick={()=>setShowEventForm(false)} className="px-4 py-3 rounded-2xl bg-gray-100 text-gray-500 font-bold text-sm">Annuler</button>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {events.length === 0 && <p className="text-center text-gray-400 py-10 italic">Aucun événement à venir…</p>}
+            {events.map(ev => {
+              const d = new Date(ev.date + 'T12:00:00');
+              const isPast = ev.date < today;
+              return (
+                <div key={ev.id} className={`group flex items-center gap-4 p-4 rounded-2xl border transition-all hover:shadow-sm ${isPast?'opacity-50 bg-gray-50 border-gray-100':'bg-white border-gray-100 hover:border-gray-200'}`}>
+                  <div className="w-12 h-12 rounded-xl flex flex-col items-center justify-center shrink-0"
+                    style={{backgroundColor: isPast ? '#f3f4f6' : config.primaryColor+'18', color: isPast ? '#9ca3af' : config.primaryColor}}>
+                    <span className="text-lg font-black leading-none">{d.getDate()}</span>
+                    <span className="text-[9px] font-black uppercase">{MONTHS_FR[d.getMonth()]}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-gray-800 truncate">{ev.title}</div>
+                    {ev.time && <div className="text-xs text-gray-400 flex items-center gap-1 mt-0.5"><Clock size={10}/>{ev.time}</div>}
+                  </div>
+                  <button onClick={()=>delItem('family_events',ev.id)}
+                    className="opacity-0 group-hover:opacity-100 p-2 text-red-300 hover:text-red-500 rounded-xl transition-all">
+                    <Trash2 size={14}/>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ══ ONGLET TÂCHES ══ */}
+      {calTab === 'tasks' && (
+        <div className="space-y-4">
+          <button onClick={()=>setShowTaskForm(v=>!v)}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm text-white shadow-lg hover:scale-[1.01] transition-transform"
+            style={{backgroundColor:config.primaryColor}}>
+            <Plus size={18}/> Nouvelle tâche
+          </button>
+
+          {showTaskForm && (
+            <div className="bg-white border border-gray-100 rounded-3xl p-6 space-y-4 shadow-lg animate-in slide-in-from-top-2">
+              <input autoFocus value={newTask.title} onChange={e=>setNewTask(v=>({...v,title:e.target.value}))}
+                placeholder="Description de la tâche…"
+                className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none text-lg"/>
+              <input type="date" value={newTask.date} onChange={e=>setNewTask(v=>({...v,date:e.target.value}))}
+                className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none cursor-pointer"/>
+              <div className="flex gap-2">
+                <button onClick={handleAddTask} disabled={submitting}
+                  className="flex-1 py-3 rounded-2xl font-black text-white text-sm disabled:opacity-50"
+                  style={{backgroundColor:config.primaryColor}}>
+                  {submitting ? 'Ajout…' : '✓ Ajouter'}
+                </button>
+                <button onClick={()=>setShowTaskForm(false)} className="px-4 py-3 rounded-2xl bg-gray-100 text-gray-500 font-bold text-sm">Annuler</button>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            {tasks.length === 0 && <p className="text-center text-gray-400 py-10 italic">Aucune tâche…</p>}
+            {/* Tâches à faire */}
+            {tasks.filter(t => !t.done).map(t => {
+              const d = new Date(t.date + 'T12:00:00');
+              const isLate = t.date < today;
+              return (
+                <div key={t.id} className={`group flex items-center gap-3 p-4 rounded-2xl border transition-all hover:shadow-sm ${isLate?'border-red-100 bg-red-50':'bg-white border-gray-100'}`}>
+                  <button onClick={()=>toggleTask(t)} className="shrink-0 text-gray-300 hover:text-green-500 transition-colors"><Circle size={22}/></button>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-gray-800 truncate">{t.title}</div>
+                    <div className={`text-xs mt-0.5 flex items-center gap-1 ${isLate?'text-red-400':'text-gray-400'}`}>
+                      <Clock size={10}/>{d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'})}
+                      {isLate && <span className="font-bold">· En retard</span>}
+                    </div>
+                  </div>
+                  <button onClick={()=>delItem('family_tasks',t.id)}
+                    className="opacity-0 group-hover:opacity-100 p-2 text-red-300 hover:text-red-500 rounded-xl transition-all">
+                    <Trash2 size={14}/>
+                  </button>
+                </div>
+              );
+            })}
+            {/* Tâches faites */}
+            {tasks.filter(t => t.done).length > 0 && (
+              <div className="mt-4 space-y-2">
+                <p className="text-xs font-black uppercase tracking-widest text-gray-300 pl-1">Terminées</p>
+                {tasks.filter(t => t.done).map(t => (
+                  <div key={t.id} className="group flex items-center gap-3 p-3 rounded-2xl bg-gray-50 border border-gray-100 opacity-60">
+                    <button onClick={()=>toggleTask(t)} className="shrink-0 text-green-400"><CheckCheck size={20}/></button>
+                    <div className="flex-1 text-gray-400 line-through text-sm font-bold truncate">{t.title}</div>
+                    <button onClick={()=>delItem('family_tasks',t.id)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 text-red-300 hover:text-red-500 rounded-xl transition-all">
+                      <Trash2 size={12}/>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══ ONGLET TABLEAU ══ */}
+      {calTab === 'table' && (
+        <div className="space-y-6">
+          {/* À venir */}
+          <div className="space-y-2">
+            <p className="text-xs font-black uppercase tracking-widest text-gray-400">À venir</p>
+            {upcomingItems.length === 0 && <p className="text-center text-gray-300 py-6 italic text-sm">Rien de prévu</p>}
+            {upcomingItems.map(item => {
+              const d = new Date(item.date + 'T12:00:00');
+              const isEvent = item._type === 'event';
+              return (
+                <div key={item.id} className="group flex items-center gap-3 p-3.5 rounded-2xl bg-white border border-gray-100 hover:shadow-sm transition-all">
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isEvent?'bg-blue-50 text-blue-500':'bg-amber-50 text-amber-600'}`}>
+                    {isEvent ? <CalendarDays size={15}/> : <ListTodo size={15}/>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-gray-800 text-sm truncate">{item.title}</div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">
+                      {d.toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'})}
+                      {isEvent && (item as FamilyEvent).time && ` · ${(item as FamilyEvent).time}`}
+                    </div>
+                  </div>
+                  <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${isEvent?'bg-blue-50 text-blue-400':'bg-amber-50 text-amber-500'}`}>
+                    {isEvent ? 'Événement' : 'Tâche'}
+                  </span>
+                  <button onClick={()=>delItem(isEvent?'family_events':'family_tasks', item.id)}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 text-red-300 hover:text-red-500 rounded-xl transition-all">
+                    <Trash2 size={13}/>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Passé */}
+          {pastItems.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-black uppercase tracking-widest text-gray-300">Passé</p>
+              {pastItems.slice(0, 5).map(item => {
+                const d = new Date(item.date + 'T12:00:00');
+                const isEvent = item._type === 'event';
+                return (
+                  <div key={item.id} className="group flex items-center gap-3 p-3 rounded-2xl bg-gray-50 border border-gray-100 opacity-50 hover:opacity-80 transition-all">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isEvent?'bg-blue-50 text-blue-400':'bg-amber-50 text-amber-400'}`}>
+                      {isEvent ? <CalendarDays size={13}/> : <ListTodo size={13}/>}
+                    </div>
+                    <div className="flex-1 text-sm font-bold text-gray-500 truncate">{item.title}</div>
+                    <div className="text-[10px] text-gray-400">
+                      {d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'})}
+                    </div>
+                    <button onClick={()=>delItem(isEvent?'family_events':'family_tasks', item.id)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 text-red-300 hover:text-red-500 rounded-xl transition-all">
+                      <Trash2 size={12}/>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }: any) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   if(!isOpen)return null;
@@ -1832,29 +2162,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {tab==='settings'&&(
         <div className="space-y-8">
           <AutoSaveSettings localC={localC} save={save} config={config} setLocalC={setLocalC} fileRef={fileRef} handleFile={handleFile} lockedPagesMap={lockedPagesMap||{}} onSaveMaintenance={onSaveMaintenance}/>
-          {/* ── Intégration Google Calendar ── */}
-          <div className="bg-blue-50 border border-blue-200 rounded-3xl p-6 space-y-3">
-            <h4 className="font-black text-lg tracking-tight flex items-center gap-2">
-              <span>📅</span> Google Agenda
-            </h4>
-            <p className="text-sm text-gray-500">
-              Liez votre compte Google pour que les repas du Semainier apparaissent automatiquement dans votre Google Agenda.
-              Le jeton est valable <strong>1 heure</strong> — relancez la liaison avant d'ajouter des repas si vous avez attendu.
-            </p>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={lierAgenda}
-                className="flex items-center gap-2 px-5 py-3 bg-white border-2 border-blue-300 text-blue-700 rounded-2xl font-black text-sm hover:bg-blue-100 transition-all shadow-sm"
-              >
-                <span>🔑</span> Lier mon agenda Google
-              </button>
-              {typeof window !== 'undefined' && localStorage.getItem('gcal_token') && (
-                <span className="text-xs text-green-600 font-bold flex items-center gap-1">
-                  ✅ Agenda lié
-                </span>
-              )}
-            </div>
-          </div>
+
         </div>
       )}
     </div>
@@ -2890,27 +3198,49 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
 // APP COMPONENT
 // ==========================================
 // ── Google Calendar : lier l'agenda + pousser un événement ──
-const lierAgenda = async () => {
+const lierAgenda = async (userEmail?: string) => {
   try {
     const result = await signInWithPopup(auth, googleCalendarProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     const token = credential?.accessToken;
     if (token) {
+      const expiry = Date.now() + 55 * 60 * 1000; // 55 min (marge avant 1h)
       localStorage.setItem('gcal_token', token);
-      alert('📅 Agenda lié avec succès (valable 1h). Revenez ici pour renouveler avant utilisation.');
+      localStorage.setItem('gcal_expiry', String(expiry));
+      if (userEmail) {
+        // Stocker l'état lié dans Firestore pour affichage cross-device
+        await setDoc(doc(db, 'gcal_links', userEmail), {
+          linked: true, linkedAt: new Date().toISOString()
+        }, { merge: true });
+      }
     }
-  } catch (err) {
-    console.error('Agenda non lié :', err);
+  } catch (err: any) {
+    if (err?.code !== 'auth/popup-closed-by-user') {
+      console.error('Agenda non lié :', err);
+    }
   }
 };
 
-const pousserVersGoogleCalendar = async (titre: string, dateIso: string) => {
+// Récupère le token gcal valide (null si expiré ou absent)
+const getGcalToken = (): string | null => {
   const token = localStorage.getItem('gcal_token');
+  const expiry = parseInt(localStorage.getItem('gcal_expiry') || '0');
+  if (!token || Date.now() > expiry) {
+    localStorage.removeItem('gcal_token');
+    localStorage.removeItem('gcal_expiry');
+    return null;
+  }
+  return token;
+};
+
+const pousserVersGoogleCalendar = async (titre: string, dateIso: string, description?: string) => {
+  const token = getGcalToken();
   if (!token) return; // Silencieux : pas bloquant
   const debut = new Date(dateIso);
   const fin   = new Date(debut.getTime() + 60 * 60 * 1000);
   const payload = {
     summary: titre,
+    description: description || 'Depuis Chaud Devant 🔥',
     start: { dateTime: debut.toISOString(), timeZone: 'Europe/Paris' },
     end:   { dateTime: fin.toISOString(),   timeZone: 'Europe/Paris' }
   };
@@ -2920,14 +3250,43 @@ const pousserVersGoogleCalendar = async (titre: string, dateIso: string) => {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    if (!rep.ok && rep.status === 401) {
-      localStorage.removeItem('gcal_token');
-      alert('📅 Connexion agenda expirée. Relancez "Lier mon agenda" dans les paramètres.');
+    if (!rep.ok) {
+      if (rep.status === 401) {
+        localStorage.removeItem('gcal_token');
+        localStorage.removeItem('gcal_expiry');
+      }
     }
   } catch (e) {
     console.error('Google Calendar réseau :', e);
   }
 };
+
+const pousserTacheVersGoogleCalendar = async (titre: string, dateIso: string) => {
+  const token = getGcalToken();
+  if (!token) return;
+  const date = dateIso.split('T')[0]; // YYYY-MM-DD
+  const lendemain = new Date(date);
+  lendemain.setDate(lendemain.getDate() + 1);
+  const payload = {
+    summary: `☑ ${titre}`,
+    description: 'Tâche depuis Chaud Devant 🔥',
+    start: { date },
+    end:   { date: lendemain.toISOString().split('T')[0] }
+  };
+  try {
+    const rep = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!rep.ok && rep.status === 401) {
+      localStorage.removeItem('gcal_token');
+      localStorage.removeItem('gcal_expiry');
+    }
+  } catch (e) { /* silencieux */ }
+};
+
+
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User|null>(null);
@@ -3418,32 +3777,13 @@ const App: React.FC = () => {
 
         {/* CALENDRIER */}
         {currentView==='calendar'&&(isPageLocked('calendar') ? <MaintenancePage pageName="Calendrier"/> : (
-          <div className="max-w-3xl mx-auto space-y-10" id="calendar-view">
-            <div className="flex flex-col items-center gap-6">
-              <h2 className="text-2xl md:text-5xl font-black tracking-tight" style={{color:config.primaryColor}}>CALENDRIER</h2>
-              <button onClick={()=>setIsEventModalOpen(true)} className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl" style={{backgroundColor:config.primaryColor}}><Plus size={20}/>Ajouter un événement</button>
-            </div>
-            <EventModal isOpen={isEventModalOpen} onClose={setIsEventModalOpen} config={config} addEntry={addEntry} newEvent={newEvent} setNewEvent={setNewEvent}/>
-            <div className="space-y-4">
-              {events.map(ev=>{
-                const cleanDate=ev.date.split('T')[0];const dateObj=new Date(cleanDate);
-                return(
-                  <div key={ev.id} className="flex items-center gap-6 p-6 bg-white rounded-2xl shadow-sm border border-black/5 hover:shadow-md transition-shadow group">
-                    <div className="text-center w-16">
-                      <div className="font-bold text-xl leading-none" style={{color:config.primaryColor}}>{dateObj.getDate()}</div>
-                      <div className="text-[10px] uppercase font-bold text-gray-400">{dateObj.toLocaleString('fr-FR',{month:'short'})}</div>
-                    </div>
-                    <div className="flex-1 border-l pl-6 border-gray-100">
-                      <div className="font-bold text-lg tracking-tight text-gray-800">{ev.title}</div>
-                      {ev.time&&<div className="text-xs text-gray-400 flex items-center mt-1"><Clock size={10} className="mr-1"/>{ev.time}</div>}
-                    </div>
-                    <button onClick={()=>deleteItem('family_events',ev.id)} className="opacity-0 group-hover:opacity-100 p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"><Trash2 size={16}/></button>
-                  </div>
-                );
-              })}
-              {events.length===0&&<div className="text-center text-gray-400 py-10 italic">Rien de prévu pour le moment...</div>}
-            </div>
-          </div>
+          <CalendarView
+            user={user}
+            config={config}
+            events={events}
+            addEntry={addEntry}
+            deleteItem={deleteItem}
+          />
         ))}
 
         {/* XSITE */}
