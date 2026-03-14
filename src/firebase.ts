@@ -18,3 +18,8 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 export const db = getFirestore(app);
+
+
+import { GoogleAuthProvider } from 'firebase/auth';
+export const googleCalendarProvider = new GoogleAuthProvider();
+googleCalendarProvider.addScope('https://www.googleapis.com/auth/calendar.events');
