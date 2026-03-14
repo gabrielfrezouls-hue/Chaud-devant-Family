@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { auth, googleProvider, db } from './firebase';
+import { auth, googleProvider, db, GOOGLE_CLIENT_ID } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User, GoogleAuthProvider } from 'firebase/auth';
 
 // Fournisseur OAuth dédié Google Calendar (scope events)
@@ -1319,20 +1319,30 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
       {/* ── En-tête + bouton Google Agenda ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <h2 className="text-2xl md:text-4xl font-black tracking-tight" style={{color:config.primaryColor}}>CALENDRIER</h2>
-        <button
-          onClick={gcalLinked ? undefined : handleLierAgenda}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-sm transition-all ${
-            gcalLinked
-              ? 'bg-green-50 text-green-700 border border-green-200 cursor-default'
-              : 'bg-white border-2 border-gray-200 text-gray-700 hover:border-gray-400 hover:shadow-sm'
-          }`}
-        >
-          {gcalLinked ? (
-            <><CheckCheck size={16} className="text-green-600"/><span>Compte connecté</span></>
-          ) : (
-            <><Link2 size={16}/><span>Lier mon compte Google</span></>
-          )}
-        </button>
+        {gcalLinked ? (
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-sm bg-green-50 text-green-700 border border-green-200">
+              <CheckCheck size={16} className="text-green-600"/>
+              <span>Compte connecté</span>
+            </div>
+            <button
+              onClick={() => {
+                localStorage.removeItem('gcal_token');
+                localStorage.removeItem('gcal_expiry');
+                setGcalLinked(false);
+              }}
+              className="w-8 h-8 rounded-xl bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-all"
+              title="Déconnecter l'agenda"
+            ><X size={15}/></button>
+          </div>
+        ) : (
+          <button
+            onClick={handleLierAgenda}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-sm bg-white border-2 border-gray-200 text-gray-700 hover:border-gray-400 hover:shadow-sm transition-all"
+          >
+            <Link2 size={16}/><span>Lier mon compte Google</span>
+          </button>
+        )}
       </div>
 
       {/* ── Onglets ── */}
@@ -2190,6 +2200,33 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
             <h4 className="text-sm font-bold uppercase tracking-widest text-gray-400">{currentXSite.id?'Modifier':'Nouveau'}</h4>
             <input value={currentXSite.name} onChange={e=>setCurrentXSite({...currentXSite,name:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 font-bold outline-none" placeholder="Nom du fichier"/>
             <textarea value={currentXSite.html} onChange={e=>setCurrentXSite({...currentXSite,html:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 font-mono text-xs h-48 outline-none" placeholder="HTML..."/>
+            {/* Doc sauvegarde Firebase */}
+            <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 space-y-2">
+              <p className="text-xs font-black text-blue-700 uppercase tracking-widest">💾 Sauvegarde automatique Firebase</p>
+              <p className="text-xs text-blue-600">Dans votre HTML, utilisez <code className="bg-blue-100 px-1 rounded font-mono">localStorage.setItem()</code> et <code className="bg-blue-100 px-1 rounded font-mono">localStorage.getItem()</code> normalement.<br/>L'interface XSite intercepte automatiquement ces appels et les redirige vers Firebase — les données sont propres à chaque utilisateur.</p>
+              <details className="text-xs text-blue-500 cursor-pointer">
+                <summary className="font-bold hover:text-blue-700">Voir le code d'exemple</summary>
+                <pre className="mt-2 bg-white border border-blue-100 rounded-xl p-3 overflow-x-auto text-[10px] text-gray-700">{`<!DOCTYPE html>
+<html>
+<body>
+  <input id="note" placeholder="Votre note..."/>
+  <button onclick="save()">Sauvegarder</button>
+  <p id="display"></p>
+  <script>
+    // localStorage est redirigé vers Firebase automatiquement
+    document.getElementById('display').textContent =
+      localStorage.getItem('ma_note') || '';
+
+    function save() {
+      const val = document.getElementById('note').value;
+      localStorage.setItem('ma_note', val); // → Firebase
+      document.getElementById('display').textContent = val;
+    }
+  </script>
+</body>
+</html>`}</pre>
+              </details>
+            </div>
             <button onClick={()=>{if(currentXSite.id){upd('xsite_pages',currentXSite.id,currentXSite);}else{add('xsite_pages',currentXSite);}setCurrentXSite({id:'',name:'',html:''}); }} className="w-full py-4 text-white font-bold rounded-xl uppercase shadow-lg" style={{backgroundColor:config.primaryColor}}>Sauvegarder</button>
           </div>
         </div>
@@ -3236,37 +3273,38 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
 // ==========================================
 // ── Google Calendar : lier l'agenda + pousser un événement ──
 const lierAgenda = async (userEmail?: string): Promise<boolean> => {
-  try {
-    // signInWithPopup avec prompt consent force Google à afficher l'écran de scopes
-    // Le token retourné contiendra le scope calendar.events
-    googleCalendarProvider.setCustomParameters({ prompt: 'consent', access_type: 'online' });
-    const result = await signInWithPopup(auth, googleCalendarProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    const token = credential?.accessToken;
-    if (!token) return false;
-    // Vérifier que le token a bien le scope calendar en testant l'API
-    const test = await fetch(
-      'https://www.googleapis.com/calendar/v3/calendars/primary?fields=id',
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    if (!test.ok) {
-      console.error('Token Google sans scope calendar — statut:', test.status);
-      return false;
+  return new Promise<boolean>((resolve) => {
+    const gis = (window as any).google?.accounts?.oauth2;
+    if (!gis) {
+      alert("⚠️ Le script Google n'est pas chargé. Rechargez la page.");
+      resolve(false); return;
     }
-    const expiry = Date.now() + 55 * 60 * 1000;
-    localStorage.setItem('gcal_token', token);
-    localStorage.setItem('gcal_expiry', String(expiry));
-    if (userEmail) {
-      await setDoc(doc(db, 'gcal_links', userEmail), {
-        linked: true, linkedAt: new Date().toISOString()
-      }, { merge: true });
+    if (!GOOGLE_CLIENT_ID) {
+      alert("⚠️ GOOGLE_CLIENT_ID manquant dans firebase.ts — voir instructions.");
+      resolve(false); return;
     }
-    return true;
-  } catch (err: any) {
-    if (err?.code !== 'auth/popup-closed-by-user') console.error('Agenda non lié :', err);
-    return false;
-  }
+    const tokenClient = gis.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/calendar.events',
+      callback: async (resp: any) => {
+        if (resp.error) { resolve(false); return; }
+        const token: string = resp.access_token;
+        const expiry = Date.now() + (resp.expires_in - 60) * 1000;
+        localStorage.setItem('gcal_token', token);
+        localStorage.setItem('gcal_expiry', String(expiry));
+        if (userEmail) {
+          await setDoc(doc(db, 'gcal_links', userEmail), {
+            linked: true, linkedAt: new Date().toISOString()
+          }, { merge: true });
+        }
+        resolve(true);
+      },
+      error_callback: () => resolve(false),
+    });
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+  });
 };
+
 
 // Récupère le token gcal valide (null si expiré ou absent)
 const getGcalToken = (): string | null => {
@@ -3378,21 +3416,27 @@ const App: React.FC = () => {
       const snap = await getDoc(doc(db, 'xsite_data', siteKey));
       const saved = snap.exists() ? (snap.data() as Record<string,string>) : {};
       setXsiteData(saved);
-      // Envoyer les données à l'iframe via l'event onLoad (plus fiable que setTimeout)
-      // On stocke les données pour que le handler onLoad puisse les envoyer
-      (window as any).__xsiteInitData = saved;
+      // Les données seront envoyées en réponse à XSITE_READY
     };
     loadData();
-    // Écouter les écritures de l'iframe
+    // Écouter les messages de l'iframe
     const onMsg = async (e: MessageEvent) => {
-      if (e.data?.type !== 'XSITE_SET') return;
-      const { key, value } = e.data;
-      // Lire depuis Firestore pour éviter le stale closure
-      const snap = await getDoc(doc(db, 'xsite_data', siteKey));
-      const current = snap.exists() ? (snap.data() as Record<string,string>) : {};
-      const updated = { ...current, [key]: value };
-      setXsiteData(updated);
-      await setDoc(doc(db, 'xsite_data', siteKey), updated);
+      if (!e.data?.type) return;
+      if (e.data.type === 'XSITE_READY') {
+        // L'iframe est prête : envoyer les données sauvegardées
+        const snap = await getDoc(doc(db, 'xsite_data', siteKey));
+        const saved = snap.exists() ? (snap.data() as Record<string,string>) : {};
+        setXsiteData(saved);
+        xsiteIframeRef.current?.contentWindow?.postMessage({ type: 'XSITE_INIT', data: saved }, '*');
+      }
+      if (e.data.type === 'XSITE_SET') {
+        const { key, value } = e.data;
+        const snap = await getDoc(doc(db, 'xsite_data', siteKey));
+        const current = snap.exists() ? (snap.data() as Record<string,string>) : {};
+        const updated = { ...current, [key]: value };
+        setXsiteData(updated);
+        await setDoc(doc(db, 'xsite_data', siteKey), updated);
+      }
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
@@ -3633,27 +3677,42 @@ const App: React.FC = () => {
             const interceptScript = `<script>
 (function() {
   var _store = {};
-  // Recevoir données initiales depuis le parent
+  // API publique pour les codes XSite : window.XSite.save(key, value) et window.XSite.load(key)
+  window.XSite = {
+    save: function(key, value) {
+      _store[String(key)] = String(value);
+      try { parent.postMessage({ type: 'XSITE_SET', key: String(key), value: String(value) }, '*'); } catch(e) {}
+    },
+    load: function(key) { return _store[String(key)] !== undefined ? _store[String(key)] : null; },
+    saveAll: function(obj) {
+      Object.keys(obj).forEach(function(k) { window.XSite.save(k, obj[k]); });
+    },
+    loadAll: function() { return Object.assign({}, _store); }
+  };
+  // Proxy localStorage → même API (pour les sites existants)
+  try {
+    Object.defineProperty(window, 'localStorage', {
+      value: {
+        getItem: function(k) { return _store[k] !== undefined ? _store[k] : null; },
+        setItem: function(k, v) { window.XSite.save(k, v); },
+        removeItem: function(k) { delete _store[k]; },
+        clear: function() { _store = {}; },
+        get length() { return Object.keys(_store).length; },
+        key: function(i) { return Object.keys(_store)[i] || null; }
+      },
+      writable: false, configurable: true
+    });
+  } catch(e) {}
+  // Recevoir données initiales
   window.addEventListener('message', function(e) {
     if (e.data && e.data.type === 'XSITE_INIT') {
-      _store = e.data.data || {};
+      _store = Object.assign({}, e.data.data || {});
+      // Déclencher un événement pour que le code XSite sache que les données sont prêtes
+      window.dispatchEvent(new CustomEvent('xsite-ready', { detail: _store }));
     }
   });
-  // Redéfinir localStorage
-  Object.defineProperty(window, 'localStorage', {
-    value: {
-      getItem: function(k) { return _store[k] !== undefined ? _store[k] : null; },
-      setItem: function(k, v) {
-        _store[k] = String(v);
-        window.parent.postMessage({ type: 'XSITE_SET', key: k, value: String(v) }, '*');
-      },
-      removeItem: function(k) { delete _store[k]; },
-      clear: function() { _store = {}; },
-      get length() { return Object.keys(_store).length; },
-      key: function(i) { return Object.keys(_store)[i] || null; }
-    },
-    writable: false, configurable: true
-  });
+  // Indiquer au parent que l'iframe est prête à recevoir les données
+  try { parent.postMessage({ type: 'XSITE_READY' }, '*'); } catch(e) {}
 })();
 <\/script>`;
             const html = selectedXSite.html || '';
@@ -3661,10 +3720,6 @@ const App: React.FC = () => {
           })()}
           className="flex-1 w-full border-none"
           title={selectedXSite.name}
-          onLoad={() => {
-            const data = (window as any).__xsiteInitData || {};
-            xsiteIframeRef.current?.contentWindow?.postMessage({ type: 'XSITE_INIT', data }, '*');
-          }}
           sandbox="allow-scripts allow-same-origin"/>
         </div>
       )}
