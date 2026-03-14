@@ -2,11 +2,8 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// C'est ici que ça bloquait : on utilise bien la nouvelle clé
-const apiKey = import.meta.env.VITE_FIREBASE_KEY;
-
 const firebaseConfig = {
-  apiKey: apiKey,
+  apiKey: import.meta.env.VITE_FIREBASE_KEY,
   authDomain: "chaud-devant-81afb.firebaseapp.com",
   projectId: "chaud-devant-81afb",
   storageBucket: "chaud-devant-81afb.firebasestorage.app",
@@ -15,11 +12,20 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+
 export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
 export const db = getFirestore(app);
 
+// Provider Google standard (connexion au site)
+export const googleProvider = new GoogleAuthProvider();
 
-import { GoogleAuthProvider } from 'firebase/auth';
+// Provider Google Calendar (scope calendar.events — pour lierAgenda)
 export const googleCalendarProvider = new GoogleAuthProvider();
 googleCalendarProvider.addScope('https://www.googleapis.com/auth/calendar.events');
+
+// Web OAuth Client ID — nécessaire pour Google Identity Services (GIS)
+// À récupérer : console.cloud.google.com → APIs & Services → Credentials
+//               → OAuth 2.0 Client IDs → "Web client (auto created by Google Service)"
+//               → Copier la valeur "Client ID"
+// Format : 336348032772-XXXXXXXXXXXXXXXXXXXX.apps.googleusercontent.com
+export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
