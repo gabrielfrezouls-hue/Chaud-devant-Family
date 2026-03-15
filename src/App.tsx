@@ -3280,8 +3280,19 @@ const lierAgenda = async (userEmail?: string): Promise<boolean> => {
       resolve(false); return;
     }
     if (!GOOGLE_CLIENT_ID) {
-      alert("⚠️ GOOGLE_CLIENT_ID manquant dans firebase.ts — voir instructions.");
-      resolve(false); return;
+      // GIS non dispo : fallback silencieux sur signInWithPopup
+      try {
+        const result = await signInWithPopup(auth, googleCalendarProvider);
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        const token = credential?.accessToken;
+        if(token){
+          localStorage.setItem('gcal_token', token);
+          localStorage.setItem('gcal_expiry', String(Date.now() + 55*60*1000));
+          if(userEmail) await setDoc(doc(db,'gcal_links',userEmail),{linked:true,linkedAt:new Date().toISOString()},{merge:true});
+          resolve(true);
+        } else resolve(false);
+      } catch { resolve(false); }
+      return;
     }
     const tokenClient = gis.initTokenClient({
       client_id: GOOGLE_CLIENT_ID,
@@ -3416,27 +3427,18 @@ const App: React.FC = () => {
       const snap = await getDoc(doc(db, 'xsite_data', siteKey));
       const saved = snap.exists() ? (snap.data() as Record<string,string>) : {};
       setXsiteData(saved);
-      // Les données seront envoyées en réponse à XSITE_READY
+      // Les données sont envoyées via onLoad de l'iframe
     };
     loadData();
     // Écouter les messages de l'iframe
     const onMsg = async (e: MessageEvent) => {
-      if (!e.data?.type) return;
-      if (e.data.type === 'XSITE_READY') {
-        // L'iframe est prête : envoyer les données sauvegardées
-        const snap = await getDoc(doc(db, 'xsite_data', siteKey));
-        const saved = snap.exists() ? (snap.data() as Record<string,string>) : {};
-        setXsiteData(saved);
-        xsiteIframeRef.current?.contentWindow?.postMessage({ type: 'XSITE_INIT', data: saved }, '*');
-      }
-      if (e.data.type === 'XSITE_SET') {
-        const { key, value } = e.data;
-        const snap = await getDoc(doc(db, 'xsite_data', siteKey));
-        const current = snap.exists() ? (snap.data() as Record<string,string>) : {};
-        const updated = { ...current, [key]: value };
-        setXsiteData(updated);
-        await setDoc(doc(db, 'xsite_data', siteKey), updated);
-      }
+      if (e.data?.type !== 'XSITE_SET') return;
+      const { key, value } = e.data;
+      const snap = await getDoc(doc(db, 'xsite_data', siteKey));
+      const current = snap.exists() ? (snap.data() as Record<string,string>) : {};
+      const updated = { ...current, [key]: value };
+      setXsiteData(updated);
+      await setDoc(doc(db, 'xsite_data', siteKey), updated);
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
@@ -3711,8 +3713,6 @@ const App: React.FC = () => {
       window.dispatchEvent(new CustomEvent('xsite-ready', { detail: _store }));
     }
   });
-  // Indiquer au parent que l'iframe est prête à recevoir les données
-  try { parent.postMessage({ type: 'XSITE_READY' }, '*'); } catch(e) {}
 })();
 <\/script>`;
             const html = selectedXSite.html || '';
@@ -3720,7 +3720,14 @@ const App: React.FC = () => {
           })()}
           className="flex-1 w-full border-none"
           title={selectedXSite.name}
-          sandbox="allow-scripts allow-same-origin"/>
+          onLoad={async () => {
+            if(!user?.email || !selectedXSite?.id) return;
+            const siteKey = `${user.email}_${selectedXSite.id}`;
+            const snap = await getDoc(doc(db,'xsite_data', siteKey));
+            const saved = snap.exists() ? (snap.data() as Record<string,string>) : {};
+            xsiteIframeRef.current?.contentWindow?.postMessage({ type:'XSITE_INIT', data: saved },'*');
+          }}
+          sandbox="allow-scripts"/>
         </div>
       )}
 
