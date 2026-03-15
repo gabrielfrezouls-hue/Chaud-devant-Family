@@ -3281,17 +3281,18 @@ const lierAgenda = async (userEmail?: string): Promise<boolean> => {
     }
     if (!GOOGLE_CLIENT_ID) {
       // GIS non dispo : fallback silencieux sur signInWithPopup
-      try {
-        const result = await signInWithPopup(auth, googleCalendarProvider);
-        const credential = GoogleAuthProvider.credentialFromResult(result);
-        const token = credential?.accessToken;
-        if(token){
-          localStorage.setItem('gcal_token', token);
-          localStorage.setItem('gcal_expiry', String(Date.now() + 55*60*1000));
-          if(userEmail) await setDoc(doc(db,'gcal_links',userEmail),{linked:true,linkedAt:new Date().toISOString()},{merge:true});
-          resolve(true);
-        } else resolve(false);
-      } catch { resolve(false); }
+      signInWithPopup(auth, googleCalendarProvider)
+        .then(result => {
+          const credential = GoogleAuthProvider.credentialFromResult(result);
+          const token = credential?.accessToken;
+          if(token){
+            localStorage.setItem('gcal_token', token);
+            localStorage.setItem('gcal_expiry', String(Date.now() + 55*60*1000));
+            if(userEmail) setDoc(doc(db,'gcal_links',userEmail),{linked:true,linkedAt:new Date().toISOString()},{merge:true});
+            resolve(true);
+          } else resolve(false);
+        })
+        .catch(() => resolve(false));
       return;
     }
     const tokenClient = gis.initTokenClient({
