@@ -1226,11 +1226,12 @@ const CalendarTableGrid = ({ allItems, today, config, delItem }: {
 // ══════════════════════════════════════════════════════════════
 // CALENDAR VIEW — Événements + Tâches + Tableau + Google Agenda
 // ══════════════════════════════════════════════════════════════
-const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
+const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, siteUsers }: {
   user: User, config: SiteConfig,
   events: FamilyEvent[],
   addEntry: (col: string, data: any) => Promise<void>,
-  deleteItem: (col: string, id: string) => Promise<void>
+  deleteItem: (col: string, id: string) => Promise<void>,
+  siteUsers?: any[]
 }) => {
   const [calTab, setCalTab] = React.useState<'events'|'tasks'|'table'>('events');
   const [showEventForm, setShowEventForm] = React.useState(false);
@@ -1240,6 +1241,17 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
   const [newEvt, setNewEvt] = React.useState({ title:'', date: new Date().toISOString().split('T')[0], time:'', isAllDay: true });
   const [newTask, setNewTask] = React.useState({ title:'', date: new Date().toISOString().split('T')[0], done: false });
   const [submitting, setSubmitting] = React.useState(false);
+  const [pastEventsOpen, setPastEventsOpen] = React.useState(false);
+  const [pastTasksOpen, setPastTasksOpen] = React.useState(false);
+  const [syncingAll, setSyncingAll] = React.useState(false);
+  // Participants sélectionnés pour le push gcal (par défaut tous)
+  const allUserEmails = (siteUsers||[]).map((u:any) => u.id).filter(Boolean);
+  const [selectedParticipants, setSelectedParticipants] = React.useState<string[]>(allUserEmails);
+  // Synchro liste participants quand siteUsers change
+  React.useEffect(() => {
+    const emails = (siteUsers||[]).map((u:any) => u.id).filter(Boolean);
+    setSelectedParticipants(emails);
+  }, [JSON.stringify(siteUsers)]);
 
   // Vérifier si agenda lié (token valide)
   React.useEffect(() => {
@@ -1270,12 +1282,18 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
       title: newEvt.title,
       date: newEvt.date,
       time: newEvt.isAllDay ? null : newEvt.time,
+      participants: selectedParticipants,
     });
-    // Push Google Calendar
-    const dateTime = newEvt.isAllDay
-      ? `${newEvt.date}T12:00:00`
-      : `${newEvt.date}T${(newEvt.time||'12:00').replace('h',':')}:00`;
-    pousserVersGoogleCalendar(newEvt.title, dateTime);
+    // Push vers Google Calendar du créateur si connecté
+    if(gcalLinked) {
+      const dateTime = newEvt.isAllDay
+        ? `${newEvt.date}T12:00:00`
+        : `${newEvt.date}T${(newEvt.time||'12:00').replace('h',':')}:00`;
+      const desc = selectedParticipants.length > 0
+        ? `Depuis Chaud Devant 🔥 · Participants: ${selectedParticipants.join(', ')}`
+        : 'Depuis Chaud Devant 🔥';
+      pousserVersGoogleCalendar(newEvt.title, dateTime, desc);
+    }
     setNewEvt({ title:'', date: new Date().toISOString().split('T')[0], time:'', isAllDay:true });
     setShowEventForm(false);
     setSubmitting(false);
@@ -1289,9 +1307,11 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
       date: newTask.date,
       done: false,
       createdBy: user.email,
+      participants: selectedParticipants,
     });
-    // Push Google Calendar comme événement all-day
-    pousserTacheVersGoogleCalendar(newTask.title, newTask.date);
+    if(gcalLinked) {
+      pousserTacheVersGoogleCalendar(newTask.title, newTask.date);
+    }
     setNewTask({ title:'', date: new Date().toISOString().split('T')[0], done: false });
     setShowTaskForm(false);
     setSubmitting(false);
@@ -1299,6 +1319,25 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
 
   const toggleTask = async (task: any) => {
     await updateDoc(doc(db, 'family_tasks', task.id), { done: !task.done });
+  };
+
+  // Synchroniser les events existants (créés avant la connexion Google)
+  const syncAllEventsToGcal = async () => {
+    if (!gcalLinked) return;
+    setSyncingAll(true);
+    const futureEvents = events.filter(e => e.date >= today);
+    for (const ev of futureEvents) {
+      const dateTime = ev.time ? `${ev.date}T${ev.time.replace('h',':')}:00` : `${ev.date}T12:00:00`;
+      await pousserVersGoogleCalendar(ev.title, dateTime, 'Depuis Chaud Devant 🔥 (sync)');
+      await new Promise(r => setTimeout(r, 200)); // éviter rate limit
+    }
+    const futureTasks = tasks.filter(t => !t.done && t.date >= today);
+    for (const t of futureTasks) {
+      await pousserTacheVersGoogleCalendar(t.title, t.date);
+      await new Promise(r => setTimeout(r, 200));
+    }
+    setSyncingAll(false);
+    alert(`✅ ${futureEvents.length + futureTasks.length} éléments synchronisés avec Google Agenda.`);
   };
 
   // Fusionner events + tasks pour la vue tableau
@@ -1388,6 +1427,33 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
                 <input type="time" value={newEvt.time} onChange={e=>setNewEvt(v=>({...v,time:e.target.value}))}
                   className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none"/>
               )}
+              {/* Participants */}
+              {(siteUsers||[]).length > 0 && (
+                <div>
+                  <p className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Participants</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(siteUsers||[]).map((u:any) => {
+                      const sel = selectedParticipants.includes(u.id);
+                      return (
+                        <button key={u.id}
+                          onClick={()=>setSelectedParticipants(prev =>
+                            sel ? prev.filter(e=>e!==u.id) : [...prev, u.id]
+                          )}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border-2 transition-all ${
+                            sel ? 'border-current text-white' : 'border-gray-200 text-gray-400 bg-white'
+                          }`}
+                          style={sel ? {backgroundColor:config.primaryColor, borderColor:config.primaryColor} : {}}
+                        >
+                          <span className="w-5 h-5 rounded-full bg-white/30 flex items-center justify-center font-black text-[10px]">
+                            {(u.letter||u.name||u.id||'?')[0].toUpperCase()}
+                          </span>
+                          {u.name||u.id}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="flex gap-2">
                 <button onClick={handleAddEvent} disabled={submitting}
                   className="flex-1 py-3 rounded-2xl font-black text-white text-sm disabled:opacity-50"
@@ -1399,21 +1465,45 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
             </div>
           )}
 
+          {/* Bouton sync tous les events existants */}
+          {gcalLinked && events.filter(e => e.date >= today).length > 0 && (
+            <button
+              onClick={syncAllEventsToGcal}
+              disabled={syncingAll}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl text-xs font-bold border-2 border-dashed border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600 transition-all disabled:opacity-50"
+            >
+              <CalendarDays size={14}/>
+              {syncingAll ? 'Synchronisation…' : 'Synchroniser tous les événements à venir avec Google Agenda'}
+            </button>
+          )}
+
+          {/* Événements à venir */}
           <div className="space-y-3">
-            {events.length === 0 && <p className="text-center text-gray-400 py-10 italic">Aucun événement à venir…</p>}
-            {events.map(ev => {
+            {events.filter(e => e.date >= today).length === 0 && events.length === 0 && (
+              <p className="text-center text-gray-400 py-10 italic">Aucun événement à venir…</p>
+            )}
+            {events.filter(e => e.date >= today).map(ev => {
               const d = new Date(ev.date + 'T12:00:00');
-              const isPast = ev.date < today;
               return (
-                <div key={ev.id} className={`group flex items-center gap-4 p-4 rounded-2xl border transition-all hover:shadow-sm ${isPast?'opacity-50 bg-gray-50 border-gray-100':'bg-white border-gray-100 hover:border-gray-200'}`}>
+                <div key={ev.id} className="group flex items-center gap-4 p-4 rounded-2xl border bg-white border-gray-100 hover:border-gray-200 hover:shadow-sm transition-all">
                   <div className="w-12 h-12 rounded-xl flex flex-col items-center justify-center shrink-0"
-                    style={{backgroundColor: isPast ? '#f3f4f6' : config.primaryColor+'18', color: isPast ? '#9ca3af' : config.primaryColor}}>
+                    style={{backgroundColor: config.primaryColor+'18', color: config.primaryColor}}>
                     <span className="text-lg font-black leading-none">{d.getDate()}</span>
                     <span className="text-[9px] font-black uppercase">{MONTHS_FR[d.getMonth()]}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-gray-800 truncate">{ev.title}</div>
-                    {ev.time && <div className="text-xs text-gray-400 flex items-center gap-1 mt-0.5"><Clock size={10}/>{ev.time}</div>}
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {ev.time && <span className="text-xs text-gray-400 flex items-center gap-1"><Clock size={10}/>{ev.time}</span>}
+                      {ev.participants?.length > 0 && (
+                        <div className="flex gap-0.5">
+                          {ev.participants.map((p:string) => {
+                            const u = (siteUsers||[]).find((u:any) => u.id === p);
+                            return <span key={p} className="w-4 h-4 rounded-full text-[8px] font-black flex items-center justify-center text-white" style={{backgroundColor:config.primaryColor}}>{(u?.letter||u?.name||p||'?')[0].toUpperCase()}</span>;
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <button onClick={()=>delItem('family_events',ev.id)}
                     className="opacity-0 group-hover:opacity-100 p-2 text-red-300 hover:text-red-500 rounded-xl transition-all">
@@ -1423,6 +1513,44 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
               );
             })}
           </div>
+
+          {/* Événements passés — menu déroulant */}
+          {events.filter(e => e.date < today).length > 0 && (
+            <div>
+              <button
+                onClick={() => setPastEventsOpen(v => !v)}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-gray-50 border border-gray-100 text-gray-400 hover:bg-gray-100 transition-all"
+              >
+                <span className="text-xs font-black uppercase tracking-widest">
+                  Événements passés ({events.filter(e => e.date < today).length})
+                </span>
+                <ArrowLeft size={14} className={`transition-transform ${pastEventsOpen ? '-rotate-90' : 'rotate-180'}`}/>
+              </button>
+              {pastEventsOpen && (
+                <div className="mt-2 space-y-2">
+                  {events.filter(e => e.date < today).sort((a,b) => b.date > a.date ? 1 : -1).map(ev => {
+                    const d = new Date(ev.date + 'T12:00:00');
+                    return (
+                      <div key={ev.id} className="group flex items-center gap-3 p-3 rounded-2xl bg-gray-50 border border-gray-100 opacity-50 hover:opacity-70 transition-all">
+                        <div className="w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 bg-gray-100 text-gray-400">
+                          <span className="text-sm font-black leading-none">{d.getDate()}</span>
+                          <span className="text-[8px] font-black uppercase">{MONTHS_FR[d.getMonth()]}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-bold text-gray-500 truncate line-through">{ev.title}</div>
+                          {ev.time && <span className="text-[10px] text-gray-400">{ev.time}</span>}
+                        </div>
+                        <button onClick={()=>delItem('family_events',ev.id)}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 text-red-300 hover:text-red-500 rounded-xl transition-all">
+                          <Trash2 size={12}/>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1442,6 +1570,33 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem }: {
                 className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none text-lg"/>
               <input type="date" value={newTask.date} onChange={e=>setNewTask(v=>({...v,date:e.target.value}))}
                 className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none cursor-pointer"/>
+              {/* Participants */}
+              {(siteUsers||[]).length > 0 && (
+                <div>
+                  <p className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Participants</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(siteUsers||[]).map((u:any) => {
+                      const sel = selectedParticipants.includes(u.id);
+                      return (
+                        <button key={u.id}
+                          onClick={()=>setSelectedParticipants(prev =>
+                            sel ? prev.filter(e=>e!==u.id) : [...prev, u.id]
+                          )}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border-2 transition-all ${
+                            sel ? 'text-white' : 'border-gray-200 text-gray-400 bg-white'
+                          }`}
+                          style={sel ? {backgroundColor:config.primaryColor, borderColor:config.primaryColor} : {}}
+                        >
+                          <span className="w-5 h-5 rounded-full bg-white/30 flex items-center justify-center font-black text-[10px]">
+                            {(u.letter||u.name||u.id||'?')[0].toUpperCase()}
+                          </span>
+                          {u.name||u.id}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="flex gap-2">
                 <button onClick={handleAddTask} disabled={submitting}
                   className="flex-1 py-3 rounded-2xl font-black text-white text-sm disabled:opacity-50"
@@ -3961,6 +4116,7 @@ const App: React.FC = () => {
             events={events}
             addEntry={addEntry}
             deleteItem={deleteItem}
+            siteUsers={siteUsers}
           />
         ))}
 
