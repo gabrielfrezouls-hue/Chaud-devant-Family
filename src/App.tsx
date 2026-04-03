@@ -3587,17 +3587,46 @@ const App: React.FC = () => {
     };
     loadData();
     // Écouter les messages de l'iframe
+    // Buffer local pour debouncer les écritures Firestore
+    let pendingData: Record<string,string> | null = null;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const flushToFirestore = async (data: Record<string,string>) => {
+      // merge:true pour ne pas écraser les clés non modifiées
+      await setDoc(doc(db, 'xsite_data', siteKey), data, { merge: true });
+    };
+
     const onMsg = async (e: MessageEvent) => {
-      if (e.data?.type !== 'XSITE_SET') return;
-      const { key, value } = e.data;
-      const snap = await getDoc(doc(db, 'xsite_data', siteKey));
-      const current = snap.exists() ? (snap.data() as Record<string,string>) : {};
-      const updated = { ...current, [key]: value };
-      setXsiteData(updated);
-      await setDoc(doc(db, 'xsite_data', siteKey), updated);
+      if (!e.data?.type) return;
+
+      // L'iframe signale qu'elle est prête : envoyer les données initiales
+      if (e.data.type === 'XSITE_READY') {
+        const snap = await getDoc(doc(db, 'xsite_data', siteKey));
+        const saved = snap.exists() ? (snap.data() as Record<string,string>) : {};
+        setXsiteData(saved);
+        pendingData = { ...saved };
+        xsiteIframeRef.current?.contentWindow?.postMessage({ type: 'XSITE_INIT', data: saved }, '*');
+        return;
+      }
+
+      // L'iframe sauvegarde une valeur
+      if (e.data.type === 'XSITE_SET') {
+        const { key, value } = e.data;
+        // Mise à jour locale immédiate
+        pendingData = { ...(pendingData || {}), [key]: value };
+        setXsiteData({ ...pendingData });
+        // Debounce : écrire Firestore 400ms après le dernier setItem
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          if (pendingData) flushToFirestore(pendingData);
+        }, 400);
+      }
     };
     window.addEventListener('message', onMsg);
-    return () => window.removeEventListener('message', onMsg);
+    return () => {
+      window.removeEventListener('message', onMsg);
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
   }, [selectedXSite, user?.email]);
 
   // Helper : l'utilisateur courant est-il premium ?
@@ -3865,10 +3894,11 @@ const App: React.FC = () => {
   window.addEventListener('message', function(e) {
     if (e.data && e.data.type === 'XSITE_INIT') {
       _store = Object.assign({}, e.data.data || {});
-      // Déclencher un événement pour que le code XSite sache que les données sont prêtes
       window.dispatchEvent(new CustomEvent('xsite-ready', { detail: _store }));
     }
   });
+  // Signaler au parent que le script est prêt à recevoir XSITE_INIT
+  try { parent.postMessage({ type: 'XSITE_READY' }, '*'); } catch(e) {}
 })();
 <\/script>`;
             const html = selectedXSite.html || '';
@@ -3876,12 +3906,15 @@ const App: React.FC = () => {
           })()}
           className="flex-1 w-full border-none"
           title={selectedXSite.name}
-          onLoad={async () => {
+          onLoad={() => {
+            // Fallback : si XSITE_READY n'arrive pas dans 800ms, envoyer quand même
             if(!user?.email || !selectedXSite?.id) return;
             const siteKey = `${user.email}_${selectedXSite.id}`;
-            const snap = await getDoc(doc(db,'xsite_data', siteKey));
-            const saved = snap.exists() ? (snap.data() as Record<string,string>) : {};
-            xsiteIframeRef.current?.contentWindow?.postMessage({ type:'XSITE_INIT', data: saved },'*');
+            setTimeout(async () => {
+              const snap = await getDoc(doc(db,'xsite_data', siteKey));
+              const saved = snap.exists() ? (snap.data() as Record<string,string>) : {};
+              xsiteIframeRef.current?.contentWindow?.postMessage({ type:'XSITE_INIT', data: saved },'*');
+            }, 800);
           }}
           sandbox="allow-scripts"/>
         </div>
