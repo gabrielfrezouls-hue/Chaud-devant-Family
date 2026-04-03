@@ -6,7 +6,7 @@ const RecipeCard = ({ recipe }: { recipe: any }) => {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+    <div className="glass-panel rounded-[48px] shadow-md overflow-hidden hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
       
       {/* IMAGE */}
       <div className="h-48 overflow-hidden relative group">
@@ -15,7 +15,7 @@ const RecipeCard = ({ recipe }: { recipe: any }) => {
           alt={recipe.title} 
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
-        <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-xs font-bold text-orange-600 shadow-sm uppercase">
+        <div className="absolute top-3 right-3 glass-element px-3 py-1.5 rounded-full text-xs font-bold text-black shadow-sm uppercase">
           {recipe.category || "Plat"}
         </div>
       </div>
@@ -25,7 +25,7 @@ const RecipeCard = ({ recipe }: { recipe: any }) => {
         
         {/* Titre et Chef */}
         <div className="mb-4">
-          <h3 className="text-xl font-serif text-amber-900 leading-tight mb-1">{recipe.title}</h3>
+          <h3 className="text-xl text-black leading-tight mb-1">{recipe.title}</h3>
           <p className="text-stone-500 text-sm flex items-center">
             <ChefHat size={14} className="mr-1" />
             Chef : {recipe.chef || "La famille"}
@@ -34,7 +34,7 @@ const RecipeCard = ({ recipe }: { recipe: any }) => {
 
         {/* Ingrédients (Coupes si fermé) */}
         <div className="mb-6">
-          <p className="font-bold text-xs text-stone-400 uppercase tracking-wider mb-2">Ingrédients</p>
+          <p className="meta-label text-black/50 mb-2">Ingrédients</p>
           <ul className="text-stone-600 text-sm space-y-1">
             {(isOpen ? recipe.ingredients : recipe.ingredients.slice(0, 3)).map((ing: string, i: number) => (
               <li key={i} className="flex items-start">
@@ -50,7 +50,7 @@ const RecipeCard = ({ recipe }: { recipe: any }) => {
         {/* PRÉPARATION (Cachée par défaut) */}
         {isOpen && (
           <div className="mt-4 pt-4 border-t border-orange-100 animate-fadeIn">
-            <p className="font-bold text-xs text-stone-400 uppercase tracking-wider mb-2">Préparation</p>
+            <p className="meta-label text-black/50 mb-2">Préparation</p>
             <p className="text-stone-600 text-sm whitespace-pre-line leading-relaxed">
               {recipe.instructions || "Pas d'étapes détaillées."}
             </p>
@@ -60,7 +60,7 @@ const RecipeCard = ({ recipe }: { recipe: any }) => {
         {/* Le fameux BOUTON ROND avec la flèche */}
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="absolute bottom-4 right-4 p-3 bg-orange-100 text-orange-600 rounded-full hover:bg-orange-200 transition-colors shadow-sm z-10"
+          className="absolute bottom-4 right-4 p-3 bg-black text-white hover:bg-black/90 transition-colors shadow-sm z-10 rounded-full"
           title={isOpen ? "Fermer" : "Voir la recette"}
         >
           {isOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
