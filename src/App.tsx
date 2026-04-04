@@ -3796,15 +3796,15 @@ const App: React.FC = () => {
   };
 
   // --- ÉCRANS SPÉCIAUX ---
-  if(isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#F2EDE4]"><Loader2 className="w-12 h-12 animate-spin text-black"/></div>;
+  if(isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#f5ede7]"><Loader2 className="w-12 h-12 animate-spin text-[#a85c48]"/></div>;
 
   if(!user) return (
-    <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-[#F2EDE4]">
+    <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-[#f5ede7]">
       <Background color={ORIGINAL_CONFIG.primaryColor}/>
       <div className="z-10 text-center space-y-8 animate-in fade-in zoom-in duration-700">
-        <div className="mx-auto w-24 h-24 rounded-[48px] flex items-center justify-center shadow-xl glass-panel"><Sparkles className="text-black" size={48}/></div>
-        <h1 className="text-4xl font-black tracking-widest text-black">CHAUD DEVANT</h1>
-        <button onClick={handleLogin} className="glass-element text-black font-black py-4 px-8 shadow-xl flex items-center gap-3 hover:scale-105 transition-transform"><LogIn size={24}/>CONNEXION GOOGLE</button>
+        <div className="mx-auto w-24 h-24 rounded-[2.5rem] flex items-center justify-center shadow-xl bg-[#a85c48]"><Sparkles className="text-white" size={48}/></div>
+        <h1 className="text-4xl font-cinzel font-black tracking-widest text-[#a85c48]">CHAUD DEVANT</h1>
+        <button onClick={handleLogin} className="bg-white text-black font-black py-4 px-8 rounded-2xl shadow-xl flex items-center gap-3 hover:scale-105 transition-transform"><LogIn size={24}/>CONNEXION GOOGLE</button>
       </div>
     </div>
   );
@@ -3823,7 +3823,7 @@ const App: React.FC = () => {
   // (l'ancien config.isLocked global est remplacé par config.lockedPages)
 
   return (
-    <div className="min-h-screen pb-24 md:pb-0 transition-colors duration-700 relative" style={{backgroundColor:'#F2EDE4',fontFamily:'Inter, sans-serif'}}>
+    <div className="min-h-screen pb-24 md:pb-0 transition-colors duration-700" style={{backgroundColor:config.backgroundColor,fontFamily:config.fontFamily}}>
       <Background color={config.primaryColor}/>
 
       {/* NOTIFICATIONS PANEL */}
@@ -3921,7 +3921,7 @@ const App: React.FC = () => {
       )}
 
       {/* NAVBAR */}
-      <nav className="fixed top-4 left-1/2 -translate-x-1/2 w-[min(96%,1320px)] glass-panel z-50 h-[60px] px-6 flex items-center justify-between rounded-[999px]">
+      <nav className="fixed top-0 w-full bg-white/80 backdrop-blur-xl border-b border-black/5 z-50 h-20 px-6 flex items-center justify-between">
         <div onClick={()=>setCurrentView('home')} className="flex items-center gap-3 cursor-pointer">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg" style={{backgroundColor:config.primaryColor}}><Home className="text-white" size={20}/></div>
           <span className="font-cinzel font-black text-xl hidden md:block" style={{color:config.primaryColor}}>CHAUD.DEVANT</span>
@@ -4000,22 +4000,22 @@ const App: React.FC = () => {
         hidden={isMenuOpen||isNotifOpen||isEventModalOpen||isRecipeModalOpen||showFreemiumModal||wishlistModalOpen||showTokenShop||!!adminTokenUser}
       />
 
-      <main className="max-w-7xl mx-auto px-3 md:px-6 pt-28 md:pt-32 pb-36 relative z-10">
+      <main className="max-w-7xl mx-auto px-3 md:px-6 pt-24 md:pt-28 pb-32 relative z-10">
 
         {/* ACCUEIL */}
         {currentView==='home'&&(
           isPageLocked('home') ? <MaintenancePage pageName="Accueil" isHome/> : (
           <div className="space-y-16 animate-in fade-in duration-1000" id="top">
-            <section className="relative h-[45vh] md:h-[60vh] rounded-[48px] overflow-hidden shadow-2xl group glass-panel">
+            <section className="relative h-[45vh] md:h-[60vh] rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl group">
               <img src={config.welcomeImage} className="w-full h-full object-cover transition-transform duration-[10s] group-hover:scale-110"/>
-              <div className="absolute inset-0 bg-black/30 flex flex-col justify-end p-10">
-                <h1 className="text-3xl md:text-8xl font-black text-white leading-none">{config.welcomeTitle}</h1>
-                <p className="text-xl text-white/90 mt-4">{config.welcomeText}</p>
-                <button onClick={()=>setCurrentView('hub')} className="mt-8 bg-black text-white px-8 py-4 font-bold uppercase tracking-widest shadow-xl flex items-center gap-3 w-fit hover:scale-105 transition-transform"><LayoutDashboard/>Ouvrir le Tableau</button>
+              <div className="absolute inset-0 bg-black/40 flex flex-col justify-end p-10">
+                <h1 className="text-3xl md:text-8xl font-cinzel font-black text-white leading-none">{config.welcomeTitle}</h1>
+                <p className="text-xl text-white/90 italic mt-4">{config.welcomeText}</p>
+                <button onClick={()=>setCurrentView('hub')} className="mt-8 bg-white text-black px-8 py-4 rounded-xl font-bold uppercase tracking-widest shadow-xl flex items-center gap-3 w-fit hover:scale-105 transition-transform"><LayoutDashboard/>Ouvrir le Tableau</button>
               </div>
             </section>
             {config.homeHtml&&(
-              <section id="home-widget" className="glass-panel rounded-[48px] overflow-hidden shadow-xl mb-8">
+              <section id="home-widget" className="bg-white/50 rounded-[3rem] overflow-hidden shadow-xl mb-8">
                 <iframe srcDoc={config.homeHtml} className="w-full h-[500px]" sandbox="allow-scripts" title="Home Widget"/>
               </section>
             )}
@@ -4256,13 +4256,6 @@ const App: React.FC = () => {
           )
         )}
       </main>
-
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[min(92%,780px)] z-40 pointer-events-none">
-        <div className="glass-element h-9 rounded-[999px] flex items-center justify-between px-5 text-[10px] font-semibold tracking-[0.15em] uppercase text-black/70">
-          <span>Family status</span>
-          <span>{new Date().toLocaleDateString('fr-FR')}</span>
-        </div>
-      </div>
     </div>
   );
 };
