@@ -1738,8 +1738,7 @@ const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }
 // ─── Utilitaire : convertit string d'étapes → [{title, content}] ───────────
 const parseStepsToList = (stepsStr: string): Array<{title:string,content:string}> => {
   if(!stepsStr) return [];
-  const lines = stepsStr.split('
-').filter(l=>l.trim()!=='');
+  const lines = stepsStr.split('\n').filter((l:string)=>l.trim()!=='');
   return lines.map((line,i)=>{
     // Essayer de détecter un titre (ex: "Étape 1 : ...")
     const colonIdx = line.indexOf(':');
@@ -1755,8 +1754,7 @@ const MiamStepsReader = ({recipe, config, onBack, onEdit}: {recipe:any, config:a
   const [currentStep, setCurrentStep] = React.useState(0);
   const [showIngsMobile, setShowIngsMobile] = React.useState(false);
   const steps: Array<{title:string,content:string}> = recipe.stepsList?.length>0 ? recipe.stepsList : parseStepsToList(recipe.steps||recipe.instructions||'');
-  const ings: string[] = Array.isArray(recipe.ingredients) ? recipe.ingredients : (recipe.ingredients||'').split('
-').filter((i:string)=>i.trim());
+  const ings: string[] = Array.isArray(recipe.ingredients) ? recipe.ingredients : (recipe.ingredients||'').split('\n').filter((i:string)=>i.trim());
   const total = steps.length;
   const isFinished = currentStep >= total;
   const progress = total>0 ? ((currentStep+1)/total)*100 : 0;
@@ -4555,8 +4553,7 @@ const App: React.FC = () => {
                     });
                     if(filtered.length===0) return <p className="col-span-full text-center text-gray-400 py-16 italic">Aucune recette trouvée.</p>;
                     return filtered.map((r:any)=>{
-                      const ings = typeof r.ingredients==='string' ? r.ingredients.split('
-').filter((i:string)=>i.trim()!=='') : (r.ingredients||[]);
+                      const ings = typeof r.ingredients==='string' ? r.ingredients.split('\n').filter((i:string)=>i.trim()!=='') : (r.ingredients||[]);
                       return (
                         <div key={r.id} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all cursor-pointer overflow-hidden border border-gray-100 group flex flex-col"
                           onClick={()=>{setReadingRecipe({...r,ingredients:ings,stepsList:parseStepsToList(r.steps||r.instructions||'')});setRecipeView('read');}}>
