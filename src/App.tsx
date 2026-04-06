@@ -17,7 +17,7 @@ import {
   CheckSquare, Square, CheckCircle2, Plus, Minus, Clock, Save, ToggleLeft, ToggleRight, Upload, Image as ImageIcon, Book, Download, TrendingUp, TrendingDown, Percent, Target,
   Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail, CornerDownRight, Store, CalendarClock,
   Refrigerator, Scan, Camera, AlertTriangle, Bot, Flame, Info, Package, Barcode, Brain, Cloud,
-  ListTodo, LayoutList, CalendarDays, Link2, CheckCheck, Circle
+  ListTodo, List, LayoutList, CalendarDays, Link2, CheckCheck, Circle
 , Receipt , Utensils } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat, askButlerAgent, scanProductImage, scanTicketDeCaisse, extractRecipeFromUrl } from './services/geminiService';
