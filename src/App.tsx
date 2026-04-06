@@ -2887,7 +2887,7 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
                     setForm(f2=>({...f2,platName:'',recetteLink:'',notes:''}));
                   } else {
                     loadFav(f, i);
-                    showToast('⭐ Recette sélectionnée — ouvre une case pour l'ajouter');
+                    showToast("⭐ Recette sélectionnée — ouvre une case pour l'ajouter");
                   }
                 }}
                 className={`flex items-center gap-1.5 rounded-xl px-3 py-2 border text-xs font-bold cursor-pointer transition-all select-none ${
