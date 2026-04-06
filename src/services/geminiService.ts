@@ -184,6 +184,32 @@ Calcule expiryDate depuis ${today}. Si date lisible sur l'emballage, utilise-la.
   } catch { return null; }
 };
 
+export const scanTicketDeCaisse = async (file: File): Promise<Array<{name:string,category:string,expiryDate?:string}>> => {
+  try {
+    const b64 = await fileToBase64(file);
+    const today = new Date().toISOString().split("T")[0];
+    const res = await callGemini({
+      contents: [{
+        parts: [
+          {
+            text: `Analyse ce ticket de caisse ou cette liste de courses. Identifie TOUS les produits alimentaires.
+Réponds UNIQUEMENT en JSON sans markdown, tableau d'objets :
+[{"name":"Nom en français","category":"Boucherie/Poisson|Boulangerie|Plat préparé|Primeur|Frais & Crèmerie|Épicerie Salée|Épicerie Sucrée|Boissons|Surgelés|Divers","expiryDate":"YYYY-MM-DD ou vide"}]
+Calcule expiryDate depuis ${today} selon les règles standard de conservation.
+Ignore les produits non alimentaires (hygiène, ménager, etc.).
+Renvoie un tableau vide [] si aucun produit alimentaire détecté.`
+          },
+          { inline_data: { mime_type: file.type || "image/jpeg", data: b64 } },
+        ],
+      }],
+    });
+    const parsed = cleanJSON(res);
+    if(Array.isArray(parsed)) return parsed;
+    return [];
+  } catch { return []; }
+};
+
+
 export const extractRecipeFromUrl = async (url: string) => {
   const res = await callGemini({
     contents: [{
