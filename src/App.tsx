@@ -18,9 +18,9 @@ import {
   Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail, CornerDownRight, Store, CalendarClock,
   Refrigerator, Scan, Camera, AlertTriangle, Bot, Flame, Info, Package, Barcode, Brain, Cloud,
   ListTodo, LayoutList, CalendarDays, Link2, CheckCheck, Circle
-} from 'lucide-react';
+, Receipt , Utensils } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
-import { askAIArchitect, askAIChat, askButlerAgent, scanProductImage, extractRecipeFromUrl } from './services/geminiService';
+import { askAIArchitect, askAIChat, askButlerAgent, scanProductImage, scanTicketDeCaisse, extractRecipeFromUrl } from './services/geminiService';
 import Background from './components/Background';
 import RecipeCard from './components/RecipeCard';
 
@@ -205,6 +205,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
   const [barcodeInput, setBarcodeInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [scanMsg, setScanMsg] = useState('');
+  const [isTicketMode, setIsTicketMode] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const barcodePhotoRef = useRef<HTMLInputElement>(null);
   // Hub quick-add depuis le Frigo
@@ -404,44 +405,66 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
 
   const handlePhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file=e.target.files?.[0]; if(!file) return; e.target.value='';
-    // Vérification quota scan IA (5/mois pour gratuits)
+    // Vérification quota scan IA
     if(!isPremium) {
-      const monthKey = new Date().toISOString().slice(0,7); // "2025-01"
+      const monthKey = new Date().toISOString().slice(0,7);
       const scanKeyDoc = await getDoc(doc(db,'user_prefs',user.email||'?'));
       const scanData = scanKeyDoc.exists() ? scanKeyDoc.data() : {};
       const scansThisMonth = scanData[`scans_${monthKey}`] || 0;
-      if(scansThisMonth >= 5) {
-        if(onShowFreemium) onShowFreemium();
-        return;
-      }
+      if(scansThisMonth >= 5) { if(onShowFreemium) onShowFreemium(); return; }
       await setDoc(doc(db,'user_prefs',user.email||'?'),{[`scans_${monthKey}`]:scansThisMonth+1},{merge:true});
     }
-    setIsLoading(true); setScanMsg('⏳ Analyse IA...');
-    try {
-      // Scan photo = vision = 15 tokens
-      const canRun = !consumeTokens || await consumeTokens(15);
-      if(!canRun) { setScanMsg('🔥 Tokens insuffisants (15 requis) — rechargement mensuel automatique'); setIsLoading(false); return; }
-      const result = await scanProductImage(file);
-      if(result?.name) {
-        // Vérifier la mémoire d'apprentissage
-        const nameKey = normalizeName(result.name);
-        const learnedTab = learningMap[nameKey];
-        // Utiliser catégorie mémorisée précise, ou résultat scan
-        const rawCategory = learnedTab
-          ? learnedTab.category
-          : (result.category||categorizeShoppingItem(result.name));
-        // Règle hard : vérifier que Primeur va bien au frigo
-        const category = rawCategory;
-        const isCellier=CELLIER_CATEGORIES.includes(category);
-        await addDoc(collection(db,'frigo_items'),{
-          name:result.name, category,
-          expiryDate:isCellier?'':(result.expiryDate||''),
-          gaugeLevel:isCellier?'plein':undefined, quantity:1, unit:'pcs', addedAt:new Date().toISOString()
-        });
-        setScanMsg(`✅ "${result.name}" (${category})${learnedTab?' ⭐':''}`);
+    setIsLoading(true);
 
-      } else setScanMsg('❌ Non reconnu.');
-    } catch { setScanMsg('❌ Erreur analyse.'); }
+    if(isTicketMode) {
+      // ── MODE TICKET DE CAISSE ──
+      setScanMsg('⏳ Analyse du ticket...');
+      try {
+        const canRun = !consumeTokens || await consumeTokens(15);
+        if(!canRun) { setScanMsg('🔥 Tokens insuffisants (15 requis)'); setIsLoading(false); return; }
+        const items = await scanTicketDeCaisse(file);
+        if(items.length > 0) {
+          let added = 0;
+          for(const item of items) {
+            if(!item.name) continue;
+            const nameKey = normalizeName(item.name);
+            const learnedTab = learningMap[nameKey];
+            const category = learnedTab ? learnedTab.category : (item.category || 'Épicerie Salée');
+            const isCellier = CELLIER_CATEGORIES.includes(category);
+            await addDoc(collection(db,'frigo_items'),{
+              name: item.name, category,
+              expiryDate: isCellier ? '' : (item.expiryDate||''),
+              gaugeLevel: isCellier ? 'plein' : undefined,
+              quantity: 1, unit: 'pcs', addedAt: new Date().toISOString()
+            });
+            added++;
+          }
+          setScanMsg(`✅ ${added} produit${added>1?'s':''} ajouté${added>1?'s':''} depuis le ticket`);
+        } else {
+          setScanMsg('❌ Aucun produit alimentaire détecté sur le ticket.');
+        }
+      } catch { setScanMsg('❌ Erreur analyse du ticket.'); }
+    } else {
+      // ── MODE PRODUIT UNIQUE ──
+      setScanMsg('⏳ Analyse IA...');
+      try {
+        const canRun = !consumeTokens || await consumeTokens(15);
+        if(!canRun) { setScanMsg('🔥 Tokens insuffisants (15 requis)'); setIsLoading(false); return; }
+        const result = await scanProductImage(file);
+        if(result?.name) {
+          const nameKey = normalizeName(result.name);
+          const learnedTab = learningMap[nameKey];
+          const category = learnedTab ? learnedTab.category : (result.category||categorizeShoppingItem(result.name));
+          const isCellier = CELLIER_CATEGORIES.includes(category);
+          await addDoc(collection(db,'frigo_items'),{
+            name:result.name, category,
+            expiryDate:isCellier?'':(result.expiryDate||''),
+            gaugeLevel:isCellier?'plein':undefined, quantity:1, unit:'pcs', addedAt:new Date().toISOString()
+          });
+          setScanMsg(`✅ "${result.name}" (${category})${learnedTab?' ⭐':''}`);
+        } else setScanMsg('❌ Non reconnu.');
+      } catch { setScanMsg('❌ Erreur analyse.'); }
+    }
     setIsLoading(false);
   };
 
@@ -582,9 +605,23 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
             <span className="text-[10px] font-bold hidden sm:block">{barcodeInput.trim()?'Valider':'Scanner'}</span>
           </button>
           <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoFile}/>
-          <button onClick={()=>photoInputRef.current?.click()} disabled={isLoading} className="p-2.5 bg-purple-500 text-white rounded-xl hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1">
-            {isLoading?<Loader2 size={14} className="animate-spin"/>:<Brain size={14}/>}
-            <span className="text-[10px] font-bold hidden sm:block">IA Photo</span>
+          <button
+            onClick={()=>{setIsTicketMode(false); photoInputRef.current?.click();}}
+            disabled={isLoading}
+            className="p-2.5 bg-purple-500 text-white rounded-xl hover:scale-105 transition-transform disabled:opacity-50 flex items-center gap-1.5"
+            title="Scanner un produit"
+          >
+            {isLoading&&!isTicketMode?<Loader2 size={14} className="animate-spin"/>:<Brain size={14}/>}
+            <span className="text-[10px] font-bold hidden sm:block">Produit</span>
+          </button>
+          <button
+            onClick={()=>{setIsTicketMode(true); photoInputRef.current?.click();}}
+            disabled={isLoading}
+            className="p-2.5 bg-orange-500 text-white rounded-xl hover:scale-105 transition-transform disabled:opacity-50 flex items-center gap-1.5"
+            title="Scanner un ticket de caisse"
+          >
+            {isLoading&&isTicketMode?<Loader2 size={14} className="animate-spin"/>:<Receipt size={14}/>}
+            <span className="text-[10px] font-bold hidden sm:block">Ticket</span>
           </button>
         </div>
         {scanMsg&&<div className={`text-center text-xs font-bold py-2 px-3 rounded-xl leading-tight ${scanMsg.startsWith('✅')?'bg-green-50 text-green-700':scanMsg.startsWith('⏳')?'bg-blue-50 text-blue-700':'bg-red-50 text-red-700'}`}>{scanMsg}</div>}
@@ -1239,7 +1276,7 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
   const [gcalLinked, setGcalLinked] = React.useState(false);
   const [tasks, setTasks] = React.useState<any[]>([]);
   const [newEvt, setNewEvt] = React.useState({ title:'', date: new Date().toISOString().split('T')[0], time:'', isAllDay: true });
-  const [newTask, setNewTask] = React.useState({ title:'', date: new Date().toISOString().split('T')[0], done: false });
+  const [newTask, setNewTask] = React.useState({ title:'', date: new Date().toISOString().split('T')[0], time:'', hasTime:false, done: false });
   const [submitting, setSubmitting] = React.useState(false);
   const [pastEventsOpen, setPastEventsOpen] = React.useState(false);
   const [pastTasksOpen, setPastTasksOpen] = React.useState(false);
@@ -1286,13 +1323,15 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
     });
     // Push vers Google Calendar du créateur si connecté
     if(gcalLinked) {
-      const dateTime = newEvt.isAllDay
-        ? `${newEvt.date}T12:00:00`
-        : `${newEvt.date}T${(newEvt.time||'12:00').replace('h',':')}:00`;
       const desc = selectedParticipants.length > 0
         ? `Depuis Chaud Devant 🔥 · Participants: ${selectedParticipants.join(', ')}`
         : 'Depuis Chaud Devant 🔥';
-      pousserVersGoogleCalendar(newEvt.title, dateTime, desc);
+      if(newEvt.isAllDay) {
+        pousserVersGoogleCalendar(newEvt.title, `${newEvt.date}T00:00:00`, desc, true);
+      } else {
+        const dateTime = `${newEvt.date}T${(newEvt.time||'09:00').replace('h',':')}:00`;
+        pousserVersGoogleCalendar(newEvt.title, dateTime, desc, false);
+      }
     }
     setNewEvt({ title:'', date: new Date().toISOString().split('T')[0], time:'', isAllDay:true });
     setShowEventForm(false);
@@ -1305,14 +1344,21 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
     await addEntry('family_tasks', {
       title: newTask.title,
       date: newTask.date,
+      time: newTask.hasTime ? newTask.time : null,
       done: false,
       createdBy: user.email,
       participants: selectedParticipants,
     });
     if(gcalLinked) {
-      pousserTacheVersGoogleCalendar(newTask.title, newTask.date);
+      if(newTask.hasTime && newTask.time) {
+        // Push avec heure précise
+        const dateTime = `${newTask.date}T${newTask.time}:00`;
+        pousserVersGoogleCalendar(`☑ ${newTask.title}`, dateTime, 'Tâche Chaud Devant 🔥', false);
+      } else {
+        pousserTacheVersGoogleCalendar(newTask.title, newTask.date);
+      }
     }
-    setNewTask({ title:'', date: new Date().toISOString().split('T')[0], done: false });
+    setNewTask({ title:'', date: new Date().toISOString().split('T')[0], time:'', hasTime:false, done: false });
     setShowTaskForm(false);
     setSubmitting(false);
   };
@@ -1568,8 +1614,18 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
               <input autoFocus value={newTask.title} onChange={e=>setNewTask(v=>({...v,title:e.target.value}))}
                 placeholder="Description de la tâche…"
                 className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none text-lg"/>
-              <input type="date" value={newTask.date} onChange={e=>setNewTask(v=>({...v,date:e.target.value}))}
-                className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none cursor-pointer"/>
+              <div className="flex gap-3">
+                <input type="date" value={newTask.date} onChange={e=>setNewTask(v=>({...v,date:e.target.value}))}
+                  className="flex-1 p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none cursor-pointer"/>
+                <button onClick={()=>setNewTask(v=>({...v,hasTime:!v.hasTime}))}
+                  className={`px-4 rounded-xl font-bold text-sm border-2 transition-all ${newTask.hasTime?'bg-gray-900 text-white border-gray-900':'bg-white border-gray-200 text-gray-500'}`}>
+                  {newTask.hasTime ? 'Heure' : 'Toute la journée'}
+                </button>
+              </div>
+              {newTask.hasTime && (
+                <input type="time" value={newTask.time} onChange={e=>setNewTask(v=>({...v,time:e.target.value}))}
+                  className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none"/>
+              )}
               {/* Participants */}
               {(siteUsers||[]).length > 0 && (
                 <div>
@@ -1679,6 +1735,141 @@ const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }
   );
 };
 
+// ─── Utilitaire : convertit string d'étapes → [{title, content}] ───────────
+const parseStepsToList = (stepsStr: string): Array<{title:string,content:string}> => {
+  if(!stepsStr) return [];
+  const lines = stepsStr.split('
+').filter(l=>l.trim()!=='');
+  return lines.map((line,i)=>{
+    // Essayer de détecter un titre (ex: "Étape 1 : ...")
+    const colonIdx = line.indexOf(':');
+    if(colonIdx>0 && colonIdx<40) {
+      return { title: line.slice(0,colonIdx).trim(), content: line.slice(colonIdx+1).trim() };
+    }
+    return { title: `Étape ${i+1}`, content: line.trim() };
+  });
+};
+
+// ─── Composant MiamStepsReader ─────────────────────────────────────────────
+const MiamStepsReader = ({recipe, config, onBack, onEdit}: {recipe:any, config:any, onBack:()=>void, onEdit?:()=>void}) => {
+  const [currentStep, setCurrentStep] = React.useState(0);
+  const [showIngsMobile, setShowIngsMobile] = React.useState(false);
+  const steps: Array<{title:string,content:string}> = recipe.stepsList?.length>0 ? recipe.stepsList : parseStepsToList(recipe.steps||recipe.instructions||'');
+  const ings: string[] = Array.isArray(recipe.ingredients) ? recipe.ingredients : (recipe.ingredients||'').split('
+').filter((i:string)=>i.trim());
+  const total = steps.length;
+  const isFinished = currentStep >= total;
+  const progress = total>0 ? ((currentStep+1)/total)*100 : 0;
+
+  if(total===0) return (
+    <div className="text-center py-20 text-gray-400">
+      <ChefHat size={48} className="mx-auto mb-4 opacity-30"/>
+      <p className="font-bold">Aucune étape de préparation renseignée.</p>
+      {onEdit&&<button onClick={onEdit} className="mt-4 px-6 py-3 rounded-2xl text-white font-bold text-sm" style={{backgroundColor:config.primaryColor}}>Modifier la recette</button>}
+    </div>
+  );
+
+  if(isFinished) return (
+    <div className="flex flex-col items-center justify-center py-20 text-center animate-in zoom-in duration-500">
+      <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mb-6 shadow-inner">
+        <CheckCircle2 className="text-green-500 w-12 h-12"/>
+      </div>
+      <h2 className="text-3xl font-bold text-gray-800 mb-3">C'est prêt !</h2>
+      <p className="text-gray-500 mb-8 max-w-md">Félicitations, vous avez terminé <strong>{recipe.title}</strong> 🎉</p>
+      <div className="flex gap-3">
+        <button onClick={()=>setCurrentStep(0)} className="px-8 py-3 rounded-2xl font-bold text-white transition-all hover:scale-105" style={{backgroundColor:config.primaryColor}}>Revoir la recette</button>
+        <button onClick={onBack} className="px-8 py-3 rounded-2xl font-bold border-2 border-gray-200 text-gray-600 hover:bg-gray-50 transition-all">Retour aux recettes</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="animate-in fade-in duration-300">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={onBack} className="flex items-center gap-1.5 text-sm font-bold text-gray-400 hover:text-gray-700 transition-colors">
+          <ArrowLeft size={16}/> Recettes
+        </button>
+        <span className="text-gray-200">/</span>
+        <span className="text-sm font-bold text-gray-600 truncate">{recipe.title}</span>
+        {onEdit&&<button onClick={onEdit} className="ml-auto p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-blue-500 transition-colors"><Pencil size={14}/></button>}
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* Colonne gauche : infos + ingrédients */}
+        <div className="lg:w-1/3 space-y-4">
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+            {recipe.image&&<img src={recipe.image} alt={recipe.title} className="w-full h-40 object-cover rounded-xl mb-4"/>}
+            <h2 className="text-2xl font-black text-gray-800 leading-tight mb-3">{recipe.title}</h2>
+            {recipe.description&&<p className="text-gray-400 text-sm mb-3">{recipe.description}</p>}
+            <div className="flex flex-wrap gap-2">
+              {recipe.chef&&<span className="flex items-center gap-1 text-xs font-bold bg-orange-50 text-orange-600 px-3 py-1.5 rounded-full border border-orange-100"><ChefHat size={12}/>{recipe.chef}</span>}
+              {recipe.prepTime&&<span className="flex items-center gap-1 text-xs font-bold bg-gray-50 text-gray-600 px-3 py-1.5 rounded-full border border-gray-200"><Clock size={12}/>Prép: {recipe.prepTime}</span>}
+              {recipe.cookTime&&<span className="flex items-center gap-1 text-xs font-bold bg-gray-50 text-gray-600 px-3 py-1.5 rounded-full border border-gray-200"><Utensils size={12}/>Cuis: {recipe.cookTime}</span>}
+              {recipe.servings&&<span className="flex items-center gap-1 text-xs font-bold bg-gray-50 text-gray-600 px-3 py-1.5 rounded-full border border-gray-200"><Users size={12}/>{recipe.servings} pers.</span>}
+            </div>
+          </div>
+          {/* Toggle ingrédients mobile */}
+          <button className="lg:hidden w-full bg-orange-50 text-orange-700 font-bold py-3 px-4 rounded-xl flex justify-between items-center border border-orange-100"
+            onClick={()=>setShowIngsMobile(v=>!v)}>
+            <span className="flex items-center gap-2"><List size={18}/> Ingrédients ({ings.length})</span>
+            <ChevronRight className={`transition-transform ${showIngsMobile?'rotate-90':''}`} size={18}/>
+          </button>
+          <div className={`bg-white p-5 rounded-2xl shadow-sm border border-gray-100 ${showIngsMobile?'block':'hidden lg:block'}`}>
+            <h3 className="font-black text-sm uppercase tracking-widest text-gray-400 mb-3">Ingrédients</h3>
+            <ul className="space-y-2">
+              {ings.map((ing:string,i:number)=>(
+                <li key={i} className="flex items-start gap-2.5 text-sm text-gray-600">
+                  <div className="w-1.5 h-1.5 mt-2 rounded-full bg-orange-300 shrink-0"/>
+                  {ing}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        {/* Colonne droite : étapes */}
+        <div className="lg:w-2/3 flex flex-col">
+          {/* Barre de progression */}
+          <div className="bg-white p-4 rounded-t-2xl border border-b-0 border-gray-100 flex items-center justify-between">
+            <span className="text-xs font-black uppercase tracking-wider text-gray-400">Étape {currentStep+1} sur {total}</span>
+            <span className="text-xs font-black text-orange-500">{Math.round(progress)}%</span>
+          </div>
+          <div className="w-full bg-gray-100 h-1.5">
+            <div className="h-full transition-all duration-500" style={{width:`${progress}%`,backgroundColor:config.primaryColor}}/>
+          </div>
+          {/* Contenu étape */}
+          <div className="bg-white p-6 sm:p-10 rounded-b-2xl border border-t-0 border-gray-100 flex-grow relative overflow-hidden">
+            <div className="absolute -top-4 -right-4 text-[130px] font-black text-gray-50 select-none pointer-events-none leading-none">{currentStep+1}</div>
+            <div className="relative z-10">
+              <h3 className="text-2xl sm:text-3xl font-black mb-5" style={{color:config.primaryColor}}>
+                {steps[currentStep]?.title||`Étape ${currentStep+1}`}
+              </h3>
+              <p className="text-lg sm:text-xl text-gray-700 leading-relaxed min-h-[100px] whitespace-pre-wrap">
+                {steps[currentStep]?.content||steps[currentStep] as any}
+              </p>
+              {/* Navigation */}
+              <div className="flex items-center justify-between mt-10 pt-6 border-t border-gray-100 gap-4">
+                <button onClick={()=>{setCurrentStep(s=>Math.max(0,s-1));window.scrollTo({top:0,behavior:'smooth'});}}
+                  disabled={currentStep===0}
+                  className={`flex-1 sm:flex-none flex items-center justify-center gap-2 py-3 px-6 rounded-xl font-bold transition-all ${currentStep===0?'bg-gray-100 text-gray-300 cursor-not-allowed':'bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95'}`}>
+                  <ArrowLeft size={18}/> <span className="hidden sm:inline">Précédent</span>
+                </button>
+                <button onClick={()=>{setCurrentStep(s=>s+1);window.scrollTo({top:0,behavior:'smooth'});}}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 py-3 px-8 rounded-xl font-bold text-white transition-all active:scale-95 shadow-md hover:shadow-lg hover:scale-105"
+                  style={{backgroundColor:currentStep===total-1?'#22c55e':config.primaryColor}}>
+                  {currentStep===total-1 ? <>Terminer <CheckCircle2 size={18}/></> : <>Suivant <ChevronRight size={18}/></>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe, updateEntry, addEntry }: any) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCompressing, setIsCompressing] = useState(false);
@@ -1736,22 +1927,48 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
             </div>
           </div>
 
+          {/* Titre + Description */}
           <input value={currentRecipe.title} onChange={e=>setCurrentRecipe({...currentRecipe,title:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none" placeholder="Nom du plat..." autoFocus/>
+          <textarea value={currentRecipe.description||''} onChange={e=>setCurrentRecipe({...currentRecipe,description:e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm resize-none h-16" placeholder="Courte description (optionnel)..."/>
+          {/* Chef + Catégorie */}
           <div className="flex gap-3">
-            <input value={currentRecipe.chef} onChange={e=>setCurrentRecipe({...currentRecipe,chef:e.target.value})} className="flex-1 p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="Chef (ex: Papa)"/>
+            <input value={currentRecipe.chef} onChange={e=>setCurrentRecipe({...currentRecipe,chef:e.target.value})} className="flex-1 p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="👨‍🍳 Chef (ex: Papa)"/>
             <select value={currentRecipe.category} onChange={e=>setCurrentRecipe({...currentRecipe,category:e.target.value})} className="flex-1 p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm">
-              <option value="entrée">Entrée</option><option value="plat">Plat</option><option value="dessert">Dessert</option><option value="autre">Autre</option>
+              <option value="entrée">🥗 Entrée</option><option value="plat">🍽️ Plat</option><option value="dessert">🍰 Dessert</option><option value="autre">🍴 Autre</option>
             </select>
           </div>
+          {/* Temps + Portions */}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">Préparation</label>
+              <input value={currentRecipe.prepTime||''} onChange={e=>setCurrentRecipe({...currentRecipe,prepTime:e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="15 min"/>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">Cuisson</label>
+              <input value={currentRecipe.cookTime||''} onChange={e=>setCurrentRecipe({...currentRecipe,cookTime:e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="30 min"/>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">Portions</label>
+              <input type="number" min="1" value={currentRecipe.servings||4} onChange={e=>setCurrentRecipe({...currentRecipe,servings:parseInt(e.target.value)||4})} className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm"/>
+            </div>
+          </div>
+          {/* Photo */}
           <div onClick={()=>!isCompressing&&fileRef.current?.click()} className="p-5 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 flex items-center justify-center gap-3 text-gray-400">
             {isCompressing?<><Loader2 className="animate-spin" size={18}/><span className="text-sm font-bold text-blue-500">Compression...</span></>
             :currentRecipe.image?<><CheckCircle2 size={18} className="text-green-500"/><span className="text-sm font-bold text-green-600">Photo ajoutée !</span></>
-            :<><Upload size={18}/><span className="text-sm">Ajouter une photo</span></>}
+            :<><Upload size={18}/><span className="text-sm">📷 Ajouter une photo</span></>}
           </div>
           <input type="file" ref={fileRef} className="hidden" accept="image/*" onChange={e=>handleFile(e,(b:string)=>setCurrentRecipe({...currentRecipe,image:b}))}/>
+          {/* Ingrédients + Étapes */}
           <div className="grid md:grid-cols-2 gap-4">
-            <textarea value={currentRecipe.ingredients} onChange={e=>setCurrentRecipe({...currentRecipe,ingredients:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-36 text-sm resize-none" placeholder="Ingrédients (un par ligne)..."/>
-            <textarea value={currentRecipe.steps} onChange={e=>setCurrentRecipe({...currentRecipe,steps:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-36 text-sm resize-none" placeholder="Étapes de préparation..."/>
+            <div>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">Ingrédients (un par ligne)</label>
+              <textarea value={currentRecipe.ingredients} onChange={e=>setCurrentRecipe({...currentRecipe,ingredients:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-44 text-sm resize-none" placeholder="200g farine&#10;3 œufs&#10;100ml lait..."/>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">Étapes de préparation</label>
+              <textarea value={currentRecipe.steps} onChange={e=>setCurrentRecipe({...currentRecipe,steps:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-44 text-sm resize-none" placeholder="Étape 1 : Préchauffer le four...&#10;Étape 2 : Mélanger les ingrédients..."/>
+            </div>
           </div>
           <button
             disabled={isSubmitting||isCompressing}
@@ -2417,6 +2634,9 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
   const [form, setForm] = useState({platName:'',participants:[] as string[],recetteLink:'',notes:''});
   const [toast, setToast] = useState('');
   const [dragOver, setDragOver] = useState<string|null>(null);
+  const [showQuickBar, setShowQuickBar] = useState(true);
+  const [dragSource, setDragSource] = useState<{key:string,meal:any}|null>(null);
+  const [favSelected, setFavSelected] = useState<number|null>(null);
 
   const showToast = (msg:string) => { setToast(msg); setTimeout(()=>setToast(''),3000); };
 
@@ -2487,16 +2707,51 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
 
   const [favSelectVal, setFavSelectVal] = useState('');
 
-  const loadFav = (fav:any) => {
+  const loadFav = (fav:any, idx:number) => {
     setForm(f=>({...f,platName:fav.platName,recetteLink:fav.recetteLink||'',notes:fav.notes||''}));
+    setFavSelected(idx);
+    setFavSelectVal(String(idx));
   };
 
   // Sur mobile : sélection d'un favori → pré-remplit le formulaire
-  const onFavSelect = (idx:string) => {
-    if(idx==='') return;
-    setFavSelectVal(idx);
-    const fav = favs[parseInt(idx)];
-    if(fav) loadFav(fav);
+  const onFavSelect = (idxStr:string) => {
+    if(idxStr==='') return;
+    setFavSelectVal(idxStr);
+    const fav = favs[parseInt(idxStr)];
+    if(fav) loadFav(fav, parseInt(idxStr));
+  };
+
+  // Drop d'un repas d'une case vers une autre
+  const handleCellDrop = async (e: React.DragEvent, targetDay: string, targetMeal: string) => {
+    e.preventDefault();
+    setDragOver(null);
+    const platName = e.dataTransfer.getData('platName');
+    const recetteLink = e.dataTransfer.getData('recetteLink');
+    const sourceKey = e.dataTransfer.getData('sourceKey');
+    if(!platName) return;
+    const targetKey = makeKey(targetDay, targetMeal, weekOffset);
+    // Si c'est un déplacement depuis une autre case (pas un fav)
+    if(sourceKey && sourceKey !== targetKey) {
+      // Copier vers la cible
+      const sourceData = data[sourceKey];
+      if(sourceData) {
+        await saveEntry(targetKey, {...sourceData, day: targetDay, mealTime: targetMeal});
+        // Supprimer la source si elle était une vraie case (pas un fav de la barre)
+        if(!e.dataTransfer.getData('isFav')) {
+          await deleteEntry(sourceKey);
+        }
+      }
+    } else if(!sourceKey || e.dataTransfer.getData('isFav')==='true') {
+      // C'est un fav ou une recette de la barre rapide
+      await saveEntry(targetKey, {
+        platName, recetteLink, notes:'',
+        participants: Object.keys(data).length > 0
+          ? (data[Object.keys(data)[0]]?.participants || [])
+          : [],
+        day: targetDay, mealTime: targetMeal, weekKey: makeKey(targetDay, targetMeal, weekOffset)
+      });
+    }
+    showToast('🍽️ Repas déplacé !');
   };
 
   const toggleParticipant = (p:string) => {
@@ -2561,10 +2816,21 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
                   return(
                     <td
                       key={day}
-                      onClick={()=>openModal(day,meal)}
+                      onClick={()=>{
+                        // Si un fav est sélectionné dans la barre rapide → l'ajouter directement
+                        if(favSelected!==null && favs[favSelected]) {
+                          const f=favs[favSelected];
+                          saveEntry(key,{platName:f.platName,recetteLink:f.recetteLink||'',notes:'',participants:[],day,mealTime:meal,weekKey:makeKey(day,meal,weekOffset)});
+                          showToast(`🍽️ ${f.platName} ajouté`);
+                          setFavSelected(null);setFavSelectVal('');
+                          setForm(fm=>({...fm,platName:'',recetteLink:'',notes:''}));
+                        } else {
+                          openModal(day,meal);
+                        }
+                      }}
                       onDragOver={e=>{e.preventDefault();setDragOver(key);}}
                       onDragLeave={()=>setDragOver(null)}
-                      onDrop={e=>handleDrop(e,day,meal)}
+                      onDrop={e=>handleCellDrop(e,day,meal)}
                       className={`p-2 relative cursor-pointer transition-all group align-top ${isDragTarget?'bg-blue-50 ring-2 ring-blue-400 ring-inset':'hover:bg-gray-50'}`}
                     >
                       {entry?(
@@ -2589,24 +2855,61 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
       </div>
 
       {/* Favoris (recettes) — glissables vers les cases */}
+      {/* Toggle barre rapide */}
       {favs.length>0&&(
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-          <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-1 flex items-center gap-2"><Star size={14}/> RECETTES — glissez vers une case</h4>
-          <p className="text-[10px] text-gray-400 mb-4 italic">Sur mobile : appuyez pour ouvrir la case, puis choisissez dans la liste</p>
+        <div className="flex justify-end mb-1">
+          <button
+            onClick={()=>setShowQuickBar(v=>!v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 transition-all"
+          >
+            <Star size={12}/> {showQuickBar ? 'Masquer les recettes' : 'Afficher les recettes'}
+          </button>
+        </div>
+      )}
+      {favs.length>0&&showQuickBar&&(
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 animate-in slide-in-from-top-2">
+          <h4 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-3 flex items-center gap-2">
+            <Star size={14}/> Recettes — glissez ou cliquez
+          </h4>
           <div className="flex flex-wrap gap-2">
             {favs.map((f,i)=>(
               <div
                 key={i}
                 draggable
-                onDragStart={e=>{e.dataTransfer.setData('platName',f.platName);e.dataTransfer.setData('recetteLink',f.recetteLink||'');}}
-                className="flex items-center gap-1 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200 cursor-grab active:cursor-grabbing hover:border-black hover:shadow-sm transition-all select-none"
-                title="Glissez vers une case du tableau"
+                onDragStart={e=>{
+                  e.dataTransfer.setData('platName',f.platName);
+                  e.dataTransfer.setData('recetteLink',f.recetteLink||'');
+                  e.dataTransfer.setData('isFav','true');
+                }}
+                onClick={()=>{
+                  if(favSelected===i){
+                    // Désélectionner
+                    setFavSelected(null);
+                    setFavSelectVal('');
+                    setForm(f2=>({...f2,platName:'',recetteLink:'',notes:''}));
+                  } else {
+                    loadFav(f, i);
+                    showToast('⭐ Recette sélectionnée — ouvre une case pour l'ajouter');
+                  }
+                }}
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-2 border text-xs font-bold cursor-pointer transition-all select-none ${
+                  favSelected===i
+                    ? 'border-current text-white'
+                    : 'border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100'
+                }`}
+                style={favSelected===i ? {backgroundColor:'var(--primary,#a85c48)',borderColor:'var(--primary,#a85c48)'} : {}}
               >
-                <span className="font-bold text-xs text-gray-700">{f.platName}</span>
-                <span className="text-gray-300 ml-1">⠿</span>
+                {favSelected===i && <CheckCircle2 size={12} className="shrink-0"/>}
+                <ChefHat size={12} className="shrink-0"/>
+                {f.platName}
               </div>
             ))}
           </div>
+          {favSelected!==null&&(
+            <p className="text-[10px] text-gray-400 mt-2 italic">
+              ✅ Sélectionné — clique sur une case pour l'y ajouter directement
+            </p>
+          )}
         </div>
       )}
 
@@ -3485,17 +3788,30 @@ const getGcalToken = (): string | null => {
   return token;
 };
 
-const pousserVersGoogleCalendar = async (titre: string, dateIso: string, description?: string) => {
+const pousserVersGoogleCalendar = async (titre: string, dateIso: string, description?: string, allDay?: boolean) => {
   const token = getGcalToken();
-  if (!token) return; // Silencieux : pas bloquant
-  const debut = new Date(dateIso);
-  const fin   = new Date(debut.getTime() + 60 * 60 * 1000);
-  const payload = {
-    summary: titre,
-    description: description || 'Depuis Chaud Devant 🔥',
-    start: { dateTime: debut.toISOString(), timeZone: 'Europe/Paris' },
-    end:   { dateTime: fin.toISOString(),   timeZone: 'Europe/Paris' }
-  };
+  if (!token) return;
+  let payload: any;
+  if (allDay) {
+    const dateStr = dateIso.split('T')[0]; // YYYY-MM-DD
+    const lendemain = new Date(dateStr);
+    lendemain.setDate(lendemain.getDate() + 1);
+    payload = {
+      summary: titre,
+      description: description || 'Depuis Chaud Devant 🔥',
+      start: { date: dateStr },
+      end:   { date: lendemain.toISOString().split('T')[0] }
+    };
+  } else {
+    const debut = new Date(dateIso);
+    const fin   = new Date(debut.getTime() + 60 * 60 * 1000);
+    payload = {
+      summary: titre,
+      description: description || 'Depuis Chaud Devant 🔥',
+      start: { dateTime: debut.toISOString(), timeZone: 'Europe/Paris' },
+      end:   { dateTime: fin.toISOString(),   timeZone: 'Europe/Paris' }
+    };
+  }
   try {
     const rep = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
       method: 'POST',
@@ -3559,8 +3875,12 @@ const App: React.FC = () => {
   const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false);
   const [selectedXSite, setSelectedXSite] = useState<any>(null);
   const [newEvent, setNewEvent] = useState({title:'',date:new Date().toISOString().split('T')[0],time:'',isAllDay:true});
-  const defaultRecipeState = {id:'',title:'',chef:'',ingredients:'',steps:'',category:'plat',image:''};
+  const defaultRecipeState = {id:'',title:'',description:'',chef:'',ingredients:'',steps:'',category:'plat',image:'',prepTime:'',cookTime:'',servings:4};
   const [currentRecipe, setCurrentRecipe] = useState<any>(defaultRecipeState);
+  const [recipeView, setRecipeView] = useState<'list'|'read'>('list');
+  const [readingRecipe, setReadingRecipe] = useState<any>(null);
+  const [recipeFilter, setRecipeFilter] = useState('');
+  const [recipeCategory, setRecipeCategory] = useState('all');
   const [currentView, setCurrentView] = useState<string>('home');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
@@ -4192,32 +4512,89 @@ const App: React.FC = () => {
 
         {/* RECETTES */}
         {currentView==='recipes'&&(isPageLocked('recipes') ? <MaintenancePage pageName="Recettes"/> : (
-          <div className="space-y-10" id="recipes-list">
-            <div className="flex flex-col items-center gap-6">
-              <h2 className="text-2xl md:text-5xl font-black tracking-tight text-center" style={{color:config.primaryColor}}>RECETTES</h2>
-              {!isCurrentUserPremium()&&recipes.length>=15?(
-                <div className="flex flex-col items-center gap-3">
-                  <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-4 py-2 rounded-full font-bold">{recipes.length}/15 recettes (limite gratuite)</div>
-                  <button onClick={()=>setShowFreemiumModal(true)} className="flex items-center gap-2 px-8 py-4 text-white rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform shadow-xl" style={{backgroundColor:config.primaryColor}}>☕ Débloquer les recettes illimitées</button>
-                </div>
-              ):(
-                <button onClick={()=>{setCurrentRecipe(defaultRecipeState);setIsRecipeModalOpen(true);}} className="bg-black text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase hover:scale-105 transition-transform flex items-center gap-3 shadow-xl" style={{backgroundColor:config.primaryColor}}><Plus size={20}/>Ajouter une recette{!isCurrentUserPremium()&&<span className="text-xs opacity-70 font-normal">({recipes.length}/15)</span>}</button>
-              )}
-            </div>
+          <div className="space-y-0 animate-in fade-in" id="recipes-list">
             <RecipeModal isOpen={isRecipeModalOpen} onClose={setIsRecipeModalOpen} config={config} currentRecipe={currentRecipe} setCurrentRecipe={setCurrentRecipe} updateEntry={updateEntry} addEntry={addEntry}/>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {recipes.length===0&&<p className="text-center col-span-full opacity-50">Aucune recette pour le moment.</p>}
-              {recipes.map((r:any)=>(
-                <div key={r.id} className="relative group">
-                  <div className="absolute top-4 right-4 z-20 flex gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={()=>addRecipeToHub(r)} className="p-2 bg-white/90 rounded-full shadow-md text-orange-500 hover:scale-110 transition-transform"><ShoppingBag size={16}/></button>
-                    <button onClick={()=>openEditRecipe(r)} className="p-2 bg-white/90 rounded-full shadow-md text-blue-500 hover:scale-110 transition-transform"><Pencil size={16}/></button>
-                    <button onClick={()=>deleteItem('family_recipes',r.id)} className="p-2 bg-white/90 rounded-full shadow-md text-red-500 hover:scale-110 transition-transform"><Trash2 size={16}/></button>
+
+            {recipeView==='list' ? (
+              /* ─── VUE LISTE (style MiamSteps) ─── */
+              <div className="space-y-8">
+                {/* Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-3xl md:text-4xl font-black tracking-tight" style={{color:config.primaryColor}}>Nos Recettes</h2>
+                    <p className="text-gray-400 text-sm mt-1">Choisissez une recette et suivez le guide pas à pas</p>
                   </div>
-                  <RecipeCard recipe={{...r,ingredients:typeof r.ingredients==='string'?r.ingredients.split('\n').filter((i:string)=>i.trim()!==''):r.ingredients,instructions:r.steps||r.instructions}}/>
+                  {!isCurrentUserPremium()&&recipes.length>=15 ? (
+                    <button onClick={()=>setShowFreemiumModal(true)} className="flex items-center gap-2 px-6 py-3 text-white rounded-2xl font-bold text-sm hover:scale-105 transition-transform shadow-lg" style={{backgroundColor:config.primaryColor}}>☕ Débloquer illimité</button>
+                  ) : (
+                    <button onClick={()=>{setCurrentRecipe(defaultRecipeState);setIsRecipeModalOpen(true);}} className="flex items-center gap-2 px-6 py-3 text-white rounded-2xl font-bold text-sm hover:scale-105 transition-transform shadow-lg" style={{backgroundColor:config.primaryColor}}>
+                      <Plus size={18}/>Ajouter une recette
+                      {!isCurrentUserPremium()&&<span className="text-xs opacity-70">({recipes.length}/15)</span>}
+                    </button>
+                  )}
                 </div>
-              ))}
-            </div>
+                {/* Filtres */}
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <input value={recipeFilter} onChange={e=>setRecipeFilter(e.target.value)} placeholder="🔍 Rechercher…" className="flex-1 p-3 rounded-xl border border-gray-200 bg-white outline-none text-sm font-bold"/>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {['all','entrée','plat','dessert','autre'].map(cat=>(
+                      <button key={cat} onClick={()=>setRecipeCategory(cat)}
+                        className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all ${recipeCategory===cat?'text-white border-current':'border-gray-200 text-gray-500 bg-white hover:bg-gray-50'}`}
+                        style={recipeCategory===cat?{backgroundColor:config.primaryColor,borderColor:config.primaryColor}:{}}
+                      >{cat==='all'?'Tous':cat.charAt(0).toUpperCase()+cat.slice(1)}</button>
+                    ))}
+                  </div>
+                </div>
+                {/* Grille recettes */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {(() => {
+                    const filtered = recipes.filter((r:any)=>{
+                      const matchCat = recipeCategory==='all' || r.category===recipeCategory;
+                      const matchQ = !recipeFilter || r.title?.toLowerCase().includes(recipeFilter.toLowerCase()) || r.chef?.toLowerCase().includes(recipeFilter.toLowerCase());
+                      return matchCat && matchQ;
+                    });
+                    if(filtered.length===0) return <p className="col-span-full text-center text-gray-400 py-16 italic">Aucune recette trouvée.</p>;
+                    return filtered.map((r:any)=>{
+                      const ings = typeof r.ingredients==='string' ? r.ingredients.split('
+').filter((i:string)=>i.trim()!=='') : (r.ingredients||[]);
+                      return (
+                        <div key={r.id} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all cursor-pointer overflow-hidden border border-gray-100 group flex flex-col"
+                          onClick={()=>{setReadingRecipe({...r,ingredients:ings,stepsList:parseStepsToList(r.steps||r.instructions||'')});setRecipeView('read');}}>
+                          {/* Image ou couleur */}
+                          <div className="h-44 overflow-hidden relative flex items-center justify-center" style={{backgroundColor:config.primaryColor+'22'}}>
+                            {r.image
+                              ? <img src={r.image} alt={r.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"/>
+                              : <ChefHat className="opacity-20 w-20 h-20" style={{color:config.primaryColor}}/>
+                            }
+                            {r.cookTime&&<div className="absolute bottom-2 right-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-xs font-bold text-gray-700 flex items-center gap-1"><Clock size={11}/>{r.cookTime}</div>}
+                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={e=>{e.stopPropagation();addRecipeToHub(r);}} className="p-1.5 bg-white/90 rounded-full shadow text-orange-500 hover:scale-110 transition-transform"><ShoppingBag size={13}/></button>
+                              <button onClick={e=>{e.stopPropagation();openEditRecipe(r);}} className="p-1.5 bg-white/90 rounded-full shadow text-blue-500 hover:scale-110 transition-transform"><Pencil size={13}/></button>
+                              <button onClick={e=>{e.stopPropagation();deleteItem('family_recipes',r.id);}} className="p-1.5 bg-white/90 rounded-full shadow text-red-500 hover:scale-110 transition-transform"><Trash2 size={13}/></button>
+                            </div>
+                          </div>
+                          <div className="p-5 flex flex-col flex-grow">
+                            <h3 className="text-lg font-bold text-gray-800 mb-1 leading-tight group-hover:text-orange-600 transition-colors">{r.title}</h3>
+                            {r.description&&<p className="text-gray-400 text-sm mb-3 line-clamp-2 flex-grow">{r.description}</p>}
+                            <div className="flex items-center justify-between text-xs text-gray-400 mt-auto pt-3 border-t border-gray-100">
+                              <div className="flex gap-3">
+                                {r.chef&&<span className="flex items-center gap-1"><ChefHat size={13} className="text-orange-400"/>{r.chef}</span>}
+                                {r.prepTime&&<span className="flex items-center gap-1"><Clock size={13} className="text-orange-400"/>{r.prepTime}</span>}
+                                {r.servings&&<span className="flex items-center gap-1"><Users size={13} className="text-orange-400"/>{r.servings}p.</span>}
+                              </div>
+                              <span className="capitalize text-gray-300 text-[10px] font-bold uppercase">{r.category}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+            ) : (
+              /* ─── VUE LECTURE PAS À PAS ─── */
+              readingRecipe && <MiamStepsReader recipe={readingRecipe} config={config} onBack={()=>{setRecipeView('list');setReadingRecipe(null);}} onEdit={()=>{openEditRecipe(readingRecipe);setRecipeView('list');}}/>
+            )}
           </div>
         ))}
 
