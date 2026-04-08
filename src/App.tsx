@@ -505,7 +505,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
       {/* MODALE AJOUT RAPIDE AU HUB */}
       {showHubQuick&&(
         <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowHubQuick(false)}>
-          <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+          <div className="modal-glass rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm space-y-4" onClick={e=>e.stopPropagation()}>
             <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
             <h3 className="font-black text-xl flex items-center gap-2"><ShoppingCart size={18}/>Ajouter aux Courses</h3>
             <input
@@ -513,7 +513,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
               onChange={e=>setHubQuickName(e.target.value)}
               onKeyDown={e=>e.key==='Enter'&&addToHubQuick()}
               placeholder="Ex: Lait, tomates..."
-              className="w-full p-4 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black"
+              className="w-full p-4 rounded-2xl bg-white/35 font-bold outline-none border-2 border-transparent focus:border-black"
             />
             <div className="flex gap-3">
               <button onClick={()=>{setShowHubQuick(false);setHubQuickName('');}} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
@@ -526,7 +526,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
       )}
 
       {/* ONGLETS FRIGO / CELLIER */}
-      <div className="flex gap-2 bg-white p-1.5 rounded-2xl shadow-sm border border-gray-100">
+      <div className="flex gap-2 bg-white/30 p-1.5 rounded-2xl backdrop-blur-sm">
         <button onClick={()=>setFrigotab('frigo')} className={`flex-1 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${frigotab==='frigo'?'text-white shadow-md':'text-gray-400'}`} style={frigotab==='frigo'?{backgroundColor:config.primaryColor}:{}}>
           <Refrigerator size={14}/>Frigo ({frigoItems.length})
         </button>
@@ -546,14 +546,14 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
       )}
 
       {/* SAISIE PRINCIPALE */}
-      <div className="bg-white p-4 rounded-[2.5rem] shadow-xl border border-gray-100 space-y-3">
+      <div className="glass-panel p-4 space-y-3">
         <h3 className="font-black uppercase tracking-widest text-gray-400 text-xs flex items-center gap-2"><Plus size={14}/> AJOUTER UN PRODUIT</h3>
 
         {/* Ligne 1 : Nom + qté + unité */}
         <div className="flex gap-2">
-          <input value={newItem.name} onChange={e=>setNewItem({...newItem,name:e.target.value})} onKeyDown={e=>e.key==='Enter'&&addItem()} placeholder="Nom du produit..." className="flex-1 min-w-0 p-3 bg-gray-50 rounded-2xl font-bold outline-none border-2 border-transparent focus:border-black transition-colors text-sm"/>
-          <input type="number" value={newItem.quantity} onChange={e=>setNewItem({...newItem,quantity:parseInt(e.target.value)||1})} className="w-14 p-3 bg-gray-50 rounded-2xl font-bold text-center outline-none text-sm shrink-0" min={1}/>
-          <select value={newItem.unit} onChange={e=>setNewItem({...newItem,unit:e.target.value})} className="p-3 bg-gray-50 rounded-2xl font-bold outline-none text-sm shrink-0">
+          <input value={newItem.name} onChange={e=>setNewItem({...newItem,name:e.target.value})} onKeyDown={e=>e.key==='Enter'&&addItem()} placeholder="Nom du produit..." className="flex-1 min-w-0 p-3 bg-white/35 rounded-2xl font-bold outline-none border-2 border-transparent focus:border-black transition-colors text-sm"/>
+          <input type="number" value={newItem.quantity} onChange={e=>setNewItem({...newItem,quantity:parseInt(e.target.value)||1})} className="w-14 p-3 bg-white/35 rounded-2xl font-bold text-center outline-none text-sm shrink-0" min={1}/>
+          <select value={newItem.unit} onChange={e=>setNewItem({...newItem,unit:e.target.value})} className="p-3 bg-white/35 rounded-2xl font-bold outline-none text-sm shrink-0">
             <option>pcs</option><option>g</option><option>kg</option><option>ml</option><option>L</option><option>boîte</option>
           </select>
         </div>
@@ -569,7 +569,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
               {newItem.hasExpiry?'DLC activée':'Sans DLC'}
             </button>
             {newItem.hasExpiry&&(
-              <input type="date" value={newItem.expiryDate} onChange={e=>setNewItem({...newItem,expiryDate:e.target.value})} className="flex-1 min-w-0 p-2.5 bg-gray-50 rounded-xl font-bold text-xs outline-none"/>
+              <input type="date" value={newItem.expiryDate} onChange={e=>setNewItem({...newItem,expiryDate:e.target.value})} className="flex-1 min-w-0 p-2.5 bg-white/35 rounded-xl font-bold text-xs outline-none"/>
             )}
             <button onClick={addItem} disabled={isLoading} className="px-4 py-2.5 bg-black text-white rounded-2xl font-bold hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1">
               {isLoading?<Loader2 size={15} className="animate-spin"/>:<Plus size={15}/>}
@@ -587,7 +587,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
               {newItem.hasExpiry?'DLC activée':'Activer la péremption'}
             </button>
             {newItem.hasExpiry&&(
-              <input type="date" value={newItem.expiryDate} onChange={e=>setNewItem({...newItem,expiryDate:e.target.value})} className="flex-1 min-w-0 p-2.5 bg-gray-50 rounded-xl font-bold text-xs outline-none"/>
+              <input type="date" value={newItem.expiryDate} onChange={e=>setNewItem({...newItem,expiryDate:e.target.value})} className="flex-1 min-w-0 p-2.5 bg-white/35 rounded-xl font-bold text-xs outline-none"/>
             )}
             <button onClick={addItem} disabled={isLoading} className="px-4 py-2.5 bg-black text-white rounded-2xl font-bold hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1">
               {isLoading?<Loader2 size={15} className="animate-spin"/>:<Plus size={15}/>}
@@ -598,7 +598,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
 
         {/* Scan codes-barre + IA Photo */}
         <div className="flex gap-2 pt-2 border-t border-gray-100">
-          <input value={barcodeInput} onChange={e=>setBarcodeInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&fetchProductByBarcode(barcodeInput)} placeholder="Code-barre..." className="flex-1 min-w-0 p-2.5 bg-gray-50 rounded-xl font-mono text-xs outline-none border-2 border-transparent focus:border-blue-400"/>
+          <input value={barcodeInput} onChange={e=>setBarcodeInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&fetchProductByBarcode(barcodeInput)} placeholder="Code-barre..." className="flex-1 min-w-0 p-2.5 bg-white/35 rounded-xl font-mono text-xs outline-none border-2 border-transparent focus:border-blue-400"/>
           <input ref={barcodePhotoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleBarcodePhoto}/>
           <button onClick={()=>{barcodeInput.trim()?fetchProductByBarcode(barcodeInput):barcodePhotoRef.current?.click();}} disabled={isLoading} className="p-2.5 bg-blue-500 text-white rounded-xl hover:scale-105 transition-transform shrink-0 disabled:opacity-50 flex items-center gap-1">
             {isLoading?<Loader2 size={14} className="animate-spin"/>:barcodeInput.trim()?<Barcode size={14}/>:<Camera size={14}/>}
@@ -629,14 +629,14 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
 
       {/* INVENTAIRE FRIGO */}
       {frigotab==='frigo'&&(
-        <div className="bg-white/80 backdrop-blur-md p-6 rounded-[2.5rem] shadow-xl border border-gray-100">
+        <div className="glass-panel p-6">
           <h3 className="font-black uppercase tracking-widest text-gray-400 text-xs flex items-center gap-2 mb-6"><Refrigerator size={14}/> INVENTAIRE FRIGO ({frigoItems.length})</h3>
           {frigoItems.length===0&&<div className="text-center py-12 text-gray-300 italic">Frigo vide !</div>}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {frigoItems.map(item=>{
               const expStatus=getExpiryStatus(item);
               return (
-                <div key={item.id} className={`group flex justify-between items-center p-4 rounded-2xl border-l-4 transition-all hover:shadow-md ${expStatus?.icon==='🔴'?'bg-red-50 border-red-400':expStatus?.icon==='🟠'?'bg-orange-50 border-orange-400':'bg-gray-50 border-gray-200'}`}>
+                <div key={item.id} className={`group flex justify-between items-center p-4 rounded-2xl border-l-4 transition-all hover:shadow-md glass-element ${expStatus?.icon==='🔴'?'!bg-red-50/60 border-red-400':expStatus?.icon==='🟠'?'!bg-orange-50/60 border-orange-400':'border-white/40'}`}>
                   <div>
                     <span className="font-bold text-gray-800 block">{item.name}</span>
                     <div className="flex items-center gap-2 mt-1">
@@ -667,7 +667,7 @@ const FrigoView = ({ user, config, onNavigate, isPremium, onShowFreemium, consum
 
       {/* INVENTAIRE CELLIER — jauges visuelles */}
       {frigotab==='cellier'&&(
-        <div className="bg-white/80 backdrop-blur-md p-6 rounded-[2.5rem] shadow-xl border border-gray-100">
+        <div className="glass-panel p-6">
           <h3 className="font-black uppercase tracking-widest text-gray-400 text-xs flex items-center gap-2 mb-2"><Package size={14}/> CELLIER ({cellierItems.length})</h3>
           <p className="text-[10px] text-gray-400 italic mb-6">Cliquez sur la jauge pour modifier le niveau (Plein → Moitié → Vide)</p>
           {cellierItems.length===0&&<div className="text-center py-12 text-gray-300 italic">Cellier vide !</div>}
@@ -789,7 +789,7 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecip
       </button>
 
       {isOpen&&(
-        <div className="fixed bottom-28 md:bottom-8 right-6 z-[80] w-80 md:w-96 bg-white rounded-3xl shadow-2xl border border-gray-100 flex flex-col" style={{height:'520px'}}>
+        <div className="fixed bottom-28 md:bottom-8 right-6 z-[80] w-80 md:w-96 modal-glass rounded-3xl border border-gray-100 flex flex-col" style={{height:'520px'}}>
           <div className="flex items-center justify-between p-5 border-b border-gray-100 rounded-t-3xl" style={{backgroundColor:config.primaryColor}}>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center"><Bot size={16} className="text-white"/></div>
@@ -821,11 +821,11 @@ const MajordomeChat = ({ user, config, hubItems, addHubItem, recipes, onAddRecip
                 )}
               </div>
             ))}
-            {isLoading&&<div className="flex"><div className="bg-gray-50 p-3 rounded-2xl rounded-tl-sm"><div className="flex gap-1">{[0,1,2].map(i=><div key={i} className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay:`${i*0.15}s`}}/>)}</div></div></div>}
+            {isLoading&&<div className="flex"><div className="bg-white/35 p-3 rounded-2xl rounded-tl-sm"><div className="flex gap-1">{[0,1,2].map(i=><div key={i} className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay:`${i*0.15}s`}}/>)}</div></div></div>}
           </div>
 
           <div className="p-4 border-t border-gray-100 flex gap-2">
-            <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()} placeholder="Demandez au Majordome..." className="flex-1 p-3 bg-gray-50 rounded-xl text-sm font-bold outline-none"/>
+            <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()} placeholder="Demandez au Majordome..." className="flex-1 p-3 bg-white/35 rounded-xl text-sm font-bold outline-none"/>
             <button onClick={send} disabled={isLoading} className="p-3 text-white rounded-xl hover:scale-105 transition-transform" style={{backgroundColor:config.primaryColor}}><Send size={16}/></button>
           </div>
         </div>
@@ -910,7 +910,7 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
       {/* MODALE AJOUT RAPIDE FRIGO */}
       {showFrigoQuick&&(
         <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowFrigoQuick(false)}>
-          <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+          <div className="modal-glass rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm space-y-4" onClick={e=>e.stopPropagation()}>
             <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{backgroundColor:`${config.primaryColor}20`}}>
@@ -926,7 +926,7 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
               onChange={e=>setFrigoQuickName(e.target.value)}
               onKeyDown={e=>e.key==='Enter'&&addToFrigoQuick()}
               placeholder="Nom du produit..."
-              className="w-full p-4 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black transition-colors"
+              className="w-full p-4 rounded-2xl bg-white/35 font-bold outline-none border-2 border-transparent focus:border-black transition-colors"
               autoFocus
             />
             <div className="flex gap-3">
@@ -941,7 +941,7 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
       )}
 
       {/* SAISIE RAPIDE */}
-      <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 md:sticky md:top-24 z-30" id="hub-input">
+      <div className="glass-panel p-6 md:sticky md:top-24 z-30" id="hub-input">
         <div className="flex gap-2 mb-4 justify-center">
           <button onClick={()=>setInputType('shop')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType==='shop'?'bg-orange-500 text-white shadow-lg scale-105':'bg-gray-100 text-gray-400'}`}><ShoppingCart size={16} className="inline mr-2"/>Course</button>
           <button onClick={()=>setInputType('note')} className={`flex-1 py-3 rounded-xl font-bold text-xs uppercase transition-all ${inputType==='note'?'bg-yellow-400 text-white shadow-lg scale-105':'bg-gray-100 text-gray-400'}`}><StickyNote size={16} className="inline mr-2"/>Note</button>
@@ -949,17 +949,17 @@ const HubView = ({ user, config, usersMapping, recipes, onAddRecipe, onAddSemain
         </div>
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
-            <input value={newItem} onChange={e=>setNewItem(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addItem()} placeholder={inputType==='shop'?"Ex: Lait, Beurre...":"Message..."} className="flex-1 p-4 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black transition-colors"/>
+            <input value={newItem} onChange={e=>setNewItem(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addItem()} placeholder={inputType==='shop'?"Ex: Lait, Beurre...":"Message..."} className="flex-1 p-4 rounded-2xl bg-white/35 font-bold outline-none border-2 border-transparent focus:border-black transition-colors"/>
             <button onClick={()=>addItem()} className="p-4 bg-black text-white rounded-2xl hover:scale-105 transition-transform"><Plus/></button>
           </div>
           {inputType==='shop'&&(
             <div className="relative">
-              <div className="flex items-center bg-gray-50 rounded-xl px-4 border border-gray-200">
+              <div className="flex items-center bg-white/35 rounded-xl px-4 border border-gray-200">
                 <Store size={16} className="text-gray-400 mr-2"/>
                 <input value={storeSearch} onFocus={()=>setShowStoreList(true)} onChange={e=>{setStoreSearch(e.target.value);setSelectedStore(e.target.value);}} placeholder="Rechercher un magasin..." className="w-full py-3 bg-transparent text-xs font-bold outline-none text-gray-600"/>
               </div>
               {showStoreList&&storeSearch&&(
-                <div className="absolute top-full left-0 right-0 bg-white border border-gray-100 rounded-xl shadow-lg mt-1 max-h-48 overflow-y-auto z-50">
+                <div className="absolute top-full left-0 right-0 glass-element rounded-xl mt-1 max-h-48 overflow-y-auto z-50">
                   {filteredStores.map(store=>(
                     <div key={store} onClick={()=>{setSelectedStore(store);setStoreSearch(store);setShowStoreList(false);}} className="p-3 text-xs font-bold hover:bg-gray-50 cursor-pointer border-b border-gray-50">{store}</div>
                   ))}
@@ -1117,7 +1117,7 @@ const WalletView = ({ user, config }: { user:User, config:SiteConfig }) => {
       </div>
       {activeTab==='family'?(
         <div className="bg-white/80 backdrop-blur-xl p-8 rounded-[2.5rem] shadow-xl border border-white space-y-8" id="wallet-debts">
-          <div className="flex flex-col md:flex-row gap-4 items-end bg-gray-50 p-6 rounded-3xl">
+          <div className="flex flex-col md:flex-row gap-4 items-end bg-white/35 p-6 rounded-3xl">
             <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Qui doit ?</label><input value={newDebt.from} onChange={e=>setNewDebt({...newDebt,from:e.target.value})} placeholder="ex: G" className="w-full p-3 rounded-xl border-none font-bold"/></div>
             <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">À qui ?</label><input value={newDebt.to} onChange={e=>setNewDebt({...newDebt,to:e.target.value})} placeholder="ex: P" className="w-full p-3 rounded-xl border-none font-bold"/></div>
             <div className="flex-1 w-full"><label className="text-[10px] font-bold uppercase text-gray-400 ml-2">Montant (€)</label><input type="number" value={newDebt.amount} onChange={e=>setNewDebt({...newDebt,amount:e.target.value})} placeholder="0" className="w-full p-3 rounded-xl border-none font-bold"/></div>
@@ -1139,11 +1139,11 @@ const WalletView = ({ user, config }: { user:User, config:SiteConfig }) => {
           <div className="lg:col-span-1 space-y-6">
             <div className="relative h-64 w-full"><CircleLiquid fillPercentage={fillPercent}/><div className="absolute inset-0 flex flex-col items-center justify-center"><p className="text-[10px] font-black uppercase text-yellow-800/60 tracking-widest mb-1">Solde Actuel</p><h2 className="text-3xl md:text-5xl font-black tracking-tight text-yellow-900 drop-shadow-sm mb-4">{myWallet.balance?.toFixed(0)}€</h2><div className="flex items-center gap-2 bg-white/40 p-1.5 rounded-2xl backdrop-blur-sm shadow-sm border border-white/50 w-48"><button onClick={()=>updateBalance('sub')} className="p-2 bg-white/50 hover:bg-red-400 hover:text-white rounded-xl transition-colors"><Minus size={16}/></button><input type="number" value={walletAmount} onChange={e=>setWalletAmount(e.target.value)} className="w-full bg-transparent text-center font-bold text-lg outline-none text-yellow-900 placeholder-yellow-800/40" placeholder="..."/><button onClick={()=>updateBalance('add')} className="p-2 bg-white/50 hover:bg-green-400 hover:text-white rounded-xl transition-colors"><Plus size={16}/></button></div></div></div>
             <div className="bg-white p-4 rounded-3xl shadow-sm border border-yellow-100 flex items-center gap-3"><div className="p-3 bg-yellow-100 text-yellow-600 rounded-full"><Target size={20}/></div><div className="flex-1"><label className="text-[10px] font-bold uppercase text-gray-400">Objectif</label><input type="number" value={goalInput} onChange={e=>setGoalInput(e.target.value)} onBlur={saveGoal} className="w-full font-black text-gray-700 outline-none" placeholder="Définir..."/>{myWallet.startBalance>0&&<span className="text-[10px] text-gray-300">Départ:{myWallet.startBalance}€</span>}</div>{fillPercent>0&&<span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-1 rounded-lg">{fillPercent.toFixed(0)}%</span>}</div>
-            <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><ClipboardList size={14}/> Tâches Rémunérées</h3><div className="flex gap-2 mb-4"><input value={newTask} onChange={e=>setNewTask(e.target.value)} placeholder="Ajouter une tâche..." className="flex-1 bg-gray-50 rounded-xl px-3 text-sm font-bold outline-none"/><button onClick={addWalletTask} className="p-2 bg-gray-200 rounded-xl"><Plus size={16}/></button></div><div className="space-y-2 max-h-40 overflow-y-auto">{(myWallet.tasks||[]).map((t:any)=>(<div key={t.id} className="flex items-center gap-3 group"><button onClick={()=>toggleWalletTask(t.id)}>{t.done?<CheckCircle2 size={16} className="text-green-500"/>:<Square size={16} className="text-gray-300"/>}</button><span className={`text-sm font-bold flex-1 ${t.done?'line-through text-gray-300':'text-gray-600'}`}>{t.text}</span><button onClick={()=>deleteWalletTask(t.id)} className="opacity-0 group-hover:opacity-100 text-red-300"><X size={14}/></button></div>))}</div></div>
+            <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-gray-100"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2"><ClipboardList size={14}/> Tâches Rémunérées</h3><div className="flex gap-2 mb-4"><input value={newTask} onChange={e=>setNewTask(e.target.value)} placeholder="Ajouter une tâche..." className="flex-1 bg-white/35 rounded-xl px-3 text-sm font-bold outline-none"/><button onClick={addWalletTask} className="p-2 bg-gray-200 rounded-xl"><Plus size={16}/></button></div><div className="space-y-2 max-h-40 overflow-y-auto">{(myWallet.tasks||[]).map((t:any)=>(<div key={t.id} className="flex items-center gap-3 group"><button onClick={()=>toggleWalletTask(t.id)}>{t.done?<CheckCircle2 size={16} className="text-green-500"/>:<Square size={16} className="text-gray-300"/>}</button><span className={`text-sm font-bold flex-1 ${t.done?'line-through text-gray-300':'text-gray-600'}`}>{t.text}</span><button onClick={()=>deleteWalletTask(t.id)} className="opacity-0 group-hover:opacity-100 text-red-300"><X size={14}/></button></div>))}</div></div>
           </div>
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-100 h-80 relative" id="wallet-graph"><div className="flex justify-between items-center mb-4"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Évolution du Solde</h3><div className="flex bg-gray-100 p-1 rounded-lg">{(['1M','1Y','5Y'] as const).map(range=>(<button key={range} onClick={()=>setChartRange(range)} className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${chartRange===range?'bg-white shadow text-black':'text-gray-400'}`}>{range}</button>))}</div></div><div className="h-60 w-full p-2"><SimpleLineChart data={graphData} color={config.primaryColor}/></div></div>
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-gray-100"><div className="flex justify-between items-center mb-6"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14}/> Historique (Ce Mois)</h3><span className="text-[10px] font-bold bg-gray-100 px-3 py-1 rounded-full text-gray-500">{new Date().toLocaleString('default',{month:'long'})}</span></div><div className="space-y-4 max-h-60 overflow-y-auto pr-2">{currentMonthHistory.length===0&&<div className="text-center text-gray-300 italic py-4">Aucun mouvement ce mois-ci</div>}{currentMonthHistory.slice().reverse().map((h:any,i:number)=>(<div key={i} className="flex justify-between items-center p-3 bg-gray-50 rounded-2xl"><div className="flex items-center gap-3"><div className={`p-2 rounded-full ${h.amount>0?'bg-green-100 text-green-600':'bg-red-100 text-red-600'}`}>{h.amount>0?<TrendingUp size={16}/>:<TrendingDown size={16}/>}</div><div className="text-xs font-bold text-gray-400 uppercase">{new Date(h.date).toLocaleDateString()}</div></div><span className={`font-black ${h.amount>0?'text-green-600':'text-red-600'}`}>{h.amount>0?'+':''}{h.amount}€</span></div>))}</div></div>
+            <div className="glass-panel p-6 rounded-[2.5rem] h-80 relative" id="wallet-graph"><div className="flex justify-between items-center mb-4"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Évolution du Solde</h3><div className="flex bg-gray-100 p-1 rounded-lg">{(['1M','1Y','5Y'] as const).map(range=>(<button key={range} onClick={()=>setChartRange(range)} className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${chartRange===range?'bg-white shadow text-black':'text-gray-400'}`}>{range}</button>))}</div></div><div className="h-60 w-full p-2"><SimpleLineChart data={graphData} color={config.primaryColor}/></div></div>
+            <div className="glass-panel p-8 rounded-[2.5rem]"><div className="flex justify-between items-center mb-6"><h3 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14}/> Historique (Ce Mois)</h3><span className="text-[10px] font-bold bg-gray-100 px-3 py-1 rounded-full text-gray-500">{new Date().toLocaleString('default',{month:'long'})}</span></div><div className="space-y-4 max-h-60 overflow-y-auto pr-2">{currentMonthHistory.length===0&&<div className="text-center text-gray-300 italic py-4">Aucun mouvement ce mois-ci</div>}{currentMonthHistory.slice().reverse().map((h:any,i:number)=>(<div key={i} className="flex justify-between items-center p-3 bg-white/35 rounded-2xl"><div className="flex items-center gap-3"><div className={`p-2 rounded-full ${h.amount>0?'bg-green-100 text-green-600':'bg-red-100 text-red-600'}`}>{h.amount>0?<TrendingUp size={16}/>:<TrendingDown size={16}/>}</div><div className="text-xs font-bold text-gray-400 uppercase">{new Date(h.date).toLocaleDateString()}</div></div><span className={`font-black ${h.amount>0?'text-green-600':'text-red-600'}`}>{h.amount>0?'+':''}{h.amount}€</span></div>))}</div></div>
           </div>
         </div>
       )}
@@ -1431,7 +1431,7 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
       </div>
 
       {/* ── Onglets ── */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-2xl">
+      <div className="flex gap-1 bg-white/30 p-1 rounded-2xl backdrop-blur-sm">
         {([
           { id: 'events', label: 'Événements', icon: <CalendarDays size={15}/> },
           { id: 'tasks',  label: 'Tâches',     icon: <ListTodo size={15}/> },
@@ -1451,16 +1451,16 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
       {calTab === 'events' && (
         <div className="space-y-4">
           <button onClick={()=>setShowEventForm(v=>!v)}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm text-white shadow-lg hover:scale-[1.01] transition-transform"
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-[100px] font-black text-sm text-white shadow-lg hover:scale-[1.01] transition-transform"
             style={{backgroundColor:config.primaryColor}}>
             <Plus size={18}/> Nouvel événement
           </button>
 
           {showEventForm && (
-            <div className="bg-white border border-gray-100 rounded-3xl p-6 space-y-4 shadow-lg animate-in slide-in-from-top-2">
+            <div className="glass-panel p-6 space-y-4 animate-in slide-in-from-top-2">
               <input autoFocus value={newEvt.title} onChange={e=>setNewEvt(v=>({...v,title:e.target.value}))}
                 placeholder="Titre de l'événement…"
-                className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none text-lg"/>
+                className="w-full p-3 rounded-xl border border-white/50 bg-white/40 backdrop-blur-sm focus:bg-white/60 focus:border-white/70 font-bold outline-none text-lg transition-all"/>
               <div className="flex gap-3">
                 <input type="date" value={newEvt.date} onChange={e=>setNewEvt(v=>({...v,date:e.target.value}))}
                   className="flex-1 p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none cursor-pointer"/>
@@ -1531,7 +1531,7 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
             {events.filter(e => e.date >= today).map(ev => {
               const d = new Date(ev.date + 'T12:00:00');
               return (
-                <div key={ev.id} className="group flex items-center gap-4 p-4 rounded-2xl border bg-white border-gray-100 hover:border-gray-200 hover:shadow-sm transition-all">
+                <div key={ev.id} className="group flex items-center gap-4 p-4 rounded-2xl card-glass transition-all">
                   <div className="w-12 h-12 rounded-xl flex flex-col items-center justify-center shrink-0"
                     style={{backgroundColor: config.primaryColor+'18', color: config.primaryColor}}>
                     <span className="text-lg font-black leading-none">{d.getDate()}</span>
@@ -1565,7 +1565,7 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
             <div>
               <button
                 onClick={() => setPastEventsOpen(v => !v)}
-                className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-gray-50 border border-gray-100 text-gray-400 hover:bg-gray-100 transition-all"
+                className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-white/35 border border-gray-100 text-gray-400 hover:bg-gray-100 transition-all"
               >
                 <span className="text-xs font-black uppercase tracking-widest">
                   Événements passés ({events.filter(e => e.date < today).length})
@@ -1577,7 +1577,7 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
                   {events.filter(e => e.date < today).sort((a,b) => b.date > a.date ? 1 : -1).map(ev => {
                     const d = new Date(ev.date + 'T12:00:00');
                     return (
-                      <div key={ev.id} className="group flex items-center gap-3 p-3 rounded-2xl bg-gray-50 border border-gray-100 opacity-50 hover:opacity-70 transition-all">
+                      <div key={ev.id} className="group flex items-center gap-3 p-3 rounded-2xl bg-white/35 border border-gray-100 opacity-50 hover:opacity-70 transition-all">
                         <div className="w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 bg-gray-100 text-gray-400">
                           <span className="text-sm font-black leading-none">{d.getDate()}</span>
                           <span className="text-[8px] font-black uppercase">{MONTHS_FR[d.getMonth()]}</span>
@@ -1604,16 +1604,16 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
       {calTab === 'tasks' && (
         <div className="space-y-4">
           <button onClick={()=>setShowTaskForm(v=>!v)}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm text-white shadow-lg hover:scale-[1.01] transition-transform"
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-[100px] font-black text-sm text-white shadow-lg hover:scale-[1.01] transition-transform"
             style={{backgroundColor:config.primaryColor}}>
             <Plus size={18}/> Nouvelle tâche
           </button>
 
           {showTaskForm && (
-            <div className="bg-white border border-gray-100 rounded-3xl p-6 space-y-4 shadow-lg animate-in slide-in-from-top-2">
+            <div className="glass-panel p-6 space-y-4 animate-in slide-in-from-top-2">
               <input autoFocus value={newTask.title} onChange={e=>setNewTask(v=>({...v,title:e.target.value}))}
                 placeholder="Description de la tâche…"
-                className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none text-lg"/>
+                className="w-full p-3 rounded-xl border border-white/50 bg-white/40 backdrop-blur-sm focus:bg-white/60 focus:border-white/70 font-bold outline-none text-lg transition-all"/>
               <div className="flex gap-3">
                 <input type="date" value={newTask.date} onChange={e=>setNewTask(v=>({...v,date:e.target.value}))}
                   className="flex-1 p-3 rounded-xl border-2 border-gray-100 focus:border-gray-300 font-bold outline-none cursor-pointer"/>
@@ -1692,7 +1692,7 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
               <div className="mt-4 space-y-2">
                 <p className="text-xs font-black uppercase tracking-widest text-gray-300 pl-1">Terminées</p>
                 {tasks.filter(t => t.done).map(t => (
-                  <div key={t.id} className="group flex items-center gap-3 p-3 rounded-2xl bg-gray-50 border border-gray-100 opacity-60">
+                  <div key={t.id} className="group flex items-center gap-3 p-3 rounded-2xl bg-white/35 border border-gray-100 opacity-60">
                     <button onClick={()=>toggleTask(t)} className="shrink-0 text-green-400"><CheckCheck size={20}/></button>
                     <div className="flex-1 text-gray-400 line-through text-sm font-bold truncate">{t.title}</div>
                     <button onClick={()=>delItem('family_tasks',t.id)}
@@ -1722,12 +1722,12 @@ const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 relative animate-in zoom-in-95 duration-300">
         <button onClick={()=>onClose(false)} className="absolute top-6 right-6 text-gray-400 hover:text-black"><X size={24}/></button>
-        <div className="text-center space-y-2"><div className="mx-auto w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4"><CalIcon size={32} style={{color:config.primaryColor}}/></div><h3 className="text-2xl font-bold tracking-tight">Nouvel Événement</h3></div>
+        <div className="text-center space-y-2"><div className="mx-auto w-16 h-16 bg-white/35 rounded-full flex items-center justify-center mb-4"><CalIcon size={32} style={{color:config.primaryColor}}/></div><h3 className="text-2xl font-bold tracking-tight">Nouvel Événement</h3></div>
         <div className="space-y-4">
-          <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quoi ?</label><input value={newEvent.title} onChange={e=>setNewEvent({...newEvent,title:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none focus:ring-2" placeholder="Anniversaire..." autoFocus style={{'--tw-ring-color':config.primaryColor} as any}/></div>
-          <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quand ?</label><input type="date" value={newEvent.date} onChange={e=>setNewEvent({...newEvent,date:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none cursor-pointer"/></div>
+          <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quoi ?</label><input value={newEvent.title} onChange={e=>setNewEvent({...newEvent,title:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-white/35 text-lg font-bold outline-none focus:ring-2" placeholder="Anniversaire..." autoFocus style={{'--tw-ring-color':config.primaryColor} as any}/></div>
+          <div><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">Quand ?</label><input type="date" value={newEvent.date} onChange={e=>setNewEvent({...newEvent,date:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-white/35 outline-none cursor-pointer"/></div>
           <div onClick={()=>setNewEvent({...newEvent,isAllDay:!newEvent.isAllDay})} className="flex items-center justify-between p-4 rounded-xl border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"><div className="flex items-center gap-3"><Clock size={20} className={newEvent.isAllDay?"text-gray-300":"text-black"}/><span className="font-bold text-sm">Toute la journée</span></div>{newEvent.isAllDay?<ToggleRight size={32} className="text-green-500"/>:<ToggleLeft size={32} className="text-gray-300"/>}</div>
-          {!newEvent.isAllDay&&<div className="animate-in slide-in-from-top-2"><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label><input type="text" value={newEvent.time} onChange={e=>setNewEvent({...newEvent,time:e.target.value})} placeholder="Ex: 20h00" className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none font-bold text-lg"/></div>}
+          {!newEvent.isAllDay&&<div className="animate-in slide-in-from-top-2"><label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-2">À quelle heure ?</label><input type="text" value={newEvent.time} onChange={e=>setNewEvent({...newEvent,time:e.target.value})} placeholder="Ex: 20h00" className="w-full p-4 rounded-xl border border-gray-200 bg-white/35 outline-none font-bold text-lg"/></div>}
         </div>
         <button disabled={isSubmitting} onClick={async()=>{if(newEvent.title&&newEvent.date){setIsSubmitting(true);await addEntry('family_events',{title:newEvent.title,date:newEvent.date,time:newEvent.isAllDay?null:(newEvent.time||'')});setNewEvent({title:'',date:new Date().toISOString().split('T')[0],time:'',isAllDay:true});setIsSubmitting(false);onClose(false);}else{alert("Titre et date requis !");}}} className={`w-full py-4 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transform active:scale-95 transition-all ${isSubmitting?'opacity-50':''}`} style={{backgroundColor:config.primaryColor}}>{isSubmitting?"Ajout...":"Ajouter au calendrier"}</button>
       </div>
@@ -1811,7 +1811,7 @@ const MiamStepsReader = ({recipe, config, onBack, onEdit}: {recipe:any, config:a
   return (
     <div className="animate-in fade-in duration-300">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3 mb-6 px-1">
         <button onClick={onBack} className="flex items-center gap-1.5 text-sm font-bold text-gray-400 hover:text-gray-700 transition-colors">
           <ArrowLeft size={16}/> Recettes
         </button>
@@ -1823,15 +1823,15 @@ const MiamStepsReader = ({recipe, config, onBack, onEdit}: {recipe:any, config:a
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Colonne gauche : infos + ingrédients */}
         <div className="lg:w-1/3 space-y-4">
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+          <div className="glass-element p-5">
             {recipe.image&&<img src={recipe.image} alt={recipe.title} className="w-full h-40 object-cover rounded-xl mb-4"/>}
             <h2 className="text-2xl font-black text-gray-800 leading-tight mb-3">{recipe.title}</h2>
             {recipe.description&&<p className="text-gray-400 text-sm mb-3">{recipe.description}</p>}
             <div className="flex flex-wrap gap-2">
               {recipe.chef&&<span className="flex items-center gap-1 text-xs font-bold bg-orange-50 text-orange-600 px-3 py-1.5 rounded-full border border-orange-100"><ChefHat size={12}/>{recipe.chef}</span>}
-              {recipe.prepTime&&<span className="flex items-center gap-1 text-xs font-bold bg-gray-50 text-gray-600 px-3 py-1.5 rounded-full border border-gray-200"><Clock size={12}/>Prép: {recipe.prepTime}</span>}
-              {recipe.cookTime&&<span className="flex items-center gap-1 text-xs font-bold bg-gray-50 text-gray-600 px-3 py-1.5 rounded-full border border-gray-200"><Utensils size={12}/>Cuis: {recipe.cookTime}</span>}
-              {recipe.servings&&<span className="flex items-center gap-1 text-xs font-bold bg-gray-50 text-gray-600 px-3 py-1.5 rounded-full border border-gray-200"><Users size={12}/>{recipe.servings} pers.</span>}
+              {recipe.prepTime&&<span className="flex items-center gap-1 text-xs font-bold bg-white/35 text-gray-600 px-3 py-1.5 rounded-full border border-gray-200"><Clock size={12}/>Prép: {recipe.prepTime}</span>}
+              {recipe.cookTime&&<span className="flex items-center gap-1 text-xs font-bold bg-white/35 text-gray-600 px-3 py-1.5 rounded-full border border-gray-200"><Utensils size={12}/>Cuis: {recipe.cookTime}</span>}
+              {recipe.servings&&<span className="flex items-center gap-1 text-xs font-bold bg-white/35 text-gray-600 px-3 py-1.5 rounded-full border border-gray-200"><Users size={12}/>{recipe.servings} pers.</span>}
             </div>
           </div>
           {/* Toggle ingrédients mobile */}
@@ -1856,7 +1856,7 @@ const MiamStepsReader = ({recipe, config, onBack, onEdit}: {recipe:any, config:a
         {/* Colonne droite : étapes */}
         <div className="lg:w-2/3 flex flex-col">
           {/* Barre de progression */}
-          <div className="bg-white p-4 rounded-t-2xl border border-b-0 border-gray-100 flex items-center justify-between">
+          <div className="glass-element p-4 rounded-t-2xl flex items-center justify-between">
             <span className="text-xs font-black uppercase tracking-wider text-gray-400">Étape {currentStep+1} sur {total}</span>
             <span className="text-xs font-black text-orange-500">{Math.round(progress)}%</span>
           </div>
@@ -1864,7 +1864,7 @@ const MiamStepsReader = ({recipe, config, onBack, onEdit}: {recipe:any, config:a
             <div className="h-full transition-all duration-500" style={{width:`${progress}%`,backgroundColor:config.primaryColor}}/>
           </div>
           {/* Contenu étape */}
-          <div className="bg-white p-6 sm:p-10 rounded-b-2xl border border-t-0 border-gray-100 flex-grow relative overflow-hidden">
+          <div className="glass-element p-6 sm:p-10 rounded-b-2xl flex-grow relative overflow-hidden">
             <div className="absolute -top-4 -right-4 text-[130px] font-black text-gray-50 select-none pointer-events-none leading-none">{currentStep+1}</div>
             <div className="relative z-10">
               <h3 className="text-2xl sm:text-3xl font-black mb-5" style={{color:config.primaryColor}}>
@@ -1927,13 +1927,13 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
   return (
     <div className="fixed inset-0 z-[500] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in">
       <div
-        className="bg-white w-full md:max-w-2xl rounded-t-[2.5rem] md:rounded-[2.5rem] shadow-2xl relative animate-in slide-in-from-bottom md:zoom-in-95 duration-300 overflow-y-auto"
+        className="modal-glass w-full md:max-w-2xl rounded-t-[2.5rem] md:rounded-[2.5rem] relative animate-in slide-in-from-bottom md:zoom-in-95 duration-300 overflow-y-auto"
         style={{maxHeight:'calc(100vh - 1rem)', paddingBottom:'calc(1.5rem + env(safe-area-inset-bottom, 0px))'}}
       >
-        <div className="sticky top-0 bg-white z-10 px-8 pt-5 pb-3 border-b border-gray-100 flex items-center justify-between">
+        <div className="sticky top-0 glass-element z-10 px-8 pt-5 pb-3 border-b border-white/30 flex items-center justify-between rounded-t-[2.5rem]">
           <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto md:hidden absolute top-3 left-1/2 -translate-x-1/2"/>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center hidden md:flex"><ChefHat size={22} style={{color:config.primaryColor}}/></div>
+            <div className="w-10 h-10 bg-white/35 rounded-full flex items-center justify-center hidden md:flex"><ChefHat size={22} style={{color:config.primaryColor}}/></div>
             <h3 className="text-xl font-bold tracking-tight">{currentRecipe.id?'Modifier la Recette':'Nouvelle Recette'}</h3>
           </div>
           <button onClick={()=>onClose(false)} className="text-gray-400 hover:text-black p-2 rounded-full hover:bg-gray-100"><X size={22}/></button>
@@ -1941,7 +1941,7 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
 
         <div className="px-6 md:px-8 pt-5 space-y-4">
           {/* IMPORT URL */}
-          <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200">
+          <div className="bg-white/35 p-4 rounded-2xl border border-gray-200">
             <h4 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-3 flex items-center gap-2"><Link size={12}/> Import depuis URL</h4>
             <div className="flex gap-2">
               <input value={recipeUrl} onChange={e=>setRecipeUrl(e.target.value)} placeholder="https://www.marmiton.org/recettes/..." className="flex-1 min-w-0 p-3 rounded-xl border border-gray-200 bg-white text-sm font-bold outline-none"/>
@@ -1953,12 +1953,12 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
           </div>
 
           {/* Titre + Description */}
-          <input value={currentRecipe.title} onChange={e=>setCurrentRecipe({...currentRecipe,title:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold outline-none" placeholder="Nom du plat..." autoFocus/>
-          <textarea value={currentRecipe.description||''} onChange={e=>setCurrentRecipe({...currentRecipe,description:e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm resize-none h-16" placeholder="Courte description (optionnel)..."/>
+          <input value={currentRecipe.title} onChange={e=>setCurrentRecipe({...currentRecipe,title:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-white/35 text-lg font-bold outline-none" placeholder="Nom du plat..." autoFocus/>
+          <textarea value={currentRecipe.description||''} onChange={e=>setCurrentRecipe({...currentRecipe,description:e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 bg-white/35 outline-none text-sm resize-none h-16" placeholder="Courte description (optionnel)..."/>
           {/* Chef + Catégorie */}
           <div className="flex gap-3">
-            <input value={currentRecipe.chef} onChange={e=>setCurrentRecipe({...currentRecipe,chef:e.target.value})} className="flex-1 p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="👨‍🍳 Chef (ex: Papa)"/>
-            <select value={currentRecipe.category} onChange={e=>setCurrentRecipe({...currentRecipe,category:e.target.value})} className="flex-1 p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm">
+            <input value={currentRecipe.chef} onChange={e=>setCurrentRecipe({...currentRecipe,chef:e.target.value})} className="flex-1 p-3 rounded-xl border border-gray-200 bg-white/35 outline-none text-sm" placeholder="👨‍🍳 Chef (ex: Papa)"/>
+            <select value={currentRecipe.category} onChange={e=>setCurrentRecipe({...currentRecipe,category:e.target.value})} className="flex-1 p-3 rounded-xl border border-gray-200 bg-white/35 outline-none text-sm">
               <option value="entrée">🥗 Entrée</option><option value="plat">🍽️ Plat</option><option value="dessert">🍰 Dessert</option><option value="autre">🍴 Autre</option>
             </select>
           </div>
@@ -1966,15 +1966,15 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">Préparation</label>
-              <input value={currentRecipe.prepTime||''} onChange={e=>setCurrentRecipe({...currentRecipe,prepTime:e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="15 min"/>
+              <input value={currentRecipe.prepTime||''} onChange={e=>setCurrentRecipe({...currentRecipe,prepTime:e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 bg-white/35 outline-none text-sm" placeholder="15 min"/>
             </div>
             <div>
               <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">Cuisson</label>
-              <input value={currentRecipe.cookTime||''} onChange={e=>setCurrentRecipe({...currentRecipe,cookTime:e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm" placeholder="30 min"/>
+              <input value={currentRecipe.cookTime||''} onChange={e=>setCurrentRecipe({...currentRecipe,cookTime:e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 bg-white/35 outline-none text-sm" placeholder="30 min"/>
             </div>
             <div>
               <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">Portions</label>
-              <input type="number" min="1" value={currentRecipe.servings||4} onChange={e=>setCurrentRecipe({...currentRecipe,servings:parseInt(e.target.value)||4})} className="w-full p-3 rounded-xl border border-gray-200 bg-gray-50 outline-none text-sm"/>
+              <input type="number" min="1" value={currentRecipe.servings||4} onChange={e=>setCurrentRecipe({...currentRecipe,servings:parseInt(e.target.value)||4})} className="w-full p-3 rounded-xl border border-gray-200 bg-white/35 outline-none text-sm"/>
             </div>
           </div>
           {/* Photo */}
@@ -1988,11 +1988,11 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
           <div className="grid md:grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">Ingrédients (un par ligne)</label>
-              <textarea value={currentRecipe.ingredients} onChange={e=>setCurrentRecipe({...currentRecipe,ingredients:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-44 text-sm resize-none" placeholder="200g farine&#10;3 œufs&#10;100ml lait..."/>
+              <textarea value={currentRecipe.ingredients} onChange={e=>setCurrentRecipe({...currentRecipe,ingredients:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-white/35 outline-none h-44 text-sm resize-none" placeholder="200g farine&#10;3 œufs&#10;100ml lait..."/>
             </div>
             <div>
               <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">Étapes de préparation</label>
-              <textarea value={currentRecipe.steps} onChange={e=>setCurrentRecipe({...currentRecipe,steps:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 outline-none h-44 text-sm resize-none" placeholder="Étape 1 : Préchauffer le four...&#10;Étape 2 : Mélanger les ingrédients..."/>
+              <textarea value={currentRecipe.steps} onChange={e=>setCurrentRecipe({...currentRecipe,steps:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-white/35 outline-none h-44 text-sm resize-none" placeholder="Étape 1 : Préchauffer le four...&#10;Étape 2 : Mélanger les ingrédients..."/>
             </div>
           </div>
           <button
@@ -2113,19 +2113,19 @@ const SideMenu = ({ config, isOpen, close, setView, logout }: any) => {
 };
 
 const BottomNav = ({ config, view, setView, hidden }: any) => (
-  <div className={`md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 text-white/50 px-4 pb-4 shadow-xl transition-transform duration-300 ${hidden ? 'translate-y-full' : 'translate-y-0'}`} style={{backgroundColor:config.primaryColor}}>
+  <div className={`md:hidden fixed bottom-0 w-full h-24 flex justify-around items-center rounded-t-[2.5rem] z-40 px-4 pb-4 transition-transform duration-300 bottom-nav-glass ${hidden ? 'translate-y-full' : 'translate-y-0'}`} style={{color:config.primaryColor}}>
     {[
       {id:'home',i:<Home size={22}/>},
       {id:'hub',i:<LayoutDashboard size={22}/>},
       {id:'tasks',i:<CheckSquare size={22}/>},
       {id:'recipes',i:<ChefHat size={22}/>},
       {id:'cooking',i:<CalIcon size={22}/>}
-    ].map(b=><button key={b.id} onClick={()=>setView(b.id)} className={`p-2 ${view===b.id?'text-white -translate-y-2 bg-white/20 rounded-xl':''}`}>{b.i}</button>)}
+    ].map(b=><button key={b.id} onClick={()=>setView(b.id)} className={`p-2 ${view===b.id?'opacity-100 -translate-y-2 bg-white/20 rounded-xl':''}`}>{b.i}</button>)}
   </div>
 );
 
 const HomeCard = ({ icon, title, label, onClick, color }: any) => (
-  <div onClick={onClick} className="bg-white/70 backdrop-blur-md p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] cursor-pointer hover:scale-105 transition-transform shadow-lg border border-white/50 group">
+  <div onClick={onClick} className="card-glass p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] cursor-pointer hover:scale-105 transition-transform shadow-lg border border-white/50 group">
     <div style={{color}} className="mb-6 group-hover:scale-110 transition-transform">{icon}</div>
     <h3 className="text-xl md:text-3xl font-bold tracking-tight mb-2">{title}</h3>
     <p className="text-[10px] font-bold tracking-widest opacity-50 uppercase flex items-center gap-2">{label}<ChevronRight size={14}/></p>
@@ -2226,7 +2226,7 @@ const AutoSaveSettings = ({ localC, save, config, setLocalC, fileRef, handleFile
       </div>
 
       {/* PAGE ACCUEIL */}
-      <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
+      <div className="bg-white/35 p-6 rounded-3xl border border-gray-100 space-y-4">
         <h4 className="font-black text-gray-600 uppercase tracking-widest text-sm flex items-center gap-2"><Home size={16}/> PAGE D'ACCUEIL</h4>
         <input value={localC.welcomeTitle||''} onChange={e=>setLocalC((c:any)=>({...c,welcomeTitle:e.target.value}))} className="w-full p-5 rounded-2xl border border-gray-200" placeholder="Titre principal"/>
         <textarea value={localC.welcomeText||''} onChange={e=>setLocalC((c:any)=>({...c,welcomeText:e.target.value}))} className="w-full p-5 rounded-2xl border border-gray-200 h-24" placeholder="Texte de bienvenue"/>
@@ -2341,7 +2341,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
         <div className="space-y-8 animate-in fade-in">
           <h3 className="text-3xl font-bold tracking-tight" style={{color:config.primaryColor}}>UTILISATEURS</h3>
 
-          <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
+          <div className="bg-white/35 p-6 rounded-3xl border border-gray-100">
             <h4 className="font-bold mb-4 text-xs uppercase tracking-widest text-gray-400">Ajouter un membre</h4>
             <div className="flex flex-col md:flex-row gap-4">
               <input value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})} placeholder="Email" className="flex-1 p-3 rounded-xl border border-gray-200"/>
@@ -2424,7 +2424,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
           <h3 className="text-3xl font-bold tracking-tight" style={{color:config.primaryColor}}>NOTIFICATIONS</h3>
 
           {/* MODE MANUEL UNIQUEMENT */}
-          <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 space-y-4">
+          <div className="bg-white/35 p-6 rounded-3xl border border-gray-100 space-y-4">
             <textarea value={notif.message} onChange={e=>setNotif({...notif,message:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200" placeholder="Message..."/>
             <div className="flex flex-wrap gap-2">
               <button onClick={()=>setNotif({...notif,targets:['all']})} className={`px-3 py-1 rounded-full text-xs font-bold ${notif.targets?.includes('all')?'bg-black text-white':'bg-gray-200 text-gray-500'}`}>TOUS</button>
@@ -2498,7 +2498,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
           <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
             {versions.length===0&&<div className="text-center text-gray-400 italic py-8">Aucune version sauvegardée</div>}
             {versions.map((v:SiteVersion)=>(
-              <div key={v.id} className="flex gap-4 items-center p-4 bg-gray-50 rounded-2xl border border-gray-100 group hover:border-gray-300 transition-all">
+              <div key={v.id} className="flex gap-4 items-center p-4 bg-white/35 rounded-2xl border border-gray-100 group hover:border-gray-300 transition-all">
                 {/* Miniature cliquable */}
                 <div className="relative w-16 h-16 rounded-xl overflow-hidden shrink-0 border border-gray-200 shadow-sm cursor-pointer group/img"
                   onClick={()=>{setEditingVersionImg(v.id);versionImgRef.current?.click();}}
@@ -2583,7 +2583,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
           )}
           <div className="space-y-3">
             {xsitePages.map((site:any)=>(
-              <div key={site.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-200">
+              <div key={site.id} className="flex justify-between items-center p-4 bg-white/35 rounded-2xl border border-gray-200">
                 <span className="font-bold text-lg">{site.name}</span>
                 <div className="flex gap-2">
                   <button onClick={()=>generateQrCode(site.id)} className="p-2 bg-black text-white rounded-lg"><QrCode size={18}/></button>
@@ -2595,8 +2595,8 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
           </div>
           <div className="bg-white p-6 rounded-[2.5rem] shadow-lg border border-gray-100 space-y-4">
             <h4 className="text-sm font-bold uppercase tracking-widest text-gray-400">{currentXSite.id?'Modifier':'Nouveau'}</h4>
-            <input value={currentXSite.name} onChange={e=>setCurrentXSite({...currentXSite,name:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 font-bold outline-none" placeholder="Nom du fichier"/>
-            <textarea value={currentXSite.html} onChange={e=>setCurrentXSite({...currentXSite,html:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-gray-50 font-mono text-xs h-48 outline-none" placeholder="HTML..."/>
+            <input value={currentXSite.name} onChange={e=>setCurrentXSite({...currentXSite,name:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-white/35 font-bold outline-none" placeholder="Nom du fichier"/>
+            <textarea value={currentXSite.html} onChange={e=>setCurrentXSite({...currentXSite,html:e.target.value})} className="w-full p-4 rounded-xl border border-gray-200 bg-white/35 font-mono text-xs h-48 outline-none" placeholder="HTML..."/>
             {/* Doc sauvegarde Firebase */}
             <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 space-y-2">
               <p className="text-xs font-black text-blue-700 uppercase tracking-widest">💾 Sauvegarde automatique Firebase</p>
@@ -2942,7 +2942,7 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
       {modal&&(
         <div className="fixed inset-0 z-[500] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setModal(null)}>
           <div
-            className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-md shadow-2xl space-y-4 overflow-y-auto"
+            className="modal-glass rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-md space-y-4 overflow-y-auto"
             style={{maxHeight:'calc(100vh - 1rem)', paddingBottom:'calc(1.5rem + env(safe-area-inset-bottom, 0px))'}}
             onClick={e=>e.stopPropagation()}
           >
@@ -2958,7 +2958,7 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
                 <select
                   value={favSelectVal}
                   onChange={e=>onFavSelect(e.target.value)}
-                  className="w-full p-3 rounded-xl border-2 border-gray-200 bg-gray-50 text-sm font-bold outline-none focus:border-black"
+                  className="w-full p-3 rounded-xl border-2 border-gray-200 bg-white/35 text-sm font-bold outline-none focus:border-black"
                 >
                   <option value="">⭐ Choisir une recette...</option>
                   {favs.map((f,i)=><option key={i} value={i}>{f.platName}</option>)}
@@ -3124,7 +3124,7 @@ const TokenAdminModal = ({ config, user: targetUser, onClose }:{
           <h3 className="font-black text-xl tracking-tight">{targetUser.name}</h3>
           <p className="text-gray-400 text-xs">{targetUser.id}</p>
         </div>
-        <div className="text-center bg-gray-50 rounded-2xl py-5">
+        <div className="text-center bg-white/35 rounded-2xl py-5">
           <div className="text-4xl font-black text-gray-800">{bal !== null ? bal.toLocaleString('fr-FR') : '…'}</div>
           <div className="text-xs text-gray-400 mt-1">tokens actuels</div>
         </div>
@@ -3152,7 +3152,7 @@ const TokenAdminModal = ({ config, user: targetUser, onClose }:{
           <button onClick={()=>adjust(1000-(bal||0))}
             className="py-2 rounded-xl bg-black text-white font-bold text-xs hover:bg-gray-800">Reset 1 000</button>
         </div>
-        <button onClick={onClose} className="w-full py-3 rounded-2xl bg-gray-50 text-gray-400 font-bold text-sm hover:bg-gray-100">Fermer</button>
+        <button onClick={onClose} className="w-full py-3 rounded-2xl bg-white/35 text-gray-400 font-bold text-sm hover:bg-gray-100">Fermer</button>
       </div>
     </div>
   );
@@ -3160,7 +3160,7 @@ const TokenAdminModal = ({ config, user: targetUser, onClose }:{
 
 const FreemiumModal = ({ config, onClose, onUpgrade }:{config:SiteConfig,onClose:()=>void,onUpgrade:()=>void}) => (
   <div className="fixed inset-0 z-[300] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={onClose}>
-    <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-8 w-full md:max-w-md shadow-2xl space-y-5" onClick={e=>e.stopPropagation()}>
+    <div className="modal-glass rounded-t-[2.5rem] md:rounded-[2.5rem] p-8 w-full md:max-w-md shadow-2xl space-y-5" onClick={e=>e.stopPropagation()}>
       <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
       <div className="text-center">
         <div className="text-5xl mb-3">☕</div>
@@ -3169,7 +3169,7 @@ const FreemiumModal = ({ config, onClose, onUpgrade }:{config:SiteConfig,onClose
         <p className="text-3xl font-black mt-3" style={{color:config.primaryColor}}>pour 1 CAFÉ par mois !</p>
         <p className="text-xs text-gray-400 mt-1">soit 3,99 € / mois — annulable à tout moment</p>
       </div>
-      <div className="space-y-2 bg-gray-50 rounded-2xl p-4">
+      <div className="space-y-2 bg-white/35 rounded-2xl p-4">
         {[
           ['🍳','Recettes illimitées + Scans IA illimités'],
           ['🤖','Majordome IA 24h/24 — H24'],
@@ -3428,7 +3428,7 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
       {/* MODALE CRÉATION */}
       {showCreate&&(
         <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowCreate(false)}>
-          <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+          <div className="modal-glass rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm space-y-4" onClick={e=>e.stopPropagation()}>
             <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
             <h3 className="font-black text-xl">Nouvelle WishList</h3>
             <div>
@@ -3439,14 +3439,14 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
                 ))}
               </div>
             </div>
-            <input value={newList.name} onChange={e=>setNewList(l=>({...l,name:e.target.value}))} placeholder="Nom de la liste..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
+            <input value={newList.name} onChange={e=>setNewList(l=>({...l,name:e.target.value}))} placeholder="Nom de la liste..." className="w-full p-3 rounded-2xl bg-white/35 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
             {/* Catégorie : dropdown des catégories existantes + créer */}
             <div>
               <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-1.5">Catégorie</label>
               <select
                 value={newList.category}
                 onChange={e=>{ if(e.target.value==='__new__') { const c=prompt('Nom de la nouvelle catégorie :'); if(c?.trim()) setNewList(l=>({...l,category:c.trim()})); } else setNewList(l=>({...l,category:e.target.value})); }}
-                className="w-full p-3 rounded-xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black text-sm"
+                className="w-full p-3 rounded-xl bg-white/35 font-bold outline-none border-2 border-transparent focus:border-black text-sm"
               >
                 <option value="">— Aucune catégorie —</option>
                 {allCategories.map(c=><option key={c} value={c}>{c}</option>)}
@@ -3465,7 +3465,7 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
       {/* MODALE ÉDITION LISTE */}
       {editingList&&(
         <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setEditingList(null)}>
-          <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+          <div className="modal-glass rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm space-y-4" onClick={e=>e.stopPropagation()}>
             <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
             <h3 className="font-black text-xl">Modifier la WishList</h3>
             <div className="flex flex-wrap gap-2">
@@ -3473,11 +3473,11 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
                 <button key={icon} onClick={()=>setEditingList((l:any)=>({...l,icon}))} className={`text-2xl p-2 rounded-xl transition-all ${editingList.icon===icon?'bg-gray-900 scale-110':'bg-gray-100 hover:bg-gray-200'}`}>{icon}</button>
               ))}
             </div>
-            <input value={editingList.name} onChange={e=>setEditingList((l:any)=>({...l,name:e.target.value}))} className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black"/>
+            <input value={editingList.name} onChange={e=>setEditingList((l:any)=>({...l,name:e.target.value}))} className="w-full p-3 rounded-2xl bg-white/35 font-bold outline-none border-2 border-transparent focus:border-black"/>
             <select
               value={editingList.category||''}
               onChange={e=>{ if(e.target.value==='__new__'){const c=prompt('Nouvelle catégorie :');if(c?.trim())setEditingList((l:any)=>({...l,category:c.trim()}));}else setEditingList((l:any)=>({...l,category:e.target.value})); }}
-              className="w-full p-3 rounded-xl bg-gray-50 font-bold outline-none text-sm"
+              className="w-full p-3 rounded-xl bg-white/35 font-bold outline-none text-sm"
             >
               <option value="">— Aucune catégorie —</option>
               {allCategories.map(c=><option key={c} value={c}>{c}</option>)}
@@ -3605,7 +3605,7 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
           {/* Partage modale */}
           {showShare&&isOwner(activeList)&&(
             <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowShare(false)}>
-              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+              <div className="modal-glass rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm space-y-4" onClick={e=>e.stopPropagation()}>
                 <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
                 <h3 className="font-black text-xl">Partager "{activeList.name}"</h3>
                 <div className="space-y-2">
@@ -3648,16 +3648,16 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
           {/* Modale ajout manuel */}
           {showAddItem==='manual'&&isOwner(activeList)&&(
             <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowAddItem(null)}>
-              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+              <div className="modal-glass rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm space-y-4" onClick={e=>e.stopPropagation()}>
                 <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
                 <h3 className="font-black text-xl">Ajouter un article</h3>
-                <input value={newItem.name} onChange={e=>setNewItem(i=>({...i,name:e.target.value}))} placeholder="Nom du produit..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
+                <input value={newItem.name} onChange={e=>setNewItem(i=>({...i,name:e.target.value}))} placeholder="Nom du produit..." className="w-full p-3 rounded-2xl bg-white/35 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
                 <div className="flex gap-3">
                   <input value={newItem.price} onChange={e=>setNewItem(i=>({...i,price:e.target.value}))} placeholder="💰 Prix — ex : 24,99 €" className="flex-1 p-3 rounded-2xl bg-amber-50 font-bold outline-none border-2 border-transparent focus:border-amber-400 text-sm" inputMode="decimal"/>
                 </div>
-                <input value={newItem.imageUrl} onChange={e=>setNewItem(i=>({...i,imageUrl:e.target.value}))} placeholder="URL image (facultatif)..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
+                <input value={newItem.imageUrl} onChange={e=>setNewItem(i=>({...i,imageUrl:e.target.value}))} placeholder="URL image (facultatif)..." className="w-full p-3 rounded-2xl bg-white/35 font-bold outline-none text-sm"/>
                 {newItem.imageUrl&&<img src={newItem.imageUrl} alt="" className="w-full h-32 object-cover rounded-2xl" onError={e=>(e.currentTarget.style.display='none')}/>}
-                {newItem.url&&<div className="text-xs text-gray-400 truncate bg-gray-50 px-3 py-2 rounded-xl"><Link size={10} className="inline mr-1"/>{newItem.url}</div>}
+                {newItem.url&&<div className="text-xs text-gray-400 truncate bg-white/35 px-3 py-2 rounded-xl"><Link size={10} className="inline mr-1"/>{newItem.url}</div>}
                 <div className="flex gap-3">
                   <button onClick={()=>{setShowAddItem(null);setNewItem({name:'',imageUrl:'',url:'',price:''});setUrlInput('');}} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
                   <button onClick={addItemManual} disabled={!newItem.name.trim()} className="flex-1 py-3 text-white font-black rounded-2xl disabled:opacity-40" style={{backgroundColor:config.primaryColor}}>Ajouter</button>
@@ -3669,12 +3669,12 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
           {/* Modale URL */}
           {showAddItem==='url'&&isOwner(activeList)&&(
             <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setShowAddItem(null)}>
-              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+              <div className="modal-glass rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm space-y-4" onClick={e=>e.stopPropagation()}>
                 <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
                 <h3 className="font-black text-xl">Importer depuis un lien</h3>
                 <p className="text-sm text-gray-500">Gemini accède à la page et extrait le nom, le prix et l'image.</p>
                 <div className="flex gap-2">
-                  <input value={urlInput} onChange={e=>setUrlInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&scrapeUrl()} placeholder="https://amazon.fr/..., ikea.com/..." className="flex-1 p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black text-sm" autoFocus/>
+                  <input value={urlInput} onChange={e=>setUrlInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&scrapeUrl()} placeholder="https://amazon.fr/..., ikea.com/..." className="flex-1 p-3 rounded-2xl bg-white/35 font-bold outline-none border-2 border-transparent focus:border-black text-sm" autoFocus/>
                   <button onClick={scrapeUrl} disabled={!urlInput.trim()||urlLoading} className="p-3 text-white rounded-2xl disabled:opacity-40 flex items-center" style={{backgroundColor:config.primaryColor}}>
                     {urlLoading?<Loader2 size={16} className="animate-spin"/>:<Scan size={16}/>}
                   </button>
@@ -3699,13 +3699,13 @@ const WishlistView = ({ user, config, siteUsers, onModalChange, consumeTokens }:
           {/* Modale édition article */}
           {editingItem&&isOwner(activeList)&&(
             <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={()=>setEditingItem(null)}>
-              <div className="bg-white rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm shadow-2xl space-y-4" onClick={e=>e.stopPropagation()}>
+              <div className="modal-glass rounded-t-[2.5rem] md:rounded-[2.5rem] p-6 w-full md:max-w-sm space-y-4" onClick={e=>e.stopPropagation()}>
                 <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-2 md:hidden"/>
                 <h3 className="font-black text-xl">Modifier l'article</h3>
-                <input value={editingItem.name} onChange={e=>setEditingItem((i:any)=>({...i,name:e.target.value}))} className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
-                <input value={editingItem.price||''} onChange={e=>setEditingItem((i:any)=>({...i,price:e.target.value}))} placeholder="Prix (ex: 24,99 €)..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm border-2 border-transparent focus:border-black"/>
-                <input value={editingItem.imageUrl||''} onChange={e=>setEditingItem((i:any)=>({...i,imageUrl:e.target.value}))} placeholder="URL image..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
-                <input value={editingItem.url||''} onChange={e=>setEditingItem((i:any)=>({...i,url:e.target.value}))} placeholder="Lien produit..." className="w-full p-3 rounded-2xl bg-gray-50 font-bold outline-none text-sm"/>
+                <input value={editingItem.name} onChange={e=>setEditingItem((i:any)=>({...i,name:e.target.value}))} className="w-full p-3 rounded-2xl bg-white/35 font-bold outline-none border-2 border-transparent focus:border-black" autoFocus/>
+                <input value={editingItem.price||''} onChange={e=>setEditingItem((i:any)=>({...i,price:e.target.value}))} placeholder="Prix (ex: 24,99 €)..." className="w-full p-3 rounded-2xl bg-white/35 font-bold outline-none text-sm border-2 border-transparent focus:border-black"/>
+                <input value={editingItem.imageUrl||''} onChange={e=>setEditingItem((i:any)=>({...i,imageUrl:e.target.value}))} placeholder="URL image..." className="w-full p-3 rounded-2xl bg-white/35 font-bold outline-none text-sm"/>
+                <input value={editingItem.url||''} onChange={e=>setEditingItem((i:any)=>({...i,url:e.target.value}))} placeholder="Lien produit..." className="w-full p-3 rounded-2xl bg-white/35 font-bold outline-none text-sm"/>
                 {editingItem.imageUrl&&<img src={editingItem.imageUrl} alt="" className="w-full h-28 object-cover rounded-xl" onError={e=>(e.currentTarget.style.display='none')}/>}
                 <div className="flex gap-3">
                   <button onClick={()=>setEditingItem(null)} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-2xl">Annuler</button>
@@ -4145,7 +4145,7 @@ const App: React.FC = () => {
 
   if(!user) return (
     <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-[#f5ede7]">
-      <Background color={ORIGINAL_CONFIG.primaryColor}/>
+      
       <div className="z-10 text-center space-y-8 animate-in fade-in zoom-in duration-700">
         <div className="mx-auto w-24 h-24 rounded-[2.5rem] flex items-center justify-center shadow-xl bg-[#a85c48]"><Sparkles className="text-white" size={48}/></div>
         <h1 className="text-4xl font-cinzel font-black tracking-widest text-[#a85c48]">CHAUD DEVANT</h1>
@@ -4168,14 +4168,14 @@ const App: React.FC = () => {
   // (l'ancien config.isLocked global est remplacé par config.lockedPages)
 
   return (
-    <div className="min-h-screen pb-24 md:pb-0 transition-colors duration-700" style={{backgroundColor:config.backgroundColor,fontFamily:config.fontFamily}}>
-      <Background color={config.primaryColor}/>
+    <div className="min-h-screen pb-24 md:pb-0 transition-colors duration-700" style={{backgroundColor:"var(--warm-200)"}}>
+      
 
       {/* NOTIFICATIONS PANEL */}
       {isNotifOpen&&(
         <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex justify-end" onClick={()=>setIsNotifOpen(false)}>
-          <div className="w-full max-w-sm bg-white h-full p-6 animate-in slide-in-from-right shadow-2xl overflow-y-auto" onClick={e=>e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-6">
+          <div className="w-full max-w-sm modal-glass h-full p-6 animate-in slide-in-from-right shadow-2xl overflow-y-auto" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-6 px-1">
               <button onClick={()=>setIsNotifOpen(false)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors text-gray-500 hover:text-black"><ArrowLeft size={20}/></button>
               <h3 className="text-2xl font-bold tracking-tight flex items-center gap-2"><Bell className="text-orange-500"/>Notifications</h3>
             </div>
@@ -4266,7 +4266,7 @@ const App: React.FC = () => {
       )}
 
       {/* NAVBAR */}
-      <nav className="fixed top-0 w-full bg-white/80 backdrop-blur-xl border-b border-black/5 z-50 h-20 px-6 flex items-center justify-between">
+      <nav className="fixed top-0 w-full nav-glass z-50 h-20 px-6 flex items-center justify-between">
         <div onClick={()=>setCurrentView('home')} className="flex items-center gap-3 cursor-pointer">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg" style={{backgroundColor:config.primaryColor}}><Home className="text-white" size={20}/></div>
           <span className="font-cinzel font-black text-xl hidden md:block" style={{color:config.primaryColor}}>CHAUD.DEVANT</span>
@@ -4351,16 +4351,16 @@ const App: React.FC = () => {
         {currentView==='home'&&(
           isPageLocked('home') ? <MaintenancePage pageName="Accueil" isHome/> : (
           <div className="space-y-16 animate-in fade-in duration-1000" id="top">
-            <section className="relative h-[45vh] md:h-[60vh] rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl group">
+            <section className="relative h-[45vh] md:h-[60vh] rounded-[2rem] md:rounded-[3rem] overflow-hidden glass-panel shadow-2xl group">
               <img src={config.welcomeImage} className="w-full h-full object-cover transition-transform duration-[10s] group-hover:scale-110"/>
-              <div className="absolute inset-0 bg-black/40 flex flex-col justify-end p-10">
+              <div className="absolute inset-0 hero-overlay flex flex-col justify-end p-10">
                 <h1 className="text-3xl md:text-8xl font-cinzel font-black text-white leading-none">{config.welcomeTitle}</h1>
                 <p className="text-xl text-white/90 italic mt-4">{config.welcomeText}</p>
-                <button onClick={()=>setCurrentView('hub')} className="mt-8 bg-white text-black px-8 py-4 rounded-xl font-bold uppercase tracking-widest shadow-xl flex items-center gap-3 w-fit hover:scale-105 transition-transform"><LayoutDashboard/>Ouvrir le Tableau</button>
+                <button onClick={()=>setCurrentView('hub')} className="mt-8 btn-ghost px-8 py-4 rounded-xl font-bold uppercase tracking-widest shadow-xl flex items-center gap-3 w-fit hover:scale-105 transition-transform"><LayoutDashboard/>Ouvrir le Tableau</button>
               </div>
             </section>
             {config.homeHtml&&(
-              <section id="home-widget" className="bg-white/50 rounded-[3rem] overflow-hidden shadow-xl mb-8">
+              <section id="home-widget" className="glass-panel overflow-hidden mb-8 border-0">
                 <iframe srcDoc={config.homeHtml} className="w-full h-[500px]" sandbox="allow-scripts" title="Home Widget"/>
               </section>
             )}
@@ -4481,7 +4481,7 @@ const App: React.FC = () => {
                   </tbody>
                 </table>
               </div>
-              <div className="p-6 bg-gray-50 text-center text-xs text-gray-400 uppercase tracking-widest border-t border-gray-100">G = Gabriel • P = Pauline • V = Valentin</div>
+              <div className="p-6 bg-white/35 text-center text-xs text-gray-400 uppercase tracking-widest border-t border-gray-100">G = Gabriel • P = Pauline • V = Valentin</div>
             </div>
           </div>
         ))}
@@ -4512,7 +4512,7 @@ const App: React.FC = () => {
                     {xsitePages.filter(p=>user.email===ADMIN_EMAIL?true:favorites.includes(p.id)).map(site=>(
                       <div key={site.id} onClick={()=>setSelectedXSite(site)} className="bg-white p-8 rounded-[2rem] shadow-lg border border-gray-100 cursor-pointer hover:scale-105 transition-transform group">
                         <div className="flex items-center justify-between mb-4">
-                          <div className="p-3 bg-gray-50 rounded-full group-hover:bg-black group-hover:text-white transition-colors"><Map size={24}/></div>
+                          <div className="p-3 bg-white/35 rounded-full group-hover:bg-black group-hover:text-white transition-colors"><Map size={24}/></div>
                           <ArrowLeft size={20} className="rotate-180 opacity-0 group-hover:opacity-50"/>
                         </div>
                         <h3 className="text-xl font-bold uppercase tracking-wide">{site.name}</h3>
@@ -4629,7 +4629,7 @@ const App: React.FC = () => {
         {/* SEMAINIER — intégré directement dans l'app */}
         {currentView==='cooking'&&(isPageLocked('cooking') ? <MaintenancePage pageName="Semainier"/> : (
           <div className="space-y-0 animate-in fade-in" id="cooking-frame">
-            <div className="bg-white/90 rounded-[3rem] overflow-hidden shadow-xl border border-black/5" style={{minHeight:'800px'}}>
+            <div className="glass-panel overflow-hidden" style={{minHeight:'800px'}}>
               <SemainierView config={config} recipes={recipes} isPremium={isCurrentUserPremium()} onShowFreemium={()=>setShowFreemiumModal(true)}/>
             </div>
           </div>
