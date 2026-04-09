@@ -2441,8 +2441,7 @@ const QuestionnaireModal = ({isOpen, onClose, config, siteUsers, userEmail}: {
                 {/* Share modals */}
                 {sentFormId&&shareMode&&(()=>{
                   const link = getFormLink(sentFormId);
-                  const msg = encodeURIComponent("🍽 Questionnaire Chaud Devant !
-" + link);
+                  const msg = encodeURIComponent(`🍽 Questionnaire Chaud Devant !\n${link}`);
                   const f = forms.find(x=>x.id===sentFormId);
                   return (
                     <div className="glass-panel p-4 space-y-3">
@@ -2470,10 +2469,7 @@ const QuestionnaireModal = ({isOpen, onClose, config, siteUsers, userEmail}: {
                             onClick={()=>{
                               const to = (document.getElementById('quiz-email-to') as HTMLInputElement)?.value || emails;
                               const sub = encodeURIComponent("📋 " + (f?.title||'Questionnaire'));
-                              const body = encodeURIComponent("Bonjour,
-
-Veuillez répondre au questionnaire :
-" + link);
+                              const body = encodeURIComponent(`Bonjour,\n\nVeuillez répondre au questionnaire :\n${link}`);
                               window.location.href = `mailto:${to}?subject=${sub}&body=${body}`;
                             }}
                             className="flex items-center justify-center gap-2 w-full py-3 bg-blue-500 text-white rounded-full font-bold text-sm hover:scale-105 transition-transform"
