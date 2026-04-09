@@ -2361,7 +2361,9 @@ const QuestionnaireModal = ({isOpen, onClose, config, siteUsers, userEmail}: {
   };
 
   const getFormLink = (fid: string) => {
-    return window.location.origin + '?view=quiz&id=' + fid;
+    // Le lien dirige vers l'accueil du site avec un paramètre quiz
+    // L'app détecte ce paramètre au chargement et affiche le quiz post-login
+    return window.location.origin + window.location.pathname + '?quiz=' + fid;
   };
 
   // Résultats d'un formulaire
@@ -2417,10 +2419,32 @@ const QuestionnaireModal = ({isOpen, onClose, config, siteUsers, userEmail}: {
                     <div className="flex gap-2 shrink-0">
                       {/* Lien Envoyer */}
                       {sentFormId===f.id&&shareMode===null?(
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
+                          {/* → Envoyer sur le site (apparaît au login) */}
+                          <button
+                            onClick={async()=>{
+                              // Marquer le quiz comme "à afficher" pour tous les membres
+                              // en supprimant leur marque quiz_done/quiz_skipped
+                              const usersSnap = await getDocs(collection(db,'site_users'));
+                              await Promise.all(usersSnap.docs.map(ud=>
+                                setDoc(doc(db,'user_prefs',ud.id),{
+                                  [`quiz_done_${f.id}`]: false,
+                                  [`quiz_skipped_${f.id}`]: false,
+                                },{merge:true})
+                              ));
+                              alert('✅ Questionnaire envoyé sur le site !\nIl apparaîtra au prochain login de chaque membre.');
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-bold hover:scale-105 transition-transform"
+                            style={{background:'rgba(255,255,255,0.45)',border:'1.5px solid rgba(0,0,0,0.85)',color:'rgba(0,0,0,0.85)'}}
+                            title="Afficher au prochain login"
+                          >
+                            <ChevronRight size={13}/>Site
+                          </button>
+                          {/* WhatsApp */}
                           <button onClick={()=>setShareMode('whatsapp')} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-green-500 text-white text-xs font-bold hover:scale-105 transition-transform">
                             <Share2 size={12}/>WA
                           </button>
+                          {/* Email */}
                           <button onClick={()=>setShareMode('email')} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-blue-500 text-white text-xs font-bold hover:scale-105 transition-transform">
                             <Mail size={12}/>Mail
                           </button>
@@ -2441,7 +2465,8 @@ const QuestionnaireModal = ({isOpen, onClose, config, siteUsers, userEmail}: {
                 {/* Share modals */}
                 {sentFormId&&shareMode&&(()=>{
                   const link = getFormLink(sentFormId);
-                  const msg = encodeURIComponent(`🍽 Questionnaire Chaud Devant !\n${link}`);
+                  const msg = encodeURIComponent("🍽 Questionnaire Chaud Devant !
+" + link);
                   const f = forms.find(x=>x.id===sentFormId);
                   return (
                     <div className="glass-panel p-4 space-y-3">
@@ -2469,7 +2494,10 @@ const QuestionnaireModal = ({isOpen, onClose, config, siteUsers, userEmail}: {
                             onClick={()=>{
                               const to = (document.getElementById('quiz-email-to') as HTMLInputElement)?.value || emails;
                               const sub = encodeURIComponent("📋 " + (f?.title||'Questionnaire'));
-                              const body = encodeURIComponent(`Bonjour,\n\nVeuillez répondre au questionnaire :\n${link}`);
+                              const body = encodeURIComponent("Bonjour,
+
+Veuillez répondre au questionnaire :
+" + link);
                               window.location.href = `mailto:${to}?subject=${sub}&body=${body}`;
                             }}
                             className="flex items-center justify-center gap-2 w-full py-3 bg-blue-500 text-white rounded-full font-bold text-sm hover:scale-105 transition-transform"
@@ -2719,6 +2747,122 @@ const PublicQuiz = ({formId, config}: {formId: string, config: any}) => {
     </div>
   );
 };
+
+// InlineQuiz — version modale du PublicQuiz (sans layout full-page)
+const InlineQuiz = ({formId, config, userEmail, onDone}: {
+  formId: string;
+  config: any;
+  userEmail: string;
+  onDone: () => void;
+}) => {
+  const [form, setForm] = React.useState<QForm|null>(null);
+  const [answers, setAnswers] = React.useState<Record<string, string|string[]>>({});
+  const [submitted, setSubmitted] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(()=>{
+    getDoc(doc(db,'questionnaires',formId)).then(snap=>{
+      if(snap.exists()) setForm({id:snap.id,...snap.data()} as QForm);
+      setLoading(false);
+    });
+  },[formId]);
+
+  const toggleAnswer = (qid: string, opt: string, multi: boolean) => {
+    setAnswers(prev=>{
+      if(multi){
+        const cur = (prev[qid] as string[])||[];
+        return {...prev, [qid]: cur.includes(opt)?cur.filter(x=>x!==opt):[...cur,opt]};
+      }
+      return {...prev, [qid]: prev[qid]===opt?'':opt};
+    });
+  };
+
+  const submit = async () => {
+    if(!form) return;
+    await addDoc(collection(db,'questionnaire_responses'),{
+      formId,
+      respondent: userEmail,
+      answers,
+      submittedAt: new Date().toISOString()
+    });
+    setSubmitted(true);
+    setTimeout(onDone, 1800);
+  };
+
+  if(loading) return (
+    <div className="flex items-center justify-center py-16">
+      <Loader2 className="animate-spin" size={28}/>
+    </div>
+  );
+
+  if(!form) return (
+    <div className="py-10 text-center text-gray-400 text-sm">Questionnaire introuvable.</div>
+  );
+
+  if(submitted) return (
+    <div className="flex flex-col items-center justify-center gap-4 py-16">
+      <CheckCircle2 size={52} className="text-green-500"/>
+      <h2 className="text-2xl font-black uppercase tracking-tighter">Merci !</h2>
+      <p className="text-gray-500 text-sm">Réponse enregistrée — redirection…</p>
+    </div>
+  );
+
+  return (
+    <div className="p-6 space-y-5">
+      <div>
+        <h2 className="text-2xl font-black uppercase tracking-tighter">{form.title}</h2>
+        <p className="text-xs text-gray-400 mt-1 uppercase tracking-widest">{form.questions.length} question(s)</p>
+      </div>
+
+      {form.questions.map((q,qi)=>(
+        <div key={q.id} className="glass-element p-4 space-y-3">
+          <p className="font-bold text-sm">{qi+1}. {q.text}</p>
+          {q.type==='libre' ? (
+            <textarea
+              value={(answers[q.id] as string)||''}
+              onChange={e=>setAnswers(p=>({...p,[q.id]:e.target.value}))}
+              placeholder="Votre réponse..."
+              className="w-full p-3 rounded-xl bg-white/40 border border-white/50 text-sm outline-none resize-none h-20"
+            />
+          ) : (
+            <div className="space-y-2">
+              {q.options.map(opt=>{
+                const cur = answers[q.id];
+                const sel = Array.isArray(cur) ? cur.includes(opt) : cur===opt;
+                return (
+                  <button key={opt}
+                    onClick={()=>toggleAnswer(q.id,opt,q.multipleAnswers)}
+                    className={`w-full text-left p-3 rounded-xl text-sm font-bold transition-all border ${
+                      sel ? 'text-white border-current' : 'border-white/40 bg-white/30 text-gray-700'
+                    }`}
+                    style={sel ? {backgroundColor:config.primaryColor,borderColor:config.primaryColor} : {}}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={`w-4 h-4 flex-shrink-0 border-2 flex items-center justify-center ${
+                        q.multipleAnswers ? 'rounded-sm' : 'rounded-full'
+                      } ${sel ? 'border-white bg-white/20' : 'border-current opacity-50'}`}>
+                        {sel && <div className={`w-2 h-2 bg-white ${q.multipleAnswers?'rounded-sm':'rounded-full'}`}/>}
+                      </div>
+                      {opt}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ))}
+
+      <button
+        onClick={submit}
+        className="w-full py-4 rounded-full bg-black text-white font-black uppercase tracking-widest hover:scale-105 transition-transform flex items-center justify-center gap-2"
+      >
+        <Send size={16}/>Envoyer mes réponses
+      </button>
+    </div>
+  );
+};
+
 
 const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, choreStatus, lockedPagesMap, onSaveMaintenance, onSetAdminTokenUser }: any) => {
   const [tab, setTab] = useState('users');
@@ -4415,6 +4559,7 @@ const App: React.FC = () => {
   const [recipeFilter, setRecipeFilter] = useState('');
   const [recipeCategory, setRecipeCategory] = useState('all');
   const [currentView, setCurrentView] = useState<string>('home');
+  const [pendingQuizId, setPendingQuizId] = useState<string|null>(null); // quiz à afficher post-login
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [chatHistory, setChatHistory] = useState<{role:string,text:string}[]>([]);
@@ -4531,7 +4676,21 @@ const App: React.FC = () => {
         try{
           await setDoc(doc(db,'site_users',u.email),{lastLogin:new Date().toISOString(),email:u.email},{merge:true});
           const prefsDoc=await getDoc(doc(db,'user_prefs',u.email));
-          if(prefsDoc.exists()) setFavorites(prefsDoc.data().favorites||[]);
+          if(prefsDoc.exists()){
+            setFavorites(prefsDoc.data().favorites||[]);
+          }
+          // Vérifier si un quiz est en attente et n'a pas encore été fait/passé
+          const prefs = prefsDoc.exists() ? prefsDoc.data() : {};
+          const quizSnap = await getDocs(collection(db,'questionnaires'));
+          quizSnap.docs.forEach(qd=>{
+            const qid = qd.id;
+            const alreadyDone    = !!prefs[`quiz_done_${qid}`];
+            const alreadySkipped = !!prefs[`quiz_skipped_${qid}`];
+            if(!alreadyDone && !alreadySkipped){
+              // Ce quiz n'a pas encore été répondu ni passé → l'afficher
+              setPendingQuizId(qid);
+            }
+          });
         }catch(e){console.error("Err sync user",e);}
       }
     });
@@ -4649,12 +4808,16 @@ const App: React.FC = () => {
   };
 
   // --- ÉCRANS SPÉCIAUX ---
-  // Support quiz public (accessible sans login)
-  const quizParams = (() => {
+  // Support quiz : détecter ?quiz=id dans l'URL et stocker pour post-login
+  React.useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    return p.get('view')==='quiz' ? p.get('id') : null;
-  })();
-  if(quizParams) return <PublicQuiz formId={quizParams} config={config}/>;
+    const id = p.get('quiz');
+    if(id) {
+      setPendingQuizId(id);
+      // Nettoyer l'URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
   if(isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#f5ede7]"><Loader2 className="w-12 h-12 animate-spin text-[#a85c48]"/></div>;
 
@@ -4684,6 +4847,56 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-24 md:pb-0 transition-colors duration-700" style={{backgroundColor:"var(--warm-200)"}}>
+
+      {/* ── QUIZ POST-LOGIN ── */}
+      {pendingQuizId && user && (
+        <div className="fixed inset-0 z-[600] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="modal-glass w-full max-w-2xl rounded-[2.5rem] overflow-hidden" style={{maxHeight:'90vh'}}>
+            <div className="overflow-y-auto" style={{maxHeight:'90vh'}}>
+              {/* Header avec bouton Passer */}
+              <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 border-b border-white/20"
+                style={{background:'rgba(242,237,228,0.92)',backdropFilter:'blur(20px)'}}>
+                <p className="text-xs font-black uppercase tracking-widest text-gray-500">Questionnaire</p>
+                <button
+                  onClick={async () => {
+                    // Marquer comme "passé" dans user_prefs pour ne plus afficher
+                    if(user?.email) {
+                      try {
+                        await setDoc(doc(db,'user_prefs',user.email),
+                          {[`quiz_skipped_${pendingQuizId}`]: true},
+                          {merge:true}
+                        );
+                      } catch {}
+                    }
+                    setPendingQuizId(null);
+                  }}
+                  className="px-4 py-2 rounded-full bg-white/40 border border-white/50 text-xs font-bold uppercase tracking-wider hover:bg-white/60 transition-all"
+                >
+                  Passer →
+                </button>
+              </div>
+              {/* Contenu du quiz (réutilise le composant PublicQuiz sans le layout full-page) */}
+              <InlineQuiz
+                formId={pendingQuizId}
+                config={config}
+                userEmail={user?.email||''}
+                onDone={async () => {
+                  if(user?.email) {
+                    try {
+                      await setDoc(doc(db,'user_prefs',user.email),
+                        {[`quiz_done_${pendingQuizId}`]: true},
+                        {merge:true}
+                      );
+                    } catch {}
+                  }
+                  setPendingQuizId(null);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       
 
       {/* NOTIFICATIONS PANEL */}
