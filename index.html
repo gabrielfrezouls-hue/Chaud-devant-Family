@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chaud devant family</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%A5%3C/text%3E%3C/svg%3E">
+    <link rel="shortcut icon" href="/favicon.ico">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
@@ -129,7 +131,7 @@
         top: 20px !important;
         left: 50% !important;
         transform: translateX(-50%) !important;
-        width: min(92%, 960px) !important;
+        width: min(92%, 1280px) !important;
         height: 60px !important;
         border-radius: var(--r-pill) !important;
         padding: 0 24px !important;
@@ -679,13 +681,41 @@
           iconEl.textContent = '🌡';
         }
 
-        /* Masquer la bar quand une modale est ouverte */
+        /* Masquer la bar quand pas sur l'accueil OU quand modale ouverte */
+        let currentViewCache = 'home';
+
+        // Intercepter les clics de navigation pour détecter la vue active
+        document.addEventListener('click', function(e) {
+          const btn = e.target.closest('button');
+          if(!btn) return;
+          // Détecter les boutons de navigation par leur texte ou data
+          const text = btn.textContent?.trim().toLowerCase() || '';
+          const views = ['home','hub','frigo','xsite','recipes','cooking','calendar','tasks','wallet','edit'];
+          // Détecter depuis la classe active ou le onClick
+          setTimeout(() => {
+            const homeActive = document.getElementById('top') || 
+                               document.getElementById('home-shortcuts') ||
+                               document.querySelector('[id="recipes-list"]') === null &&
+                               document.querySelector('[id="cooking-frame"]') === null;
+            // Observer le DOM pour trouver la vue active
+            const isOnHome = !!document.getElementById('home-shortcuts') || 
+                             !!document.getElementById('top');
+            const hasModal = document.querySelector('.fixed.z-\\[500\\]') ||
+                             document.querySelector('.fixed.z-\\[400\\]');
+            bar.classList.toggle('hidden-bar', !isOnHome || !!hasModal);
+          }, 50);
+        }, true);
+
+        // Observation DOM pour détecter la vue courante
         const observer = new MutationObserver(() => {
-          const hasModal = document.querySelector('.fixed.inset-0.z-\\[500\\]') ||
-                           document.querySelector('.fixed.inset-0.z-\\[400\\]');
-          bar.classList.toggle('hidden-bar', !!hasModal);
+          const isOnHome = !!document.getElementById('home-shortcuts');
+          const hasModal = document.querySelector('[class*="z-[500]"]') ||
+                           document.querySelector('[class*="z-[400]"]');
+          bar.classList.toggle('hidden-bar', !isOnHome || !!hasModal);
         });
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(document.getElementById('root') || document.body, { 
+          childList: true, subtree: true, attributes: false 
+        });
       })();
     </script>
   </body>
