@@ -18,7 +18,7 @@ import {
   Map, MonitorPlay, Eye, QrCode, Star, Maximize2, Minimize2, ExternalLink, Link, Copy, LayoutDashboard, ShoppingCart, StickyNote, Users, ShoppingBag, Bell, Mail, CornerDownRight, Store, CalendarClock,
   Refrigerator, Scan, Camera, AlertTriangle, Bot, Flame, Info, Package, Barcode, Brain, Cloud,
   ListTodo, List, LayoutList, CalendarDays, Link2, CheckCheck, Circle
-, Receipt , Utensils } from 'lucide-react';
+, Receipt , Utensils, PieChart, BarChart2, ClipboardList as QuizIcon, FileText, Share2, SmartphoneIcon as Phone } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
 import { askAIArchitect, askAIChat, askButlerAgent, scanProductImage, scanTicketDeCaisse, extractRecipeFromUrl } from './services/geminiService';
 import Background from './components/Background';
@@ -2245,8 +2245,488 @@ const AutoSaveSettings = ({ localC, save, config, setLocalC, fileRef, handleFile
 // ==========================================
 // ADMIN PANEL (RÉORGANISÉ)
 // ==========================================
+
+// ==========================================
+// QUESTIONNAIRE SYSTEM
+// ==========================================
+type QQuestion = {
+  id: string;
+  text: string;
+  type: 'qcm' | 'libre';
+  options: string[];       // pour QCM
+  multipleAnswers: boolean; // QCM : une ou plusieurs réponses
+};
+
+type QForm = {
+  id: string;
+  title: string;
+  questions: QQuestion[];
+  createdAt: string;
+  createdBy: string;
+};
+
+type QResponse = {
+  id: string;
+  formId: string;
+  respondent: string;
+  answers: Record<string, string | string[]>;
+  submittedAt: string;
+};
+
+const QuestionnaireModal = ({isOpen, onClose, config, siteUsers, userEmail}: {
+  isOpen: boolean;
+  onClose: () => void;
+  config: any;
+  siteUsers: any[];
+  userEmail: string;
+}) => {
+  const [step, setStep] = React.useState<'create'|'results'>('create');
+  const [title, setTitle] = React.useState('');
+  const [questions, setQuestions] = React.useState<QQuestion[]>([]);
+  const [forms, setForms] = React.useState<QForm[]>([]);
+  const [responses, setResponses] = React.useState<QResponse[]>([]);
+  const [activeFormId, setActiveFormId] = React.useState<string|null>(null);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [sentFormId, setSentFormId] = React.useState<string|null>(null);
+  const [shareMode, setShareMode] = React.useState<null|'whatsapp'|'email'>(null);
+  const [selectedForm, setSelectedForm] = React.useState<QForm|null>(null);
+
+  // Charger les formulaires et réponses depuis Firestore
+  React.useEffect(() => {
+    if(!isOpen) return;
+    const unsubF = onSnapshot(collection(db,'questionnaires'), snap => {
+      setForms(snap.docs.map(d => ({id:d.id,...d.data()} as QForm)));
+    });
+    const unsubR = onSnapshot(collection(db,'questionnaire_responses'), snap => {
+      setResponses(snap.docs.map(d => ({id:d.id,...d.data()} as QResponse)));
+    });
+    return () => { unsubF(); unsubR(); };
+  }, [isOpen]);
+
+  const addQuestion = () => {
+    setQuestions(prev => [...prev, {
+      id: Date.now().toString(),
+      text: '',
+      type: 'qcm',
+      options: ['', ''],
+      multipleAnswers: false,
+    }]);
+  };
+
+  const removeQuestion = (qid: string) => setQuestions(prev => prev.filter(q => q.id !== qid));
+
+  const updateQuestion = (qid: string, patch: Partial<QQuestion>) => {
+    setQuestions(prev => prev.map(q => q.id === qid ? {...q,...patch} : q));
+  };
+
+  const addOption = (qid: string) => {
+    setQuestions(prev => prev.map(q => q.id === qid ? {...q, options:[...q.options,'']} : q));
+  };
+
+  const removeOption = (qid: string, oidx: number) => {
+    setQuestions(prev => prev.map(q => q.id === qid
+      ? {...q, options: q.options.filter((_,i) => i!==oidx)}
+      : q
+    ));
+  };
+
+  const updateOption = (qid: string, oidx: number, val: string) => {
+    setQuestions(prev => prev.map(q => q.id === qid
+      ? {...q, options: q.options.map((o,i) => i===oidx ? val : o)}
+      : q
+    ));
+  };
+
+  const saveForm = async () => {
+    if(!title.trim() || questions.length === 0) return;
+    setIsSaving(true);
+    const ref = await addDoc(collection(db,'questionnaires'), {
+      title,
+      questions,
+      createdAt: new Date().toISOString(),
+      createdBy: userEmail,
+    });
+    setSentFormId(ref.id);
+    setTitle('');
+    setQuestions([]);
+    setIsSaving(false);
+  };
+
+  const deleteForm = async (fid: string) => {
+    if(!confirm('Supprimer ce questionnaire ?')) return;
+    await deleteDoc(doc(db,'questionnaires',fid));
+    // Supprimer les réponses associées
+    const related = responses.filter(r => r.formId === fid);
+    await Promise.all(related.map(r => deleteDoc(doc(db,'questionnaire_responses',r.id))));
+  };
+
+  const getFormLink = (fid: string) => {
+    return window.location.origin + '?view=quiz&id=' + fid;
+  };
+
+  // Résultats d'un formulaire
+  const getFormResponses = (fid: string) => responses.filter(r => r.formId === fid);
+
+  const getOptionCount = (fid: string, qid: string, option: string) => {
+    return getFormResponses(fid).filter(r => {
+      const ans = r.answers[qid];
+      return Array.isArray(ans) ? ans.includes(option) : ans === option;
+    }).length;
+  };
+
+  const emails = siteUsers.map((u: any) => u.id).filter(Boolean).join(',');
+
+  if(!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[500] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={onClose}>
+      <div
+        className="modal-glass w-full md:max-w-3xl rounded-t-[2.5rem] md:rounded-[2.5rem] overflow-y-auto"
+        style={{maxHeight:'92vh', paddingBottom:'calc(1.5rem + env(safe-area-inset-bottom,0px))'}}
+        onClick={e=>e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="sticky top-0 z-10 px-6 pt-5 pb-4 border-b border-white/20 flex items-center justify-between" style={{background:'rgba(242,237,228,0.90)', backdropFilter:'blur(20px)'}}>
+          <div className="flex items-center gap-3">
+            <div className="flex gap-2">
+              <button onClick={()=>setStep('create')} className={`px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${step==='create'?'bg-black text-white':'bg-white/30 text-gray-600'}`}>
+                Créer
+              </button>
+              <button onClick={()=>setStep('results')} className={`px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${step==='results'?'bg-black text-white':'bg-white/30 text-gray-600'}`}>
+                Résultats
+              </button>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-white/30"><X size={20}/></button>
+        </div>
+
+        <div className="p-6 space-y-6">
+
+          {/* ── CRÉATION ── */}
+          {step==='create'&&(<>
+            {/* Liste des questionnaires existants */}
+            {forms.length>0&&(
+              <div className="space-y-2">
+                <h4 className="text-xs font-black uppercase tracking-widest text-gray-400">Mes questionnaires</h4>
+                {forms.map(f=>(
+                  <div key={f.id} className="glass-element p-4 flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm truncate">{f.title}</p>
+                      <p className="text-xs text-gray-400">{getFormResponses(f.id).length} réponse(s)</p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      {/* Lien Envoyer */}
+                      {sentFormId===f.id&&shareMode===null?(
+                        <div className="flex gap-2">
+                          <button onClick={()=>setShareMode('whatsapp')} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-green-500 text-white text-xs font-bold hover:scale-105 transition-transform">
+                            <Share2 size={12}/>WA
+                          </button>
+                          <button onClick={()=>setShareMode('email')} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-blue-500 text-white text-xs font-bold hover:scale-105 transition-transform">
+                            <Mail size={12}/>Mail
+                          </button>
+                        </div>
+                      ):(
+                        <button
+                          onClick={()=>{setSentFormId(f.id);setShareMode(null);}}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-black text-white text-xs font-bold hover:scale-105 transition-transform"
+                        >
+                          <Send size={12}/>Envoyer
+                        </button>
+                      )}
+                      <button onClick={()=>deleteForm(f.id)} className="p-2 rounded-full hover:bg-red-50 text-red-400"><Trash2 size={14}/></button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Share modals */}
+                {sentFormId&&shareMode&&(()=>{
+                  const link = getFormLink(sentFormId);
+                  const msg = encodeURIComponent("🍽 Questionnaire Chaud Devant !
+" + link);
+                  const f = forms.find(x=>x.id===sentFormId);
+                  return (
+                    <div className="glass-panel p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-black uppercase tracking-widest text-gray-400">
+                          {shareMode==='whatsapp'?'Partager via WhatsApp':'Envoyer par Email'}
+                        </p>
+                        <button onClick={()=>setShareMode(null)} className="p-1 rounded-full hover:bg-white/30"><X size={14}/></button>
+                      </div>
+                      {shareMode==='whatsapp'&&(
+                        <a href={"https://wa.me/?text="+msg} target="_blank" rel="noreferrer"
+                          className="flex items-center justify-center gap-2 w-full py-3 bg-green-500 text-white rounded-full font-bold text-sm hover:scale-105 transition-transform">
+                          <Share2 size={16}/>Ouvrir WhatsApp
+                        </a>
+                      )}
+                      {shareMode==='email'&&(
+                        <div className="space-y-2">
+                          <input
+                            defaultValue={emails}
+                            className="w-full p-3 rounded-xl bg-white/40 border border-white/50 text-sm font-bold"
+                            placeholder="emails destinataires..."
+                            id="quiz-email-to"
+                          />
+                          <button
+                            onClick={()=>{
+                              const to = (document.getElementById('quiz-email-to') as HTMLInputElement)?.value || emails;
+                              const sub = encodeURIComponent("📋 " + (f?.title||'Questionnaire'));
+                              const body = encodeURIComponent("Bonjour,
+
+Veuillez répondre au questionnaire :
+" + link);
+                              window.location.href = `mailto:${to}?subject=${sub}&body=${body}`;
+                            }}
+                            className="flex items-center justify-center gap-2 w-full py-3 bg-blue-500 text-white rounded-full font-bold text-sm hover:scale-105 transition-transform"
+                          >
+                            <Mail size={16}/>Envoyer l'email
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Formulaire de création */}
+            <div className="glass-panel p-5 space-y-4">
+              <h4 className="text-xs font-black uppercase tracking-widest text-gray-400">Nouveau questionnaire</h4>
+              <input
+                value={title}
+                onChange={e=>setTitle(e.target.value)}
+                placeholder="Titre du questionnaire..."
+                className="w-full p-3 rounded-xl bg-white/40 border border-white/50 font-bold text-sm outline-none"
+              />
+
+              {/* Questions */}
+              {questions.map((q, qi)=>(
+                <div key={q.id} className="glass-element p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-black text-white flex items-center justify-center text-xs font-black shrink-0">{qi+1}</span>
+                    <input
+                      value={q.text}
+                      onChange={e=>updateQuestion(q.id,{text:e.target.value})}
+                      placeholder="Texte de la question..."
+                      className="flex-1 p-2 rounded-xl bg-white/40 border border-white/40 text-sm font-bold outline-none"
+                    />
+                    <button onClick={()=>removeQuestion(q.id)} className="p-1.5 rounded-full hover:bg-red-50 text-red-400 shrink-0"><Trash2 size={14}/></button>
+                  </div>
+
+                  {/* Toggle type */}
+                  <div className="flex gap-2">
+                    <button onClick={()=>updateQuestion(q.id,{type:'qcm'})}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${q.type==='qcm'?'bg-black text-white':'bg-white/30 text-gray-600'}`}>
+                      QCM
+                    </button>
+                    <button onClick={()=>updateQuestion(q.id,{type:'libre'})}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${q.type==='libre'?'bg-black text-white':'bg-white/30 text-gray-600'}`}>
+                      Réponse libre
+                    </button>
+                    {q.type==='qcm'&&(
+                      <button onClick={()=>updateQuestion(q.id,{multipleAnswers:!q.multipleAnswers})}
+                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${q.multipleAnswers?'bg-blue-500 text-white':'bg-white/30 text-gray-600'}`}>
+                        Multi-réponses
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Options QCM */}
+                  {q.type==='qcm'&&(
+                    <div className="space-y-2">
+                      {q.options.map((opt, oi)=>(
+                        <div key={oi} className="flex gap-2 items-center">
+                          <div className={`w-4 h-4 rounded-${q.multipleAnswers?'sm':'full'} border border-gray-300 shrink-0`}/>
+                          <input
+                            value={opt}
+                            onChange={e=>updateOption(q.id,oi,e.target.value)}
+                            placeholder={`Option ${oi+1}...`}
+                            className="flex-1 p-2 rounded-xl bg-white/40 border border-white/40 text-sm outline-none"
+                          />
+                          {q.options.length>2&&(
+                            <button onClick={()=>removeOption(q.id,oi)} className="p-1 rounded-full hover:bg-red-50 text-red-300"><X size={12}/></button>
+                          )}
+                        </div>
+                      ))}
+                      <button onClick={()=>addOption(q.id)} className="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-gray-700">
+                        <Plus size={14}/>Ajouter une option
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <div className="flex gap-3">
+                <button onClick={addQuestion}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-full border-2 border-dashed border-gray-300 text-sm font-bold text-gray-500 hover:border-gray-500 hover:text-gray-800 transition-all">
+                  <Plus size={16}/>Ajouter une question
+                </button>
+                {questions.length>0&&title.trim()&&(
+                  <button onClick={saveForm} disabled={isSaving}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-full bg-black text-white text-sm font-bold disabled:opacity-50 hover:scale-105 transition-transform">
+                    {isSaving?<Loader2 size={16} className="animate-spin"/>:<Send size={16}/>}
+                    Publier & Envoyer
+                  </button>
+                )}
+              </div>
+            </div>
+          </>)}
+
+          {/* ── RÉSULTATS GRAPHIQUES ── */}
+          {step==='results'&&(
+            <div className="space-y-6">
+              {forms.length===0&&<p className="text-center text-gray-400 py-10 italic">Aucun questionnaire créé.</p>}
+              {forms.map(f=>{
+                const resps = getFormResponses(f.id);
+                return (
+                  <div key={f.id} className="glass-panel p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-black text-base">{f.title}</h4>
+                        <p className="text-xs text-gray-400">{resps.length} réponse(s)</p>
+                      </div>
+                      <BarChart2 size={20} className="text-gray-300"/>
+                    </div>
+                    {f.questions.map(q=>{
+                      if(q.type==='libre'){
+                        const answers = resps.map(r => r.answers[q.id]).filter(Boolean) as string[];
+                        return (
+                          <div key={q.id} className="glass-element p-3 space-y-2">
+                            <p className="text-sm font-bold">{q.text}</p>
+                            {answers.length===0?<p className="text-xs text-gray-400 italic">Pas encore de réponses</p>:
+                            answers.map((a,i)=>(
+                              <div key={i} className="p-2 bg-white/30 rounded-xl text-xs">{a}</div>
+                            ))}
+                          </div>
+                        );
+                      }
+                      // QCM — graphique barres
+                      const total = resps.length || 1;
+                      return (
+                        <div key={q.id} className="glass-element p-3 space-y-2">
+                          <p className="text-sm font-bold">{q.text}</p>
+                          {q.options.map(opt=>{
+                            const count = getOptionCount(f.id, q.id, opt);
+                            const pct = Math.round(count/total*100);
+                            return (
+                              <div key={opt} className="space-y-1">
+                                <div className="flex justify-between text-xs font-bold">
+                                  <span>{opt||'—'}</span>
+                                  <span className="text-gray-400">{count} · {pct}%</span>
+                                </div>
+                                <div className="h-2 bg-white/30 rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full transition-all duration-700"
+                                    style={{width:pct+'%', backgroundColor:config.primaryColor}}/>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Composant PublicQuiz — répondre à un questionnaire (affiché si ?view=quiz&id=...)
+const PublicQuiz = ({formId, config}: {formId: string, config: any}) => {
+  const [form, setForm] = React.useState<QForm|null>(null);
+  const [answers, setAnswers] = React.useState<Record<string, string|string[]>>({});
+  const [name, setName] = React.useState('');
+  const [submitted, setSubmitted] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(()=>{
+    getDoc(doc(db,'questionnaires',formId)).then(snap=>{
+      if(snap.exists()) setForm({id:snap.id,...snap.data()} as QForm);
+      setLoading(false);
+    });
+  },[formId]);
+
+  const toggleAnswer = (qid: string, opt: string, multi: boolean) => {
+    setAnswers(prev=>{
+      if(multi){
+        const cur = (prev[qid] as string[])||[];
+        return {...prev, [qid]: cur.includes(opt)?cur.filter(x=>x!==opt):[...cur,opt]};
+      }
+      return {...prev, [qid]: prev[qid]===opt?'':opt};
+    });
+  };
+
+  const submit = async () => {
+    if(!name.trim()||!form) return;
+    await addDoc(collection(db,'questionnaire_responses'),{
+      formId, respondent:name, answers, submittedAt:new Date().toISOString()
+    });
+    setSubmitted(true);
+  };
+
+  if(loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" size={32}/></div>;
+  if(!form) return <div className="min-h-screen flex items-center justify-center text-gray-400">Questionnaire introuvable.</div>;
+  if(submitted) return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-6">
+      <CheckCircle2 size={64} className="text-green-500"/>
+      <h2 className="text-3xl font-black uppercase tracking-tighter">Merci !</h2>
+      <p className="text-gray-500">Votre réponse a bien été enregistrée.</p>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen p-4 md:p-8 max-w-2xl mx-auto space-y-6 pt-20">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Questionnaire</p>
+        <h1 className="text-3xl font-black uppercase tracking-tighter mt-1">{form.title}</h1>
+      </div>
+      <input value={name} onChange={e=>setName(e.target.value)}
+        placeholder="Votre prénom..."
+        className="w-full p-4 rounded-2xl bg-white/40 border border-white/50 font-bold text-sm outline-none"/>
+      {form.questions.map((q,qi)=>(
+        <div key={q.id} className="glass-panel p-5 space-y-3">
+          <p className="font-bold">{qi+1}. {q.text}</p>
+          {q.type==='libre'?(
+            <textarea value={(answers[q.id] as string)||''} onChange={e=>setAnswers(p=>({...p,[q.id]:e.target.value}))}
+              placeholder="Votre réponse..."
+              className="w-full p-3 rounded-xl bg-white/40 border border-white/50 text-sm outline-none resize-none h-24"/>
+          ):(
+            <div className="space-y-2">
+              {q.options.map(opt=>{
+                const cur = answers[q.id];
+                const sel = Array.isArray(cur)?cur.includes(opt):cur===opt;
+                return (
+                  <button key={opt} onClick={()=>toggleAnswer(q.id,opt,q.multipleAnswers)}
+                    className={`w-full text-left p-3 rounded-xl text-sm font-bold transition-all border ${sel?'border-current text-white':'border-white/40 bg-white/30 text-gray-700'}`}
+                    style={sel?{backgroundColor:config.primaryColor,borderColor:config.primaryColor}:{}}>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-4 h-4 rounded-${q.multipleAnswers?'sm':'full'} border-2 flex items-center justify-center flex-shrink-0 ${sel?'bg-white border-white':'border-current opacity-50'}`}>
+                        {sel&&<div className={`w-2 h-2 rounded-${q.multipleAnswers?'sm':'full'} bg-current`} style={{color:config.primaryColor}}/>}
+                      </div>
+                      {opt}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ))}
+      <button onClick={submit} disabled={!name.trim()}
+        className="w-full py-4 rounded-full bg-black text-white font-black uppercase tracking-widest disabled:opacity-40 hover:scale-105 transition-transform flex items-center justify-center gap-2">
+        <Send size={18}/>Envoyer mes réponses
+      </button>
+    </div>
+  );
+};
+
 const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, versions, restore, arch, chat, prompt, setP, load, hist, users, choreStatus, lockedPagesMap, onSaveMaintenance, onSetAdminTokenUser }: any) => {
   const [tab, setTab] = useState('users');
+  const [showQuizModal, setShowQuizModal] = useState(false);
   const [newUser, setNewUser] = useState({email:'',letter:'',name:''});
   const [localC, setLocalC] = useState(config);
   const [editingVersionId, setEditingVersionId] = useState<string|null>(null);
@@ -2325,6 +2805,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
     {id:'history',l:'HISTORIQUE',i:<History size={16}/>},
     {id:'arch',l:'ARCHITECTE',i:<Sparkles size={16}/>},
     {id:'xsite',l:'XSITE',i:<Map size={16}/>},
+    {id:'quiz',l:'QUESTIONNAIRES',i:<FileText size={16}/>},
     {id:'settings',l:'PARAMÈTRES',i:<Settings size={16}/>},
   ];
 
@@ -2630,6 +3111,37 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       )}
 
       {/* PARAMÈTRES (Regroupement Accueil + Semainier + Maintenance) */}
+      {tab==='quiz'&&(
+        <div className="space-y-6 animate-in fade-in">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h3 className="text-3xl font-bold tracking-tight" style={{color:config.primaryColor}}>QUESTIONNAIRES</h3>
+              <p className="text-xs text-gray-400 mt-1 uppercase tracking-widest">Créer et analyser les réponses de la famille</p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={()=>setShowQuizModal(true)}
+                className="flex items-center gap-2 px-5 py-3 rounded-full bg-black text-white text-xs font-black uppercase tracking-widest hover:scale-105 transition-transform">
+                <Plus size={16}/>Créer un questionnaire
+              </button>
+              <button onClick={()=>{setShowQuizModal(true);}}
+                className="flex items-center gap-2 px-4 py-3 rounded-full bg-white/30 border border-white/40 text-xs font-black uppercase tracking-widest hover:bg-white/50 transition-all"
+                title="Voir les résultats">
+                <Eye size={16}/>Résultats
+              </button>
+            </div>
+          </div>
+          {showQuizModal&&(
+            <QuestionnaireModal
+              isOpen={showQuizModal}
+              onClose={()=>setShowQuizModal(false)}
+              config={config}
+              siteUsers={users}
+              userEmail={users.find((u:any)=>u.id===users[0]?.id)?.id||''}
+            />
+          )}
+        </div>
+      )}
+
       {tab==='settings'&&(
         <div className="space-y-8">
           <AutoSaveSettings localC={localC} save={save} config={config} setLocalC={setLocalC} fileRef={fileRef} handleFile={handleFile} lockedPagesMap={lockedPagesMap||{}} onSaveMaintenance={onSaveMaintenance}/>
@@ -4141,6 +4653,13 @@ const App: React.FC = () => {
   };
 
   // --- ÉCRANS SPÉCIAUX ---
+  // Support quiz public (accessible sans login)
+  const quizParams = (() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get('view')==='quiz' ? p.get('id') : null;
+  })();
+  if(quizParams) return <PublicQuiz formId={quizParams} config={config}/>;
+
   if(isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#f5ede7]"><Loader2 className="w-12 h-12 animate-spin text-[#a85c48]"/></div>;
 
   if(!user) return (
