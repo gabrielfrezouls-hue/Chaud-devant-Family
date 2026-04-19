@@ -118,8 +118,10 @@ const getChores = (date: Date) => {
   const mod = (n:number,m:number) => ((n%m)+m)%m;
   return { id:weekId, fullDate:saturday, dateStr:`${saturday.getDate()}/${saturday.getMonth()+1}`, haut:ROTATION[mod(diffWeeks,3)], bas:ROTATION[mod(diffWeeks+2,3)], douche:ROTATION[mod(diffWeeks+1,3)] };
 };
-const getMonthWeekends = () => {
-  const today = new Date(); const year = today.getFullYear(); const month = today.getMonth();
+const getMonthWeekends = (monthOffset: number = 0) => {
+  const today = new Date();
+  const target = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
+  const year = target.getFullYear(); const month = target.getMonth();
   const weekends: any[] = []; const date = new Date(year,month,1);
   while(date.getDay()!==6) date.setDate(date.getDate()+1);
   while(date.getMonth()===month) { weekends.push(getChores(new Date(date))); date.setDate(date.getDate()+7); }
@@ -1322,17 +1324,21 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
       participants: selectedParticipants,
     });
     // Push vers Google Calendar du créateur si connecté
-    if(gcalLinked) {
-      const desc = selectedParticipants.length > 0
-        ? `Depuis Chaud Devant 🔥 · Participants: ${selectedParticipants.join(', ')}`
-        : 'Depuis Chaud Devant 🔥';
-      if(newEvt.isAllDay) {
-        pousserVersGoogleCalendar(newEvt.title, `${newEvt.date}T00:00:00`, desc, true);
-      } else {
-        const dateTime = `${newEvt.date}T${(newEvt.time||'09:00').replace('h',':')}:00`;
-        pousserVersGoogleCalendar(newEvt.title, dateTime, desc, false);
-      }
-    }
+    // Push vers Google Agenda de tous les participants
+{
+  const desc = selectedParticipants.length > 0
+    ? `Depuis Chaud Devant 🔥 · Participants: ${selectedParticipants.join(', ')}`
+    : 'Depuis Chaud Devant 🔥';
+  const dateIso = newEvt.isAllDay
+    ? `${newEvt.date}T00:00:00`
+    : `${newEvt.date}T${(newEvt.time||'09:00').replace('h',':')}:00`;
+  // Participants autres que le créateur courant
+  const otherParticipants = selectedParticipants.filter(e => e !== user.email);
+  await pushEventToAllParticipants(
+    { titre: newEvt.title, dateIso, description: desc, allDay: newEvt.isAllDay },
+    otherParticipants
+  );
+}
     setNewEvt({ title:'', date: new Date().toISOString().split('T')[0], time:'', isAllDay:true });
     setShowEventForm(false);
     setSubmitting(false);
@@ -1349,20 +1355,61 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
       createdBy: user.email,
       participants: selectedParticipants,
     });
-    if(gcalLinked) {
-      if(newTask.hasTime && newTask.time) {
-        // Push avec heure précise
-        const dateTime = `${newTask.date}T${newTask.time}:00`;
-        pousserVersGoogleCalendar(`☑ ${newTask.title}`, dateTime, 'Tâche Chaud Devant 🔥', false);
-      } else {
-        pousserTacheVersGoogleCalendar(newTask.title, newTask.date);
-      }
+    // Push vers Google Agenda de tous les participants
+{
+  const otherParticipants = selectedParticipants.filter(e => e !== user.email);
+  if(newTask.hasTime && newTask.time) {
+    const dateTime = `${newTask.date}T${newTask.time}:00`;
+    await pushEventToAllParticipants(
+      { titre: `☑ ${newTask.title}`, dateIso: dateTime, description: 'Tâche Chaud Devant 🔥', allDay: false },
+      otherParticipants
+    );
+  } else {
+    // Tâche toute la journée
+    if(gcalLinked) await pousserTacheVersGoogleCalendar(newTask.title, newTask.date);
+    const otherWithGcal = otherParticipants;
+    if(otherWithGcal.length > 0) {
+      await pushEventToAllParticipants(
+        { titre: `☑ ${newTask.title}`, dateIso: `${newTask.date}T00:00:00`, description: 'Tâche Chaud Devant 🔥', allDay: true },
+        otherWithGcal
+      );
     }
+  }
+}
     setNewTask({ title:'', date: new Date().toISOString().split('T')[0], time:'', hasTime:false, done: false });
     setShowTaskForm(false);
     setSubmitting(false);
   };
-
+// Pousse un événement vers le gcal de TOUS les participants qui ont lié leur compte
+// Mécanisme : stocke des "gcal_pending_events" dans Firestore par participant.
+// Chaque utilisateur les exécute avec son propre token au login/reconnexion.
+const pushEventToAllParticipants = async (
+  eventData: { titre: string; dateIso: string; description?: string; allDay?: boolean },
+  participantEmails: string[]
+) => {
+  // D'abord, pousser pour l'utilisateur courant si son token est valide
+  const currentToken = getGcalToken();
+  if (currentToken) {
+    await pousserVersGoogleCalendar(eventData.titre, eventData.dateIso, eventData.description, eventData.allDay);
+  }
+  // Créer des entrées "en attente" dans Firestore pour les autres participants
+  const pendingRef = collection(db, 'gcal_pending_events');
+  for (const email of participantEmails) {
+    // Vérifier si cet utilisateur a lié son Google Agenda
+    try {
+      const linkedDoc = await getDoc(doc(db, 'gcal_links', email));
+      if (linkedDoc.exists() && linkedDoc.data()?.linked) {
+        // Stocker un événement en attente pour cet utilisateur
+        await addDoc(pendingRef, {
+          targetEmail: email,
+          ...eventData,
+          createdAt: new Date().toISOString(),
+          processed: false,
+        });
+      }
+    } catch { /* silencieux */ }
+  }
+};
   const toggleTask = async (task: any) => {
     await updateDoc(doc(db, 'family_tasks', task.id), { done: !task.done });
   };
@@ -4675,8 +4722,27 @@ const App: React.FC = () => {
           await setDoc(doc(db,'site_users',u.email),{lastLogin:new Date().toISOString(),email:u.email},{merge:true});
           const prefsDoc=await getDoc(doc(db,'user_prefs',u.email));
           if(prefsDoc.exists()){
-            setFavorites(prefsDoc.data().favorites||[]);
-          }
+  setFavorites(prefsDoc.data().favorites||[]);
+}
+// Traiter les événements gcal en attente pour cet utilisateur
+const pendingSnap = await getDocs(
+  query(collection(db,'gcal_pending_events'),
+    where('targetEmail','==', u.email),
+    where('processed','==', false)
+  )
+);
+if(!pendingSnap.empty) {
+  const token = getGcalToken();
+  if(token) {
+    for(const pendingDoc of pendingSnap.docs) {
+      const ev = pendingDoc.data();
+      try {
+        await pousserVersGoogleCalendar(ev.titre, ev.dateIso, ev.description, ev.allDay);
+        await updateDoc(doc(db,'gcal_pending_events', pendingDoc.id), { processed: true });
+      } catch { /* silencieux */ }
+    }
+  }
+}
           // Vérifier si un quiz est en attente et n'a pas encore été fait/passé
           const prefs = prefsDoc.exists() ? prefsDoc.data() : {};
           const quizSnap = await getDocs(collection(db,'questionnaires'));
@@ -4748,18 +4814,49 @@ const App: React.FC = () => {
     return()=>{unsubC();unsubM();unsubX();unsubR();unsubE();unsubV();unsubT();unsubU();unsubN();unsubTokens();};
   },[user]);
 
-  // DEEP LINKING
-  useEffect(()=>{
-    const params=new URLSearchParams(window.location.search);
-    const targetView=params.get('view');
-    if(targetView){
-      setCurrentView(targetView);
-      if(targetView==='xsite'){const siteId=params.get('id');if(siteId&&xsitePages.length>0){const found=xsitePages.find(p=>p.id===siteId);if(found)setSelectedXSite(found);}}
-      const anchorId=params.get('anchor');
-      if(anchorId){setTimeout(()=>{const el=document.getElementById(anchorId);if(el){el.scrollIntoView({behavior:'smooth',block:'start'});el.classList.add('ring-4','ring-offset-2','ring-orange-400','transition-all','duration-1000');setTimeout(()=>el.classList.remove('ring-4','ring-offset-2','ring-orange-400'),2000);}},800);}
-      window.history.replaceState({},document.title,window.location.pathname);
+  // DEEP LINKING — stocke les paramètres URL au mount, résout quand xsitePages est chargé
+const [pendingXSiteId, setPendingXSiteId] = useState<string|null>(null);
+const [pendingAnchor, setPendingAnchor] = useState<string|null>(null);
+
+// Capture des paramètres URL au montage (une seule fois)
+useEffect(()=>{
+  const params=new URLSearchParams(window.location.search);
+  const targetView=params.get('view');
+  if(targetView){
+    setCurrentView(targetView);
+    if(targetView==='xsite'){
+      const siteId=params.get('id');
+      if(siteId) setPendingXSiteId(siteId); // stocke pour résolution ultérieure
     }
-  },[xsitePages]);
+    const anchorId=params.get('anchor');
+    if(anchorId) setPendingAnchor(anchorId);
+    window.history.replaceState({},document.title,window.location.pathname);
+  }
+},[]); // dépend uniquement du mount
+
+// Résolution du XSite une fois xsitePages disponible
+useEffect(()=>{
+  if(pendingXSiteId && xsitePages.length>0){
+    const found=xsitePages.find(p=>p.id===pendingXSiteId);
+    if(found){ setSelectedXSite(found); setPendingXSiteId(null); }
+  }
+},[xsitePages, pendingXSiteId]);
+
+// Résolution de l'ancre après navigation
+useEffect(()=>{
+  if(pendingAnchor){
+    const timer=setTimeout(()=>{
+      const el=document.getElementById(pendingAnchor);
+      if(el){
+        el.scrollIntoView({behavior:'smooth',block:'start'});
+        el.classList.add('ring-4','ring-offset-2','ring-orange-400','transition-all','duration-1000');
+        setTimeout(()=>el.classList.remove('ring-4','ring-offset-2','ring-orange-400'),2000);
+      }
+      setPendingAnchor(null);
+    },800);
+    return ()=>clearTimeout(timer);
+  }
+},[pendingAnchor, currentView]);
 
   // ACTIONS
   const handleLogin=async()=>{try{await signInWithPopup(auth,googleProvider);}catch(e){alert("Erreur Auth");}};
@@ -5171,25 +5268,36 @@ const App: React.FC = () => {
 
         {/* TÂCHES */}
         {currentView==='tasks'&&(isPageLocked('tasks') ? <MaintenancePage pageName="Tâches"/> : (
-          <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8" id="tasks-table">
-            <div className="text-center space-y-4">
-              <h2 className="text-2xl md:text-5xl font-black tracking-tight" style={{color:config.primaryColor}}>TÂCHES MÉNAGÈRES</h2>
-              <p className="text-gray-500 font-serif italic">{myLetter?`Salut ${myLetter==='G'?'Gabriel':myLetter==='P'?'Pauline':'Valentin'}, à l'attaque !`:"Connecte-toi avec ton compte perso."}</p>
-            </div>
-            <div className="bg-white/90 backdrop-blur-xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/50">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[480px]">
-                  <thead>
-                    <tr className="text-left" style={{backgroundColor:config.primaryColor+'15'}}>
-                      <th className="p-4 font-black uppercase text-xs tracking-widest text-gray-500 w-24">Weekend</th>
-                      <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{color:config.primaryColor}}>Aspi Haut</th>
-                      <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{color:config.primaryColor}}>Aspi Bas</th>
-                      <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{color:config.primaryColor}}>Lav/Douche</th>
-                      <th className="p-4 w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {getMonthWeekends().map((week,i)=>{
+  (() => {
+    const [tasksMonthOffset, setTasksMonthOffset] = React.useState(0);
+    const MOIS_FR_TASKS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const targetDate = new Date(new Date().getFullYear(), new Date().getMonth() + tasksMonthOffset, 1);
+    return (
+  <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8" id="tasks-table">
+    <div className="text-center space-y-4">
+      <h2 className="text-2xl md:text-5xl font-black tracking-tight" style={{color:config.primaryColor}}>TÂCHES MÉNAGÈRES</h2>
+      <p className="text-gray-500 font-serif italic">{myLetter?`Salut ${myLetter==='G'?'Gabriel':myLetter==='P'?'Pauline':'Valentin'}, à l'attaque !`:"Connecte-toi avec ton compte perso."}</p>
+      {/* Navigation mois */}
+      <div className="flex items-center justify-center gap-4">
+        <button onClick={()=>setTasksMonthOffset(o=>o-1)} className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all"><ArrowLeft size={16}/></button>
+        <span className="font-black text-base tracking-tight" style={{color:config.primaryColor}}>{MOIS_FR_TASKS[targetDate.getMonth()]} {targetDate.getFullYear()}</span>
+        <button onClick={()=>setTasksMonthOffset(o=>o+1)} className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all"><ArrowLeft size={16} className="rotate-180"/></button>
+      </div>
+    </div>
+    <div className="bg-white/90 backdrop-blur-xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/50">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[480px]">
+          <thead>
+            <tr className="text-left" style={{backgroundColor:config.primaryColor+'15'}}>
+              <th className="p-4 font-black uppercase text-xs tracking-widest text-gray-500 w-24">Weekend</th>
+              <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{color:config.primaryColor}}>Aspi Haut</th>
+              <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{color:config.primaryColor}}>Aspi Bas</th>
+              <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{color:config.primaryColor}}>Lav/Douche</th>
+              <th className="p-4 w-10"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {getMonthWeekends(tasksMonthOffset).map((week,i)=>{
                       const rowStatus=choreStatus[week.id]||{};
                       const isRowComplete=rowStatus.G&&rowStatus.P&&rowStatus.V;
                       const now=new Date();
@@ -5208,9 +5316,11 @@ const App: React.FC = () => {
                 </table>
               </div>
               <div className="p-6 bg-white/35 text-center text-xs text-gray-400 uppercase tracking-widest border-t border-gray-100">G = Gabriel • P = Pauline • V = Valentin</div>
-            </div>
-          </div>
-        ))}
+    </div>
+  </div>
+    );
+  })()
+))}
 
         {/* CALENDRIER */}
         {currentView==='calendar'&&(isPageLocked('calendar') ? <MaintenancePage pageName="Calendrier"/> : (
