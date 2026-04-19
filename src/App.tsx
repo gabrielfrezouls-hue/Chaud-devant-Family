@@ -2941,7 +2941,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
   const handleFile=(e:any,cb:any)=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=()=>cb(r.result);r.readAsDataURL(f);}};
   const startEditVersion=(v:any)=>{setEditingVersionId(v.id);setTempVersionName(v.name);};
   const saveVersionName=(id:string)=>{upd('site_versions',id,{name:tempVersionName});setEditingVersionId(null);};
-  const generateQrCode=(siteId:string)=>{const baseUrl=window.location.href.split('?')[0];const fullUrl=`${baseUrl}?id=${siteId}`;const apiUrl=`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fullUrl)}`;setQrCodeUrl(apiUrl);};
+  const generateQrCode=(siteId:string)=>{const baseUrl=window.location.href.split('?')[0];const fullUrl=`${baseUrl}?view=xsite&id=${siteId}`;const apiUrl=`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fullUrl)}`;setQrCodeUrl(apiUrl);};
   const copyCookingLink=()=>{const baseUrl=window.location.href.split('?')[0];const fullUrl=`${baseUrl}?view=cooking`;navigator.clipboard.writeText(fullUrl);alert("Lien copié !");};;
 
   const registerUser=async()=>{
@@ -4577,6 +4577,86 @@ const pousserTacheVersGoogleCalendar = async (titre: string, dateIso: string) =>
 };
 
 
+// ==========================================
+// TÂCHES MÉNAGÈRES — Vue mois (composant séparé obligatoire pour les hooks)
+// ==========================================
+const TasksChoresView = ({ config, myLetter, choreStatus, toggleChore }: {
+  config: SiteConfig;
+  myLetter: string | null;
+  choreStatus: Record<string, any>;
+  toggleChore: (weekId: string, letter: string) => Promise<void>;
+}) => {
+  const [tasksMonthOffset, setTasksMonthOffset] = React.useState(0);
+  const MOIS_FR_TASKS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const targetDate = new Date(new Date().getFullYear(), new Date().getMonth() + tasksMonthOffset, 1);
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8" id="tasks-table">
+      <div className="text-center space-y-4">
+        <h2 className="text-2xl md:text-5xl font-black tracking-tight" style={{color:config.primaryColor}}>TÂCHES MÉNAGÈRES</h2>
+        <p className="text-gray-500 font-serif italic">
+          {myLetter ? `Salut ${myLetter==='G'?'Gabriel':myLetter==='P'?'Pauline':'Valentin'}, à l'attaque !` : "Connecte-toi avec ton compte perso."}
+        </p>
+        <div className="flex items-center justify-center gap-4">
+          <button
+            onClick={()=>setTasksMonthOffset(o=>o-1)}
+            className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all"
+          >
+            <ArrowLeft size={16}/>
+          </button>
+          <span className="font-black text-base tracking-tight" style={{color:config.primaryColor}}>
+            {MOIS_FR_TASKS[targetDate.getMonth()]} {targetDate.getFullYear()}
+          </span>
+          <button
+            onClick={()=>setTasksMonthOffset(o=>o+1)}
+            className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all"
+          >
+            <ArrowLeft size={16} className="rotate-180"/>
+          </button>
+        </div>
+      </div>
+      <div className="bg-white/90 backdrop-blur-xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/50">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px]">
+            <thead>
+              <tr className="text-left" style={{backgroundColor:config.primaryColor+'15'}}>
+                <th className="p-4 font-black uppercase text-xs tracking-widest text-gray-500 w-24">Weekend</th>
+                <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{color:config.primaryColor}}>Aspi Haut</th>
+                <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{color:config.primaryColor}}>Aspi Bas</th>
+                <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{color:config.primaryColor}}>Lav/Douche</th>
+                <th className="p-4 w-10"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {getMonthWeekends(tasksMonthOffset).map((week, i) => {
+                const rowStatus = choreStatus[week.id] || {};
+                const isRowComplete = rowStatus.G && rowStatus.P && rowStatus.V;
+                const now = new Date();
+                const isLocked = week.fullDate.getTime() > (now.getTime() + 86400000 * 6);
+                return (
+                  <tr key={i} className={`transition-colors ${isRowComplete?'bg-green-50/50':'hover:bg-white/50'}`}>
+                    <td className="p-4 font-mono font-bold text-gray-700 whitespace-nowrap text-sm">
+                      {week.dateStr}{isLocked && <span className="ml-2 text-xs text-gray-300">🔒</span>}
+                    </td>
+                    <TaskCell weekId={week.id} letter={week.haut} label="Aspi Haut" isLocked={isLocked} choreStatus={choreStatus} toggleChore={toggleChore} myLetter={myLetter}/>
+                    <TaskCell weekId={week.id} letter={week.bas} label="Aspi Bas" isLocked={isLocked} choreStatus={choreStatus} toggleChore={toggleChore} myLetter={myLetter}/>
+                    <TaskCell weekId={week.id} letter={week.douche} label="Lavabo" isLocked={isLocked} choreStatus={choreStatus} toggleChore={toggleChore} myLetter={myLetter}/>
+                    <td className="p-4 text-center">
+                      {isRowComplete && <CheckCircle2 className="text-green-500 mx-auto animate-bounce"/>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-6 bg-white/35 text-center text-xs text-gray-400 uppercase tracking-widest border-t border-gray-100">
+          G = Gabriel • P = Pauline • V = Valentin
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User|null>(null);
@@ -5267,60 +5347,11 @@ useEffect(()=>{
         )}
 
         {/* TÂCHES */}
-        {currentView==='tasks'&&(isPageLocked('tasks') ? <MaintenancePage pageName="Tâches"/> : (
-  (() => {
-    const [tasksMonthOffset, setTasksMonthOffset] = React.useState(0);
-    const MOIS_FR_TASKS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-    const targetDate = new Date(new Date().getFullYear(), new Date().getMonth() + tasksMonthOffset, 1);
-    return (
-  <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8" id="tasks-table">
-    <div className="text-center space-y-4">
-      <h2 className="text-2xl md:text-5xl font-black tracking-tight" style={{color:config.primaryColor}}>TÂCHES MÉNAGÈRES</h2>
-      <p className="text-gray-500 font-serif italic">{myLetter?`Salut ${myLetter==='G'?'Gabriel':myLetter==='P'?'Pauline':'Valentin'}, à l'attaque !`:"Connecte-toi avec ton compte perso."}</p>
-      {/* Navigation mois */}
-      <div className="flex items-center justify-center gap-4">
-        <button onClick={()=>setTasksMonthOffset(o=>o-1)} className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all"><ArrowLeft size={16}/></button>
-        <span className="font-black text-base tracking-tight" style={{color:config.primaryColor}}>{MOIS_FR_TASKS[targetDate.getMonth()]} {targetDate.getFullYear()}</span>
-        <button onClick={()=>setTasksMonthOffset(o=>o+1)} className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all"><ArrowLeft size={16} className="rotate-180"/></button>
-      </div>
-    </div>
-    <div className="bg-white/90 backdrop-blur-xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/50">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[480px]">
-          <thead>
-            <tr className="text-left" style={{backgroundColor:config.primaryColor+'15'}}>
-              <th className="p-4 font-black uppercase text-xs tracking-widest text-gray-500 w-24">Weekend</th>
-              <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{color:config.primaryColor}}>Aspi Haut</th>
-              <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{color:config.primaryColor}}>Aspi Bas</th>
-              <th className="p-4 font-black uppercase text-xs tracking-widest text-center" style={{color:config.primaryColor}}>Lav/Douche</th>
-              <th className="p-4 w-10"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {getMonthWeekends(tasksMonthOffset).map((week,i)=>{
-                      const rowStatus=choreStatus[week.id]||{};
-                      const isRowComplete=rowStatus.G&&rowStatus.P&&rowStatus.V;
-                      const now=new Date();
-                      const isLocked=week.fullDate.getTime()>(now.getTime()+86400000*6);
-                      return(
-                        <tr key={i} className={`transition-colors ${isRowComplete?'bg-green-50/50':'hover:bg-white/50'}`}>
-                          <td className="p-4 font-mono font-bold text-gray-700 whitespace-nowrap text-sm">{week.dateStr}{isLocked&&<span className="ml-2 text-xs text-gray-300">🔒</span>}</td>
-                          <TaskCell weekId={week.id} letter={week.haut} label="Aspi Haut" isLocked={isLocked} choreStatus={choreStatus} toggleChore={toggleChore} myLetter={myLetter}/>
-                          <TaskCell weekId={week.id} letter={week.bas} label="Aspi Bas" isLocked={isLocked} choreStatus={choreStatus} toggleChore={toggleChore} myLetter={myLetter}/>
-                          <TaskCell weekId={week.id} letter={week.douche} label="Lavabo" isLocked={isLocked} choreStatus={choreStatus} toggleChore={toggleChore} myLetter={myLetter}/>
-                          <td className="p-4 text-center">{isRowComplete&&<CheckCircle2 className="text-green-500 mx-auto animate-bounce"/>}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="p-6 bg-white/35 text-center text-xs text-gray-400 uppercase tracking-widest border-t border-gray-100">G = Gabriel • P = Pauline • V = Valentin</div>
-    </div>
-  </div>
-    );
-  })()
-))}
+       {currentView==='tasks'&&(
+  isPageLocked('tasks')
+    ? <MaintenancePage pageName="Tâches"/>
+    : <TasksChoresView config={config} myLetter={myLetter} choreStatus={choreStatus} toggleChore={toggleChore}/>
+)}
 
         {/* CALENDRIER */}
         {currentView==='calendar'&&(isPageLocked('calendar') ? <MaintenancePage pageName="Calendrier"/> : (
