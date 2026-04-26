@@ -1827,18 +1827,7 @@ const parseStepsToList = (stepsRaw: any): Array<{title:string,content:string}> =
     return { title: `Étape ${i+1}`, content: line.trim() };
   });
 };
-  // String → split par ligne
-  const str = String(stepsRaw);
-  const lines = str.split('\n').filter((l:string)=>l.trim()!=='');
-  return lines.map((line:string, i:number) => {
-    const colonIdx = line.indexOf(':');
-    if(colonIdx>0 && colonIdx<40) {
-      return { title: line.slice(0,colonIdx).trim(), content: line.slice(colonIdx+1).trim() };
-    }
-    return { title: `Étape ${i+1}`, content: line.trim() };
-  });
-};
-
+  
 // ─── Composant MiamStepsReader ─────────────────────────────────────────────
 const MiamStepsReader = ({recipe, config, onBack, onEdit}: {recipe:any, config:any, onBack:()=>void, onEdit?:()=>void}) => {
   const [currentStep, setCurrentStep] = React.useState(0);
