@@ -27,10 +27,6 @@ const fileToBase64 = (file: File): Promise<string> =>
   });
 
 // MODÈLES DISPONIBLES SUR CETTE CLÉ API (EU)
-// ✅ gemini-2.5-flash-lite : stable, disponible, scan/vision/JSON
-// ✅ gemini-2.0-flash      : fallback, supporte url_context mais quota 429 fréquent
-// ❌ gemini-1.5-flash      : 404 sur cette clé — ne pas utiliser
-// ❌ gemini-1.5-flash-latest : 404 sur cette clé — ne pas utiliser
 const MODELS = [
   "gemini-2.5-flash-lite",
   "gemini-2.0-flash",
@@ -138,26 +134,10 @@ export const classifyFrigoItem = async (productName: string) => {
 RÈGLE CRITIQUE — Primeur (FRIGO, se conserve au froid) :
 Tout fruit ou légume FRAIS va en "Primeur" : pomme, poire, banane, citron, orange, mangue, fraise, raisin, kiwi, tomate, carotte, courgette, poireau, oignon, ail, salade, épinard, brocoli, choufleur, chou, poivron, concombre, aubergine, radis, betterave, céleri, poireau, fenouil, asperge, artichaut, avocat, champignon, gingembre, curcuma frais, herbes fraîches (basilic, persil, coriandre, menthe, ciboulette), pomme de terre (si non stockée en cave).
 
-DIFFÉRENCE épicerie vs primeur :
-- Gingembre FRAIS → Primeur (frigo)
-- Gingembre EN POUDRE → Épicerie Salée (cellier)
-- Ail FRAIS → Primeur
-- Ail EN POUDRE → Épicerie Salée
-- Jus de fruit (bouteille) → Boissons (cellier)
-
 Réponds UNIQUEMENT en JSON sans markdown :
 {"category":"Boucherie/Poisson|Boulangerie|Plat préparé|Primeur|Frais & Crèmerie|Épicerie Salée|Épicerie Sucrée|Boissons|Surgelés|Divers","expiryDate":"YYYY-MM-DD"}
 
-Calcule expiryDate depuis ${today} :
-- Boucherie/Poisson : +3j
-- Boulangerie : +3j
-- Plat préparé : +4j
-- Primeur (fruits/légumes) : +7j (fragiles comme fraise/salade : +4j)
-- Frais & Crèmerie : +10j
-- Épicerie Salée/Sucrée : +90j
-- Boissons : +90j
-- Surgelés : +180j
-- Divers : +14j`
+Calcule expiryDate depuis ${today}.`
       }]
     }]
   });
@@ -209,6 +189,57 @@ Renvoie un tableau vide [] si aucun produit alimentaire détecté.`
   } catch { return []; }
 };
 
+// ─── NOUVEAU : Scanner une recette depuis une photo ────────────────────────
+// Extrait titre, ingrédients, étapes, catégorie depuis une image (page de livre,
+// photo d'un écran, recette manuscrite, etc.)
+export const scanRecipeFromImage = async (file: File): Promise<{
+  title: string;
+  chef: string;
+  category: string;
+  ingredients: string;
+  steps: string;
+  prepTime?: string;
+  cookTime?: string;
+  servings?: number;
+  description?: string;
+} | null> => {
+  try {
+    const b64 = await fileToBase64(file);
+    const res = await callGemini({
+      contents: [{
+        parts: [
+          {
+            text: `Tu es un expert culinaire. Analyse cette image et extrais la recette qu'elle contient.
+Il peut s'agir d'une page de livre de cuisine, d'une fiche recette, d'une photo d'écran, d'une recette manuscrite, etc.
+
+Réponds UNIQUEMENT en JSON sans markdown ni backticks :
+{
+  "title": "Nom exact de la recette",
+  "chef": "",
+  "category": "entrée|plat|dessert|autre",
+  "description": "Courte description (1 phrase)",
+  "prepTime": "XX min",
+  "cookTime": "XX min",
+  "servings": 4,
+  "ingredients": "ingrédient 1 avec quantité\\ningrédient 2 avec quantité\\n...",
+  "steps": "Étape 1 : description\\nÉtape 2 : description\\n..."
+}
+
+Règles :
+- ingredients : une ligne par ingrédient, avec la quantité si visible
+- steps : une ligne par étape, préfixée par "Étape N : "
+- Si un champ est illisible ou absent, mets une chaîne vide ""
+- Réponds uniquement avec le JSON, rien d'autre`
+          },
+          { inline_data: { mime_type: file.type || "image/jpeg", data: b64 } },
+        ],
+      }],
+    });
+    const parsed = cleanJSON(res);
+    if (parsed && parsed.title && parsed.title.length > 1) return parsed;
+    return null;
+  } catch { return null; }
+};
 
 export const extractRecipeFromUrl = async (url: string) => {
   const res = await callGemini({
@@ -225,18 +256,12 @@ Réponds UNIQUEMENT en JSON sans markdown :
 };
 
 // EXTRACTION PRODUIT DEPUIS URL (WishList)
-// Utilise le tool "url_context" : Gemini fetch lui-même la page côté serveurs Google.
-// Contourne Cloudflare/Amazon sans backend. Dispo sur gemini-2.5-flash-lite + gemini-2.0-flash.
-// Normalise une URL e-commerce pour maximiser la compatibilité avec url_context
-// Amazon : extrait l'ASIN et reconstruit une URL canonique /dp/ASIN
-// Autres sites : supprime les paramètres tracking
 const normalizeProductUrl = (url: string): string => {
   try {
     const parsed = new URL(url);
     const host = parsed.hostname.toLowerCase();
     const path = parsed.pathname;
 
-    // ── Amazon : URL canonique /dp/ASIN (sans query params) ──
     if (host.includes("amazon.")) {
       const asinMatch = path.match(/\/dp\/([A-Z0-9]{10})/);
       if (asinMatch) {
@@ -248,7 +273,6 @@ const normalizeProductUrl = (url: string): string => {
       }
     }
 
-    // ── Sites courants : supprimer les query params tracking ──
     const cleanHosts = ["fnac.", "darty.", "ikea.", "boulanger.", "cdiscount.",
                         "zalando.", "decathlon.", "leroy", "manomano.", "cultura.",
                         "rakuten.", "ldlc.", "rue-du-commerce.", "materiel.net"];
@@ -266,12 +290,8 @@ export const extractProductFromUrl = async (url: string): Promise<{ name: string
   const apiKey = getApiKey();
   if (!apiKey) return null;
 
-  // Normaliser l'URL (Amazon ASIN propre, supprimer tracking params)
   const cleanUrl = normalizeProductUrl(url);
-  console.log(`[extractProduct] URL originale: ${url}`);
-  console.log(`[extractProduct] URL normalisée: ${cleanUrl}`);
 
-  // url_context fonctionne mieux avec gemini-2.0-flash — on le met en premier ici
   const urlContextModels = MODELS.includes("gemini-2.0-flash")
     ? ["gemini-2.0-flash", ...MODELS.filter(m => m !== "gemini-2.0-flash")]
     : MODELS;
@@ -294,14 +314,12 @@ export const extractProductFromUrl = async (url: string): Promise<{ name: string
                 text: `Accède à cette URL de produit : ${cleanUrl}
 
 Lis la page et extrais :
-1. Le NOM EXACT du produit (nom commercial complet, sans mention du site vendeur)
-2. Le PRIX affiché (format "XX,XX €" — chaîne vide si introuvable)
-3. L'URL directe de la PHOTO principale (commence par https://, extension .jpg/.jpeg/.png/.webp — chaîne vide si introuvable)
+1. Le NOM EXACT du produit
+2. Le PRIX affiché (format "XX,XX €")
+3. L'URL directe de la PHOTO principale
 
 Réponds UNIQUEMENT en JSON sans markdown :
-{"name":"Nom exact","price":"XX,XX €","imageUrl":"https://..."}
-
-Règles : ne génère rien d'inventé, price="" si introuvable, imageUrl="" si incertaine.`
+{"name":"Nom exact","price":"XX,XX €","imageUrl":"https://..."}`
               }]
             }],
             generationConfig: { temperature: 0 },
@@ -310,11 +328,10 @@ Règles : ne génère rien d'inventé, price="" si introuvable, imageUrl="" si i
       );
       clearTimeout(timer);
 
-      if (res.status === 429) { console.warn(`[extractProduct] 429 sur ${model}`); continue; }
-      if (!res.ok) { console.warn(`[extractProduct] ${model} ${res.status}`); continue; }
+      if (res.status === 429) { continue; }
+      if (!res.ok) { continue; }
 
       const data = await res.json();
-      // url_context retourne plusieurs parts — on fusionne les textes
       const parts = data?.candidates?.[0]?.content?.parts || [];
       const text = parts.filter((p: any) => p.text).map((p: any) => p.text).join("").trim();
 
@@ -323,16 +340,13 @@ Règles : ne génère rien d'inventé, price="" si introuvable, imageUrl="" si i
       const parsed = cleanJSON(text);
       if (!parsed?.name || parsed.name.length < 2) continue;
 
-      // Nettoyer le nom (retirer " - Amazon", " | Fnac", etc.)
       const name = parsed.name
         .replace(/\s*[|–—\-]\s*(Amazon|Fnac|Darty|Zalando|IKEA|Carrefour|Leclerc|Rakuten|Boulanger|Leroy Merlin|Cdiscount|La Redoute|Decathlon|Cultura|Manomano).*$/i, "")
         .trim();
 
-      // Valider prix
       let price = parsed.price || "";
       if (price && !/\d/.test(price)) price = "";
 
-      // Valider imageUrl
       let imageUrl = parsed.imageUrl || "";
       if (imageUrl && (!imageUrl.startsWith("https://") || !/\.(jpg|jpeg|png|webp|avif)/i.test(imageUrl))) {
         imageUrl = "";
@@ -341,12 +355,10 @@ Règles : ne génère rien d'inventé, price="" si introuvable, imageUrl="" si i
       if (name.length > 1) return { name, price, imageUrl };
 
     } catch (err) {
-      console.warn(`[extractProduct] ${model}:`, err);
       continue;
     }
   }
 
-  // Fallback : déduire le nom depuis l'URL
   try {
     const urlObj = new URL(url);
     const segments = urlObj.pathname.split("/").filter(s =>
