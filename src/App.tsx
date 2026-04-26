@@ -20,7 +20,7 @@ import {
   ListTodo, List, LayoutList, CalendarDays, Link2, CheckCheck, Circle
 , Receipt , Utensils, PieChart, BarChart2, ClipboardList as QuizIcon, FileText, Share2, SmartphoneIcon as Phone } from 'lucide-react';
 import { Recipe, FamilyEvent, ViewType, SiteConfig, SiteVersion } from './types';
-import { askAIArchitect, askAIChat, askButlerAgent, scanProductImage, scanTicketDeCaisse, extractRecipeFromUrl } from './services/geminiService';
+import { askAIArchitect, askAIChat, askButlerAgent, scanProductImage, scanTicketDeCaisse, extractRecipeFromUrl, scanRecipeFromImage } from './services/geminiService';
 import Background from './components/Background';
 import RecipeCard from './components/RecipeCard';
 
@@ -1292,13 +1292,21 @@ const CalendarView = ({ user, config, events, addEntry, deleteItem: delItem, sit
     setSelectedParticipants(emails);
   }, [JSON.stringify(siteUsers)]);
 
-  // Vérifier si agenda lié (token valide)
+  // Vérifier si agenda lié : localStorage ET Firestore (persiste entre sessions)
   React.useEffect(() => {
-    const check = () => setGcalLinked(!!getGcalToken());
-    check();
-    const timer = setInterval(check, 30000); // check toutes les 30s
+    if (!user?.email) return;
+    // Vérification initiale depuis Firestore
+    getDoc(doc(db, 'gcal_links', user.email)).then(snap => {
+      if (snap.exists() && snap.data()?.linked) {
+        setGcalLinked(true); // Le compte a été lié un jour
+      } else {
+        setGcalLinked(!!getGcalToken());
+      }
+    }).catch(() => setGcalLinked(!!getGcalToken()));
+    // Recheck token local toutes les 30s
+    const timer = setInterval(() => setGcalLinked(!!getGcalToken()), 30000);
     return () => clearInterval(timer);
-  }, []);
+  }, [user?.email]);
 
   // Charger les tâches depuis Firestore
   React.useEffect(() => {
@@ -1784,27 +1792,41 @@ const EventModal = ({ isOpen, onClose, config, addEntry, newEvent, setNewEvent }
 
 // ─── Utilitaire : convertit string d'étapes → [{title, content}] ───────────
 const parseStepsToList = (stepsRaw: any): Array<{title:string,content:string}> => {
-  if(!stepsRaw) return [];
-  // Déjà un tableau d'objets {title, content} → retourner directement
+  if(!stepsRaw && stepsRaw !== 0) return [];
+  // Déjà un tableau d'objets {title, content}
   if(Array.isArray(stepsRaw)) {
     if(stepsRaw.length === 0) return [];
-    // Tableau d'objets {title, content}
-    if(typeof stepsRaw[0] === 'object' && stepsRaw[0] !== null) {
+    if(typeof stepsRaw[0] === 'object' && stepsRaw[0] !== null && !Array.isArray(stepsRaw[0])) {
       return stepsRaw.map((s:any, i:number) => ({
-        title: s.title || `Étape ${i+1}`,
-        content: s.content || s.description || String(s),
-      }));
+        title: String(s.title || s.name || `Étape ${i+1}`).trim(),
+        content: String(s.content || s.description || s.text || s.instruction || '').trim(),
+      })).filter(s => s.content || s.title !== `Étape ${stepsRaw.indexOf(stepsRaw[0])+1}`);
     }
-    // Tableau de strings → chaque string = une étape
-    return (stepsRaw as string[]).filter((s:string)=>String(s).trim()!=='').map((line:string, i:number) => {
-      const str = String(line);
-      const colonIdx = str.indexOf(':');
-      if(colonIdx>0 && colonIdx<40) {
-        return { title: str.slice(0,colonIdx).trim(), content: str.slice(colonIdx+1).trim() };
-      }
-      return { title: `Étape ${i+1}`, content: str.trim() };
-    });
+    // Tableau de strings
+    return (stepsRaw as any[])
+      .map(s => String(s).trim())
+      .filter(s => s !== '')
+      .map((line:string, i:number) => {
+        const colonIdx = line.indexOf(':');
+        if(colonIdx>0 && colonIdx<50) {
+          return { title: line.slice(0,colonIdx).trim(), content: line.slice(colonIdx+1).trim() };
+        }
+        return { title: `Étape ${i+1}`, content: line.trim() };
+      });
   }
+  // String → split par ligne ou par numéro
+  const str = String(stepsRaw).trim();
+  if(!str) return [];
+  const lines = str.split(/\n+/).filter((l:string)=>l.trim()!=='');
+  if(lines.length === 0) return [{ title: 'Étape 1', content: str }];
+  return lines.map((line:string, i:number) => {
+    const colonIdx = line.indexOf(':');
+    if(colonIdx>0 && colonIdx<50) {
+      return { title: line.slice(0,colonIdx).trim(), content: line.slice(colonIdx+1).trim() };
+    }
+    return { title: `Étape ${i+1}`, content: line.trim() };
+  });
+};
   // String → split par ligne
   const str = String(stepsRaw);
   const lines = str.split('\n').filter((l:string)=>l.trim()!=='');
@@ -1821,6 +1843,25 @@ const parseStepsToList = (stepsRaw: any): Array<{title:string,content:string}> =
 const MiamStepsReader = ({recipe, config, onBack, onEdit}: {recipe:any, config:any, onBack:()=>void, onEdit?:()=>void}) => {
   const [currentStep, setCurrentStep] = React.useState(0);
   const [showIngsMobile, setShowIngsMobile] = React.useState(false);
+  const [showFullRecipe, setShowFullRecipe] = React.useState(false);
+const [frigoItems, setFrigoItems] = React.useState<string[]>([]);
+  React.useEffect(()=>{
+    const unsub = onSnapshot(collection(db,'frigo_items'), snap => {
+      setFrigoItems(snap.docs.map(d => (d.data().name||'').toLowerCase().trim()));
+    });
+    return ()=>unsub();
+  },[]);
+
+  // Vérifie si un ingrédient est dans le frigo (correspondance approximative)
+  const isInFrigo = (ing: string): boolean => {
+    const ingLower = ing.toLowerCase().replace(/\d+[\s]*(g|kg|ml|l|cl|cs|cc|tsp|tbsp|pcs|x|×|oz|lb)[\s]*/gi,'').trim();
+    const ingWords = ingLower.split(/[\s,]+/).filter(w => w.length > 2);
+    return frigoItems.some(fi =>
+      ingWords.some(word => fi.includes(word) || word.includes(fi.slice(0,4)))
+    );
+  };
+
+  const ingInFrigoCount = ings.filter((ing:string) => isInFrigo(ing)).length;
   const steps: Array<{title:string,content:string}> = React.useMemo(() => {
     const raw = recipe.stepsList?.length > 0 ? recipe.stepsList : (recipe.steps || recipe.instructions || '');
     return parseStepsToList(raw);
@@ -1864,10 +1905,60 @@ const MiamStepsReader = ({recipe, config, onBack, onEdit}: {recipe:any, config:a
         </button>
         <span className="text-gray-200">/</span>
         <span className="text-sm font-bold text-gray-600 truncate">{recipe.title}</span>
-        {onEdit&&<button onClick={onEdit} className="ml-auto p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-blue-500 transition-colors"><Pencil size={14}/></button>}
+        <button
+          onClick={()=>setShowFullRecipe(v=>!v)}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 transition-all text-xs font-bold text-gray-500"
+          title={showFullRecipe ? 'Mode pas à pas' : 'Voir toute la recette'}
+        >
+          {showFullRecipe ? <><RotateCcw size={12}/>Pas à pas</> : <><List size={12}/>Tout voir</>}
+        </button>
+        {onEdit&&<button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-blue-500 transition-colors"><Pencil size={14}/></button>}
       </div>
+{/* VUE COMPLÈTE (toggle) */}
+      {showFullRecipe && (
+        <div className="glass-element p-6 space-y-6 animate-in fade-in">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+              <h3 className="font-black text-sm uppercase tracking-widest text-gray-400">Ingrédients</h3>
+              <span className={`text-xs font-black px-2.5 py-1 rounded-full ${ingInFrigoCount===ings.length?'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'}`}>
+                🧊 {ingInFrigoCount}/{ings.length}
+              </span>
+            </div>
+            <ul className="space-y-2">
+              {ings.map((ing:string,i:number)=>{
+                const inFrigo = isInFrigo(ing);
+                return (
+                  <li key={i} className={`flex items-start gap-2.5 text-sm transition-all ${inFrigo?'text-green-700':'text-gray-600'}`}>
+                    {inFrigo
+                      ? <CheckCircle2 size={15} className="text-green-500 shrink-0 mt-0.5"/>
+                      : <div className="w-1.5 h-1.5 mt-2 rounded-full bg-orange-300 shrink-0"/>
+                    }
+                    <span className={inFrigo?'line-through opacity-60':''}>{ing}</span>
+                  </li>
+                );
+              })}
+            </ul>
+            </div>
+            <div>
+              <h3 className="font-black text-sm uppercase tracking-widest text-gray-400 mb-3">Préparation</h3>
+              <ol className="space-y-3">
+                {steps.map((step, i)=>(
+                  <li key={i} className="flex gap-3">
+                    <span className="w-6 h-6 rounded-full text-white text-xs font-black flex items-center justify-center shrink-0 mt-0.5" style={{backgroundColor:'var(--primary,#a85c48)'}}>{i+1}</span>
+                    <div>
+                      {step.title && step.title !== `Étape ${i+1}` && <p className="font-bold text-sm text-gray-800 mb-0.5">{step.title}</p>}
+                      <p className="text-sm text-gray-600 leading-relaxed">{step.content}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        </div>
+      )}
 
-      <div className="flex flex-col lg:flex-row gap-6">
+      {!showFullRecipe && <div className="flex flex-col lg:flex-row gap-6">
         {/* Colonne gauche : infos + ingrédients */}
         <div className="lg:w-1/3 space-y-4">
           <div className="glass-element p-5">
@@ -1936,7 +2027,7 @@ const MiamStepsReader = ({recipe, config, onBack, onEdit}: {recipe:any, config:a
             </div>
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
 };
@@ -1947,7 +2038,10 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
   const [isCompressing, setIsCompressing] = useState(false);
   const [recipeUrl, setRecipeUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [isScanningRecipe, setIsScanningRecipe] = useState(false);
+  const [scanRecipeMsg, setScanRecipeMsg] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const recipePhotoRef = useRef<HTMLInputElement>(null);
 
   const handleFile=(e:any,callback:any)=>{
     const f=e.target.files[0];if(!f)return;setIsCompressing(true);const reader=new FileReader();
@@ -1968,6 +2062,36 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
       }
     } catch { alert('❌ Erreur lors de l\'import. Vérifiez le lien.'); }
     setIsImporting(false);
+  };
+const handleRecipePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if(!file) return; e.target.value='';
+    setIsScanningRecipe(true); setScanRecipeMsg('⏳ Analyse de la photo…');
+    try {
+      const result = await scanRecipeFromImage(file);
+      if(result && result.title) {
+        setCurrentRecipe((prev:any) => ({
+          ...prev,
+          title: result.title || prev.title,
+          chef: result.chef || prev.chef,
+          category: result.category || prev.category,
+          description: result.description || prev.description,
+          prepTime: result.prepTime || prev.prepTime,
+          cookTime: result.cookTime || prev.cookTime,
+          servings: result.servings || prev.servings,
+          ingredients: result.ingredients || prev.ingredients,
+          steps: result.steps || prev.steps,
+        }));
+        setScanRecipeMsg('✅ Recette extraite ! Vérifiez et complétez.');
+        setTimeout(()=>setScanRecipeMsg(''),4000);
+      } else {
+        setScanRecipeMsg('❌ Aucune recette détectée. Essayez avec une image plus nette.');
+        setTimeout(()=>setScanRecipeMsg(''),4000);
+      }
+    } catch {
+      setScanRecipeMsg('❌ Erreur lors de l\'analyse.');
+      setTimeout(()=>setScanRecipeMsg(''),3000);
+    }
+    setIsScanningRecipe(false);
   };
 
   if(!isOpen)return null;
@@ -1997,6 +2121,30 @@ const RecipeModal = ({ isOpen, onClose, config, currentRecipe, setCurrentRecipe,
                 <span className="text-xs font-bold hidden sm:block">{isImporting?'Import...':'Importer'}</span>
               </button>
             </div>
+          </div>
+
+{/* SCAN PHOTO RECETTE */}
+          <div className="bg-purple-50/80 p-4 rounded-2xl border border-purple-100 space-y-2">
+            <h4 className="text-xs font-black uppercase tracking-widest text-purple-500 mb-2 flex items-center gap-2">
+              <Camera size={12}/> Scanner une recette par photo
+            </h4>
+            <p className="text-xs text-gray-400">Photographiez une page de livre, une fiche recette ou un écran.</p>
+            <input ref={recipePhotoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleRecipePhoto}/>
+            <button
+              onClick={()=>recipePhotoRef.current?.click()}
+              disabled={isScanningRecipe}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-purple-500 text-white rounded-xl font-bold text-sm hover:scale-105 transition-transform disabled:opacity-50"
+            >
+              {isScanningRecipe ? <Loader2 size={16} className="animate-spin"/> : <Camera size={16}/>}
+              {isScanningRecipe ? 'Analyse en cours…' : '📷 Scanner une photo de recette'}
+            </button>
+            {scanRecipeMsg && (
+              <div className={`text-center text-xs font-bold py-2 px-3 rounded-xl ${
+                scanRecipeMsg.startsWith('✅') ? 'bg-green-50 text-green-700' :
+                scanRecipeMsg.startsWith('⏳') ? 'bg-blue-50 text-blue-700' :
+                'bg-red-50 text-red-700'
+              }`}>{scanRecipeMsg}</div>
+            )}
           </div>
 
           {/* Titre + Description */}
@@ -3349,7 +3497,7 @@ function getMondayOfWeek(offset:number){const now=new Date();now.setHours(0,0,0,
 function getWeekId(offset:number){const mon=getMondayOfWeek(offset);return `${mon.getFullYear()}_W${String(getWeekNumber(mon)).padStart(2,'0')}`;}
 function makeKey(day:string,meal:string,offset:number){return `${day}_${meal}_${getWeekId(offset)}`;}
 
-const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:SiteConfig, recipes:Recipe[], isPremium?:boolean, onShowFreemium?:()=>void}) => {
+const SemainierView = ({config, recipes, isPremium, onShowFreemium, onOpenRecipe}:{config:SiteConfig, recipes:Recipe[], isPremium?:boolean, onShowFreemium?:()=>void, onOpenRecipe?:(recipeId:string)=>void}) => {
   const [data, setData] = useState<Record<string,any>>({});
   const [weekOffset, setWeekOffset] = useState(0);
   const [modal, setModal] = useState<{day:string,meal:string}|null>(null);
@@ -3416,7 +3564,10 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
     if(!modal||!form.platName.trim()){showToast('⚠️ Nom du plat requis');return;}
     if(!form.participants.length){showToast('⚠️ Sélectionnez au moins un participant');return;}
     const key = makeKey(modal.day,modal.meal,weekOffset);
-    await saveEntry(key,{platName:form.platName,participants:form.participants,recetteLink:form.recetteLink,notes:form.notes});
+    // Récupère le recipeId si la recette vient des favoris
+    const selectedFavIdx = favSelectVal !== '' ? parseInt(favSelectVal) : -1;
+    const recipeId = selectedFavIdx >= 0 ? (favs[selectedFavIdx]?.recipeId || '') : '';
+    await saveEntry(key,{platName:form.platName,participants:form.participants,recetteLink:form.recetteLink,notes:form.notes,recipeId});
     setModal(null);
     showToast('🍽️ Repas enregistré !');
   };
@@ -3560,7 +3711,23 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium}:{config:Site
                           <button onClick={e=>deleteMeal(day,meal,e)} className="absolute top-1 left-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center opacity-30 md:opacity-0 group-hover:opacity-100 transition-opacity z-10">×</button>
                           <div className="font-bold text-sm text-gray-800 leading-tight pr-5">{entry.platName}</div>
                           <div className="text-[10px] text-gray-500">{entry.participants?.join(', ')}</div>
-                          {entry.recetteLink&&<a href={entry.recetteLink} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px]" style={{backgroundColor:config.primaryColor,color:'white'}}>🔗</a>}
+                          {(entry.recetteLink||entry.recipeId)&&(
+            <button
+              onClick={e=>{
+                e.stopPropagation();
+                if(entry.recipeId && onOpenRecipe) {
+                  onOpenRecipe(entry.recipeId);
+                } else if(entry.recetteLink) {
+                  window.open(entry.recetteLink,'_blank');
+                }
+              }}
+              className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px]"
+              style={{backgroundColor:config.primaryColor,color:'white'}}
+              title={entry.recipeId ? 'Voir la recette' : 'Lien externe'}
+            >
+              {entry.recipeId ? '📖' : '🔗'}
+            </button>
+          )}
                         </div>
                       ):(
                         <div className={`min-h-[80px] flex items-center justify-center text-xs italic transition-colors ${isDragTarget?'text-blue-400 font-bold':'text-gray-300'}`}>
@@ -4658,6 +4825,120 @@ const TasksChoresView = ({ config, myLetter, choreStatus, toggleChore }: {
   );
 };
 
+// ==========================================
+// PANEL COMMUNICATION
+// ==========================================
+const CommPanel = ({ config, user, onClose }: { config: SiteConfig, user: User, onClose: () => void }) => {
+  const [suggestion, setSuggestion] = React.useState('');
+  const [sending, setSending] = React.useState(false);
+  const [sent, setSent] = React.useState(false);
+
+  const sendSuggestion = async () => {
+    if(!suggestion.trim()) return;
+    setSending(true);
+    try {
+      await addDoc(collection(db, 'suggestions'), {
+        message: suggestion.trim(),
+        from: user.email,
+        fromName: user.displayName || user.email,
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+      // Notif à l'admin
+      await addDoc(collection(db, 'notifications'), {
+        message: `💡 Suggestion de ${user.displayName||user.email} : "${suggestion.trim().slice(0,80)}${suggestion.length>80?'…':''}"`,
+        type: 'info', repeat: 'once',
+        targets: [ADMIN_EMAIL],
+        createdAt: new Date().toISOString(),
+        readBy: {},
+      });
+      setSent(true);
+      setSuggestion('');
+      setTimeout(() => setSent(false), 3000);
+    } catch { /* silencieux */ }
+    setSending(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex justify-end" onClick={onClose}>
+      <div
+        className="w-full max-w-sm h-full modal-glass animate-in slide-in-from-right flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-white/20">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-black text-sm" style={{backgroundColor:config.primaryColor}}>?</div>
+            <h3 className="font-black text-lg">Communication</h3>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/30 text-gray-400"><X size={18}/></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Contact Admin */}
+          <div className="glass-element p-5 space-y-3">
+            <h4 className="font-black text-sm uppercase tracking-widest text-gray-400 flex items-center gap-2">
+              <Mail size={14}/> Contact administrateur
+            </h4>
+            <p className="text-sm text-gray-600">Pour toute question ou problème, contactez Gabriel directement :</p>
+            <a
+              href="mailto:gabriel.frezouls@gmail.com"
+              className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-gray-100 hover:shadow-md transition-all group"
+            >
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-black text-sm shrink-0" style={{backgroundColor:config.primaryColor}}>G</div>
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-gray-800">Gabriel Frézouls</div>
+                <div className="text-xs text-blue-500 truncate group-hover:underline">gabriel.frezouls@gmail.com</div>
+              </div>
+              <ExternalLink size={14} className="text-gray-300 shrink-0"/>
+            </a>
+            <a
+              href="mailto:gabriel.frezouls@gmail.com"
+              className="w-full flex items-center justify-center gap-2 py-3 text-white rounded-2xl font-bold text-sm hover:scale-105 transition-transform"
+              style={{backgroundColor:config.primaryColor}}
+            >
+              <Mail size={16}/> Envoyer un email
+            </a>
+          </div>
+
+          {/* Suggestion */}
+          <div className="glass-element p-5 space-y-3">
+            <h4 className="font-black text-sm uppercase tracking-widest text-gray-400 flex items-center gap-2">
+              <Sparkles size={14}/> Suggestion / Conseil
+            </h4>
+            <p className="text-xs text-gray-400">Partagez vos idées d'amélioration pour l'application !</p>
+            <textarea
+              value={suggestion}
+              onChange={e=>setSuggestion(e.target.value)}
+              placeholder="Ex: J'aimerais pouvoir... / Il serait utile de..."
+              className="w-full p-4 rounded-2xl bg-white/40 border border-white/50 text-sm font-bold outline-none resize-none h-28 focus:border-white/70 transition-all"
+            />
+            {sent && (
+              <div className="text-center text-xs font-bold py-2 px-3 rounded-xl bg-green-50 text-green-700">
+                ✅ Suggestion envoyée ! Merci.
+              </div>
+            )}
+            <button
+              onClick={sendSuggestion}
+              disabled={!suggestion.trim() || sending}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-black text-white rounded-2xl font-bold text-sm disabled:opacity-40 hover:scale-105 transition-transform"
+            >
+              {sending ? <Loader2 size={16} className="animate-spin"/> : <Send size={16}/>}
+              {sending ? 'Envoi…' : 'Envoyer ma suggestion'}
+            </button>
+          </div>
+
+          {/* Version info */}
+          <div className="text-center text-[10px] text-gray-300 space-y-1">
+            <div className="font-bold uppercase tracking-widest">Chaud Devant Family</div>
+            <div>Version 2.0 — Propulsé par Gemini IA</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User|null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
@@ -4670,6 +4951,7 @@ const App: React.FC = () => {
   const [choreStatus, setChoreStatus] = useState<Record<string,any>>({});
   const [favorites, setFavorites] = useState<string[]>([]);
   const [siteUsers, setSiteUsers] = useState<any[]>([]);
+const [siteUsersLoading, setSiteUsersLoading] = useState(true);
   const [usersMapping, setUsersMapping] = useState<Record<string,string>>({});
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
@@ -4696,6 +4978,7 @@ const App: React.FC = () => {
   const [tokenBalance, setTokenBalance] = useState<number|null>(null);
   const [showTokenShop, setShowTokenShop] = useState(false);   // modal achat tokens
   const [adminTokenUser, setAdminTokenUser] = useState<{id:string,name:string}|null>(null); // modal tokens admin
+  const [showCommPanel, setShowCommPanel] = useState(false);
 
   // ── XSite : intercepter localStorage de l'iframe via postMessage ──
   useEffect(() => {
@@ -4828,11 +5111,19 @@ if(!pendingSnap.empty) {
           const quizSnap = await getDocs(collection(db,'questionnaires'));
           quizSnap.docs.forEach(qd=>{
             const qid = qd.id;
-            const alreadyDone    = !!prefs[`quiz_done_${qid}`];
-            const alreadySkipped = !!prefs[`quiz_skipped_${qid}`];
+            const alreadyDone      = !!prefs[`quiz_done_${qid}`];
+            const alreadySkipped   = !!prefs[`quiz_skipped_${qid}`];
+            // quiz_postponed → on l'affiche quand même (c'est le but du report)
+            // et on efface le flag postponed pour cette session
             if(!alreadyDone && !alreadySkipped){
-              // Ce quiz n'a pas encore été répondu ni passé → l'afficher
               setPendingQuizId(qid);
+              // Effacer le flag postponed maintenant qu'on l'affiche
+              if(prefs[`quiz_postponed_${qid}`]) {
+                setDoc(doc(db,'user_prefs',u.email!),
+                  {[`quiz_postponed_${qid}`]: false},
+                  {merge:true}
+                ).catch(()=>{});
+              }
             }
           });
         }catch(e){console.error("Err sync user",e);}
@@ -4855,7 +5146,7 @@ if(!pendingSnap.empty) {
     const unsubE=onSnapshot(collection(db,'family_events'),s=>{const raw=s.docs.map(d=>({...d.data(),id:d.id} as FamilyEvent));raw.sort((a,b)=>a.date.localeCompare(b.date));setEvents(raw);},ignoreError);
     const unsubV=onSnapshot(query(collection(db,'site_versions'),orderBy('date','desc')),s=>setVersions(s.docs.map(d=>({...d.data(),id:d.id} as SiteVersion))),ignoreError);
     const unsubT=onSnapshot(collection(db,'chores_status'),s=>{const status:Record<string,any>={};s.docs.forEach(d=>{status[d.id]=d.data();});setChoreStatus(status);},ignoreError);
-    const unsubU=onSnapshot(collection(db,'site_users'),s=>{const users=s.docs.map(d=>({id:d.id,...d.data()}));setSiteUsers(users);const newMap:Record<string,string>={};users.forEach((u:any)=>{if(u.letter)newMap[u.id]=u.letter;});setUsersMapping(newMap);},ignoreError);
+    const unsubU=onSnapshot(collection(db,'site_users'),s=>{const users=s.docs.map(d=>({id:d.id,...d.data()}));setSiteUsers(users);setSiteUsersLoading(false);const newMap:Record<string,string>={};users.forEach((u:any)=>{if(u.letter)newMap[u.id]=u.letter;});setUsersMapping(newMap);},ignoreError);
     // Écouter le solde de tokens en temps réel
     const unsubTokens = onSnapshot(doc(db,'user_tokens',user.email!), async snap => {
       const now = new Date();
@@ -4994,7 +5285,23 @@ useEffect(()=>{
     }
   }, []);
 
-  if(isInitializing) return <div className="min-h-screen flex items-center justify-center bg-[#f5ede7]"><Loader2 className="w-12 h-12 animate-spin text-[#a85c48]"/></div>;
+  if(isInitializing || siteUsersLoading) return (
+    <div className="min-h-screen flex items-center justify-center bg-[#f9f9f9]">
+      <div className="flex flex-col items-center" style={{position:'relative'}}>
+        <style>{`
+          @keyframes cd-bounce{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-25px) scale(1.05)}}
+          @keyframes cd-shadow{0%,100%{transform:scale(1);opacity:.2}50%{transform:scale(.5);opacity:.05}}
+          @keyframes cd-pulse{0%,100%{opacity:1}50%{opacity:.5}}
+          .cd-logo{width:120px;height:auto;animation:cd-bounce 2s infinite ease-in-out;filter:drop-shadow(0 4px 6px rgba(0,0,0,.05))}
+          .cd-shadow{width:70px;height:10px;background:rgba(0,0,0,.15);border-radius:50%;margin-top:16px;animation:cd-shadow 2s infinite ease-in-out}
+          .cd-text{margin-top:24px;color:#a85c48;font-weight:700;font-size:1rem;letter-spacing:3px;text-transform:uppercase;animation:cd-pulse 2s infinite ease-in-out;font-family:'Inter',sans-serif}
+        `}</style>
+        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%A5%3C/text%3E%3C/svg%3E" alt="Logo" className="cd-logo"/>
+        <div className="cd-shadow"/>
+        <div className="cd-text">En cuisine…</div>
+      </div>
+    </div>
+  );
 
   if(!user) return (
     <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-[#f5ede7]">
@@ -5007,7 +5314,7 @@ useEffect(()=>{
     </div>
   );
 
-  if(!isAuthorized) return (
+  if(!isAuthorized && !siteUsersLoading) return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-red-50 text-center space-y-8">
       <ShieldAlert className="text-red-500 w-20 h-20"/>
       <h2 className="text-3xl font-bold tracking-tight text-red-800">ACCÈS RESTREINT</h2>
@@ -5032,23 +5339,45 @@ useEffect(()=>{
               <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 border-b border-white/20"
                 style={{background:'rgba(242,237,228,0.92)',backdropFilter:'blur(20px)'}}>
                 <p className="text-xs font-black uppercase tracking-widest text-gray-500">Questionnaire</p>
-                <button
-                  onClick={async () => {
-                    // Marquer comme "passé" dans user_prefs pour ne plus afficher
-                    if(user?.email) {
-                      try {
-                        await setDoc(doc(db,'user_prefs',user.email),
-                          {[`quiz_skipped_${pendingQuizId}`]: true},
-                          {merge:true}
-                        );
-                      } catch {}
-                    }
-                    setPendingQuizId(null);
-                  }}
-                  className="px-4 py-2 rounded-full bg-white/40 border border-white/50 text-xs font-bold uppercase tracking-wider hover:bg-white/60 transition-all"
-                >
-                  Passer →
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* Bouton Horloge : reporter à la prochaine connexion */}
+                  <button
+                    onClick={async () => {
+                      if(user?.email && pendingQuizId) {
+                        try {
+                          // quiz_postponed = true → sera re-affiché au prochain login
+                          // (on ne met PAS quiz_skipped, donc le quiz sera re-vérifié)
+                          await setDoc(doc(db,'user_prefs',user.email),
+                            {[`quiz_postponed_${pendingQuizId}`]: true},
+                            {merge:true}
+                          );
+                        } catch {}
+                      }
+                      setPendingQuizId(null);
+                    }}
+                    className="w-8 h-8 rounded-full bg-white/40 border border-white/50 flex items-center justify-center hover:bg-white/60 transition-all"
+                    title="Reporter à la prochaine connexion"
+                  >
+                    <Clock size={14} className="text-gray-500"/>
+                  </button>
+                  {/* Bouton Passer : ignorer définitivement */}
+                  <button
+                    onClick={async () => {
+                      if(user?.email && pendingQuizId) {
+                        try {
+                          await setDoc(doc(db,'user_prefs',user.email),
+                            {[`quiz_skipped_${pendingQuizId}`]: true},
+                            {merge:true}
+                          );
+                        } catch {}
+                      }
+                      setPendingQuizId(null);
+                    }}
+                    className="px-4 py-2 rounded-full bg-white/40 border border-white/50 text-xs font-bold uppercase tracking-wider hover:bg-white/60 transition-all"
+                  >
+                    Passer →
+                  </button>
+                </div>
               </div>
               {/* Contenu du quiz (réutilise le composant PublicQuiz sans le layout full-page) */}
               <InlineQuiz
@@ -5234,6 +5563,11 @@ useEffect(()=>{
               )}
             </div>
           )}
+<button
+            onClick={()=>setShowCommPanel(true)}
+            className="w-8 h-8 rounded-full border-2 border-gray-200 text-gray-400 hover:border-gray-400 hover:text-gray-700 font-black text-sm flex items-center justify-center transition-all"
+            title="Communication & Contact"
+          >?</button>
           <button onClick={()=>setIsNotifOpen(true)} className="relative p-2 text-gray-400 hover:text-black transition-colors">
             <Bell size={24}/>
             {notifications.length>0&&<span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"/>}
@@ -5298,6 +5632,8 @@ useEffect(()=>{
             onClose={()=>setAdminTokenUser(null)}
           />
         )}
+	{/* PANEL COMMUNICATION */}
+       		  {showCommPanel&&<CommPanel config={config} user={user} onClose={()=>setShowCommPanel(false)}/>}
 
         {/* HUB */}
         {currentView==='hub'&&(isPageLocked('hub')?<MaintenancePage pageName="Le Tableau"/>:(
@@ -5497,7 +5833,23 @@ useEffect(()=>{
         {currentView==='cooking'&&(isPageLocked('cooking') ? <MaintenancePage pageName="Semainier"/> : (
           <div className="space-y-0 animate-in fade-in" id="cooking-frame">
             <div className="glass-panel overflow-hidden" style={{minHeight:'800px'}}>
-              <SemainierView config={config} recipes={recipes} isPremium={isCurrentUserPremium()} onShowFreemium={()=>setShowFreemiumModal(true)}/>
+              <SemainierView
+                config={config}
+                recipes={recipes}
+                isPremium={isCurrentUserPremium()}
+                onShowFreemium={()=>setShowFreemiumModal(true)}
+                onOpenRecipe={(recipeId: string) => {
+                  const found = recipes.find(r => r.id === recipeId);
+                  if(found) {
+                    const ingsArr = typeof found.ingredients==='string'
+                      ? found.ingredients.split('\n').filter((i:string)=>i.trim()!=='')
+                      : (found.ingredients||[]);
+                    setReadingRecipe({...found, ingredients: ingsArr});
+                    setRecipeView('read');
+                    setCurrentView('recipes');
+                  }
+                }}
+              />
             </div>
           </div>
         ))}
