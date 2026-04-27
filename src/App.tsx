@@ -2708,28 +2708,76 @@ const QuestionnaireModal = ({isOpen, onClose, config, siteUsers, userEmail}: {
               {/* Questions */}
               {questions.map((q, qi)=>(
                 <div key={q.id} className="glass-element p-4 space-y-3">
-                  <div className="flex items-start gap-2">
-                    <span className="w-6 h-6 rounded-full bg-black text-white flex items-center justify-center text-xs font-black shrink-0 mt-1">{qi+1}</span>
-                    <div className="flex-1 space-y-2">
-                      <input
-                        value={q.text}
-                        onChange={e=>updateQuestion(q.id,{text:e.target.value})}
-                        placeholder="Texte de la question..."
-                        className="w-full p-2 rounded-xl bg-white/40 border border-white/40 text-sm font-bold outline-none"
-                      />
-                      <div className="flex items-center gap-2">
-                        <ImageIcon size={16} className="text-gray-400" />
-                        <input
-                          value={q.imageUrl || ''}
-                          onChange={e=>updateQuestion(q.id,{imageUrl:e.target.value})}
-                          placeholder="URL de l'image (optionnel)..."
-                          className="w-full p-2 rounded-xl bg-white/40 border border-white/40 text-xs outline-none"
-                        />
-                      </div>
-                    </div>
-                    <button onClick={()=>removeQuestion(q.id)} className="p-1.5 mt-1 rounded-full hover:bg-red-50 text-red-400 shrink-0"><Trash2 size={14}/></button>
-                  </div>
+                 <div className="flex items-start gap-2">
+  <span className="w-6 h-6 rounded-full bg-black text-white flex items-center justify-center text-xs font-black shrink-0 mt-1">{qi+1}</span>
+  <div className="flex-1 space-y-2">
+    {/* Texte de la question */}
+    <input
+      value={q.text}
+      onChange={e=>updateQuestion(q.id,{text:e.target.value})}
+      placeholder="Texte de la question..."
+      className="w-full p-2 rounded-xl bg-white/40 border border-white/40 text-sm font-bold outline-none"
+    />
 
+    {/* Zone d'Upload / Sélection de fichier */}
+    <div className="flex items-center gap-3">
+      <label className="flex items-center gap-2 cursor-pointer bg-white/50 hover:bg-white/80 px-3 py-1.5 rounded-xl border border-dashed border-gray-400 transition-all">
+        <Upload size={14} className="text-gray-600" />
+        <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider">
+          {q.imageUrl ? "Changer l'image" : "Sélectionner un fichier"}
+        </span>
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+
+            try {
+              // 1. Importer les fonctions Storage (ou assurez-vous qu'elles le sont en haut du fichier)
+              const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+              const { storage } = await import('./firebase'); 
+
+              // 2. Créer une référence unique
+              const storageRef = ref(storage, `quiz_images/${q.id}_${file.name}`);
+              
+              // 3. Upload
+              const snapshot = await uploadBytes(storageRef, file);
+              
+              // 4. Récupérer l'URL et mettre à jour
+              const downloadURL = await getDownloadURL(snapshot.ref);
+              updateQuestion(q.id, { imageUrl: downloadURL });
+            } catch (error) {
+              console.error("Erreur upload:", error);
+              alert("Erreur lors de l'envoi du fichier.");
+            }
+          }}
+        />
+      </label>
+
+      {/* Miniature d'aperçu si une image existe */}
+      {q.imageUrl && (
+        <div className="relative group">
+          <img 
+            src={q.imageUrl} 
+            alt="Aperçu" 
+            className="w-10 h-10 object-cover rounded-lg border border-white shadow-sm" 
+          />
+          <button 
+            onClick={() => updateQuestion(q.id, { imageUrl: '' })}
+            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 shadow-lg hover:bg-red-600"
+          >
+            <X size={10} />
+          </button>
+        </div>
+      )}
+    </div>
+  </div>
+  <button onClick={()=>removeQuestion(q.id)} className="p-1.5 mt-1 rounded-full hover:bg-red-50 text-red-400 shrink-0">
+    <Trash2 size={14}/>
+  </button>
+</div>
                   {/* Toggle type */}
                   <div className="flex gap-2">
                     <button onClick={()=>updateQuestion(q.id,{type:'qcm'})}
