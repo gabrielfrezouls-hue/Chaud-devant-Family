@@ -2439,6 +2439,7 @@ type QQuestion = {
   type: 'qcm' | 'libre';
   options: string[];       // pour QCM
   multipleAnswers: boolean; // QCM : une ou plusieurs réponses
+  imageUrl?: string;        // <-- NOUVEAU : URL optionnelle de l'image
 };
 
 type QForm = {
@@ -2707,15 +2708,26 @@ const QuestionnaireModal = ({isOpen, onClose, config, siteUsers, userEmail}: {
               {/* Questions */}
               {questions.map((q, qi)=>(
                 <div key={q.id} className="glass-element p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 rounded-full bg-black text-white flex items-center justify-center text-xs font-black shrink-0">{qi+1}</span>
-                    <input
-                      value={q.text}
-                      onChange={e=>updateQuestion(q.id,{text:e.target.value})}
-                      placeholder="Texte de la question..."
-                      className="flex-1 p-2 rounded-xl bg-white/40 border border-white/40 text-sm font-bold outline-none"
-                    />
-                    <button onClick={()=>removeQuestion(q.id)} className="p-1.5 rounded-full hover:bg-red-50 text-red-400 shrink-0"><Trash2 size={14}/></button>
+                  <div className="flex items-start gap-2">
+                    <span className="w-6 h-6 rounded-full bg-black text-white flex items-center justify-center text-xs font-black shrink-0 mt-1">{qi+1}</span>
+                    <div className="flex-1 space-y-2">
+                      <input
+                        value={q.text}
+                        onChange={e=>updateQuestion(q.id,{text:e.target.value})}
+                        placeholder="Texte de la question..."
+                        className="w-full p-2 rounded-xl bg-white/40 border border-white/40 text-sm font-bold outline-none"
+                      />
+                      <div className="flex items-center gap-2">
+                        <ImageIcon size={16} className="text-gray-400" />
+                        <input
+                          value={q.imageUrl || ''}
+                          onChange={e=>updateQuestion(q.id,{imageUrl:e.target.value})}
+                          placeholder="URL de l'image (optionnel)..."
+                          className="w-full p-2 rounded-xl bg-white/40 border border-white/40 text-xs outline-none"
+                        />
+                      </div>
+                    </div>
+                    <button onClick={()=>removeQuestion(q.id)} className="p-1.5 mt-1 rounded-full hover:bg-red-50 text-red-400 shrink-0"><Trash2 size={14}/></button>
                   </div>
 
                   {/* Toggle type */}
@@ -2896,6 +2908,19 @@ const PublicQuiz = ({formId, config}: {formId: string, config: any}) => {
       {form.questions.map((q,qi)=>(
         <div key={q.id} className="glass-panel p-5 space-y-3">
           <p className="font-bold">{qi+1}. {q.text}</p>
+          
+          {/* NOUVEAU : Bouton natif pour révéler l'image */}
+          {q.imageUrl && (
+            <details className="group">
+              <summary className="cursor-pointer text-xs font-bold text-blue-500 hover:text-blue-700 flex items-center gap-1.5 mb-3 select-none list-none">
+                <ImageIcon size={14}/> Voir l'image
+              </summary>
+              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                <img src={q.imageUrl} alt="Illustration de la question" className="max-w-full h-auto rounded-xl shadow-sm border border-white/50 mb-3"/>
+              </div>
+            </details>
+          )}
+
           {q.type==='libre'?(
             <textarea value={(answers[q.id] as string)||''} onChange={e=>setAnswers(p=>({...p,[q.id]:e.target.value}))}
               placeholder="Votre réponse..."
@@ -2999,6 +3024,19 @@ const InlineQuiz = ({formId, config, userEmail, onDone}: {
       {form.questions.map((q,qi)=>(
         <div key={q.id} className="glass-element p-4 space-y-3">
           <p className="font-bold text-sm">{qi+1}. {q.text}</p>
+
+          {/* NOUVEAU : Bouton natif pour révéler l'image */}
+          {q.imageUrl && (
+            <details className="group">
+              <summary className="cursor-pointer text-xs font-bold text-blue-500 hover:text-blue-700 flex items-center gap-1.5 mb-3 select-none list-none">
+                <ImageIcon size={14}/> Voir l'image
+              </summary>
+              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                <img src={q.imageUrl} alt="Illustration de la question" className="max-w-full h-auto rounded-xl shadow-sm border border-white/50 mb-3"/>
+              </div>
+            </details>
+          )}
+
           {q.type==='libre' ? (
             <textarea
               value={(answers[q.id] as string)||''}
