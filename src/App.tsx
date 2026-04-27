@@ -1850,15 +1850,15 @@ const [frigoItems, setFrigoItems] = React.useState<string[]>([]);
     );
   };
 
-  const ingInFrigoCount = ings.filter((ing:string) => isInFrigo(ing)).length;
-  const steps: Array<{title:string,content:string}> = React.useMemo(() => {
-    const raw = recipe.stepsList?.length > 0 ? recipe.stepsList : (recipe.steps || recipe.instructions || '');
-    return parseStepsToList(raw);
-  }, [recipe]);
-  const ings: string[] = React.useMemo(() => {
-    if(Array.isArray(recipe.ingredients)) return recipe.ingredients.filter((i:any)=>String(i).trim());
-    return (recipe.ingredients||'').split('\n').filter((i:string)=>i.trim());
-  }, [recipe]);
+const steps: Array<{title:string,content:string}> = React.useMemo(() => {
+  const raw = recipe.stepsList?.length > 0 ? recipe.stepsList : (recipe.steps || recipe.instructions || '');
+  return parseStepsToList(raw);
+}, [recipe]);
+const ings: string[] = React.useMemo(() => {
+  if(Array.isArray(recipe.ingredients)) return recipe.ingredients.filter((i:any)=>String(i).trim());
+  return (recipe.ingredients||'').split('\n').filter((i:string)=>i.trim());
+}, [recipe]);
+const ingInFrigoCount = ings.filter((ing:string) => isInFrigo(ing)).length;
   const total = steps.length;
   const isFinished = currentStep >= total;
   const progress = total>0 ? ((currentStep+1)/total)*100 : 0;
@@ -3701,22 +3701,22 @@ const SemainierView = ({config, recipes, isPremium, onShowFreemium, onOpenRecipe
                           <div className="font-bold text-sm text-gray-800 leading-tight pr-5">{entry.platName}</div>
                           <div className="text-[10px] text-gray-500">{entry.participants?.join(', ')}</div>
                           {(entry.recetteLink||entry.recipeId)&&(
-            <button
-              onClick={e=>{
-                e.stopPropagation();
-                if(entry.recipeId && onOpenRecipe) {
-                  onOpenRecipe(entry.recipeId);
-                } else if(entry.recetteLink) {
-                  window.open(entry.recetteLink,'_blank');
-                }
-              }}
-              className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px]"
-              style={{backgroundColor:config.primaryColor,color:'white'}}
-              title={entry.recipeId ? 'Voir la recette' : 'Lien externe'}
-            >
-              {entry.recipeId ? '📖' : '🔗'}
-            </button>
-          )}
+  <button
+    onClick={e=>{
+      e.stopPropagation();
+      if(entry.recipeId && onOpenRecipe) {
+        onOpenRecipe(entry.recipeId);
+      } else if(entry.recetteLink) {
+        window.open(entry.recetteLink,'_blank');
+      }
+    }}
+    className="absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center text-[11px] opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+    style={{backgroundColor:config.primaryColor,color:'white'}}
+    title={entry.recipeId ? 'Voir la recette' : 'Lien externe'}
+  >
+    {entry.recipeId ? '📖' : '🔗'}
+  </button>
+)}
                         </div>
                       ):(
                         <div className={`min-h-[80px] flex items-center justify-center text-xs italic transition-colors ${isDragTarget?'text-blue-400 font-bold':'text-gray-300'}`}>
@@ -4920,7 +4920,7 @@ const CommPanel = ({ config, user, onClose }: { config: SiteConfig, user: User, 
           {/* Version info */}
           <div className="text-center text-[10px] text-gray-300 space-y-1">
             <div className="font-bold uppercase tracking-widest">Chaud Devant Family</div>
-            <div>Version 2.0 — Propulsé par Gemini IA</div>
+            <div>Version 3.2 — Propulsé par Gemini IA</div>
           </div>
         </div>
       </div>
