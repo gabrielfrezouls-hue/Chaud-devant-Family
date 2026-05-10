@@ -3461,6 +3461,7 @@ const AdminPanel = ({ config, save, add, del, upd, events, recipes, xsitePages, 
       {tab==='xsite'&&(
         <div className="space-y-8 animate-in fade-in">
           <h3 className="text-3xl font-bold tracking-tight" style={{color:config.primaryColor}}>GESTION XSITE</h3>
+          <GithubConfigPanel db={db} />
           {qrCodeUrl&&(
             <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4" onClick={()=>setQrCodeUrl(null)}>
               <div className="bg-white p-8 rounded-3xl text-center space-y-4 animate-in zoom-in-95" onClick={e=>e.stopPropagation()}>
@@ -5054,6 +5055,7 @@ const [siteUsersLoading, setSiteUsersLoading] = useState(true);
   const [showTokenShop, setShowTokenShop] = useState(false);   // modal achat tokens
   const [adminTokenUser, setAdminTokenUser] = useState<{id:string,name:string}|null>(null); // modal tokens admin
   const [showCommPanel, setShowCommPanel] = useState(false);
+  const [githubConfig, setGithubConfig] = useState<{owner:string,repo:string,branch:string}|null>(null);
 
   // ── XSite : intercepter localStorage de l'iframe via postMessage ──
   useEffect(() => {
@@ -5156,6 +5158,9 @@ const [siteUsersLoading, setSiteUsersLoading] = useState(true);
     const unsub=onAuthStateChanged(auth,async u=>{
       setUser(u);setIsInitializing(false);
       if(u&&u.email){
+      getDoc(doc(db,'site_config','github')).then(snap=>{
+  if(snap.exists()) setGithubConfig(snap.data() as any);
+}).catch(()=>{});
         try{
           await setDoc(doc(db,'site_users',u.email),{lastLogin:new Date().toISOString(),email:u.email},{merge:true});
           const prefsDoc=await getDoc(doc(db,'user_prefs',u.email));
@@ -5513,10 +5518,15 @@ useEffect(()=>{
           </div>
           <iframe ref={xsiteIframeRef}
           srcDoc={(() => {
-            const interceptScript = `<script>
+            const rawBase = githubConfig?.owner && githubConfig?.repo
+  ? `https://raw.githubusercontent.com/${githubConfig.owner}/${githubConfig.repo}/${githubConfig.branch||'main'}/`
+  : '';
+
+const interceptScript = `<script>
 (function() {
   var _store = {};
-  // API publique pour les codes XSite : window.XSite.save(key, value) et window.XSite.load(key)
+  var _rawBase = ${JSON.stringify(rawBase)};
+  // API publique pour les codes XSite
   window.XSite = {
     save: function(key, value) {
       _store[String(key)] = String(value);
@@ -5526,7 +5536,17 @@ useEffect(()=>{
     saveAll: function(obj) {
       Object.keys(obj).forEach(function(k) { window.XSite.save(k, obj[k]); });
     },
-    loadAll: function() { return Object.assign({}, _store); }
+    loadAll: function() { return Object.assign({}, _store); },
+    asset: function(path) {
+      if(!_rawBase) { console.warn('XSite.asset: aucun dépôt GitHub configuré.'); return path; }
+      return _rawBase + path.replace(/^\\//, '');
+    },
+    img: function(path, alt) {
+      var el = document.createElement('img');
+      el.src = window.XSite.asset(path);
+      el.alt = alt || '';
+      return el;
+    }
   };
   // Proxy localStorage → même API (pour les sites existants)
   try {
@@ -5928,6 +5948,86 @@ useEffect(()=>{
             </div>
           </div>
         ))}
+const GithubConfigPanel = ({ db }: { db: any }) => {
+  const [cfg, setCfg] = useState({ owner:'', repo:'', branch:'main' });
+  const [saved, setSaved] = useState(false);
+
+  useEffect(()=>{
+    getDoc(doc(db,'site_config','github')).then(snap=>{
+      if(snap.exists()) setCfg(snap.data() as any);
+    }).catch(()=>{});
+  },[]);
+
+  const save = async () => {
+    await setDoc(doc(db,'site_config','github'), cfg);
+    setSaved(true);
+    setTimeout(()=>setSaved(false), 2500);
+  };
+
+  const rawBase = cfg.owner && cfg.repo
+    ? `https://raw.githubusercontent.com/${cfg.owner}/${cfg.repo}/${cfg.branch||'main'}/`
+    : '';
+
+  return (
+    <div className="bg-blue-50/80 border border-blue-100 p-5 rounded-3xl space-y-3">
+      <h4 className="font-black text-xs uppercase tracking-widest text-blue-600 flex items-center gap-2">
+        <Link size={13}/> Assets GitHub — images & fichiers
+      </h4>
+      <p className="text-xs text-gray-500 leading-relaxed">
+        Configurez votre dépôt pour que les XSites accèdent aux fichiers via{' '}
+        <code className="bg-blue-100 px-1 rounded font-mono text-blue-700">XSite.asset("chemin/fichier.png")</code>.
+      </p>
+      <div className="grid grid-cols-3 gap-2">
+        <input
+          value={cfg.owner}
+          onChange={e=>setCfg(c=>({...c,owner:e.target.value}))}
+          placeholder="Propriétaire (ex: gabriel)"
+          className="p-2.5 rounded-xl border border-blue-200 bg-white text-sm font-bold outline-none"
+        />
+        <input
+          value={cfg.repo}
+          onChange={e=>setCfg(c=>({...c,repo:e.target.value}))}
+          placeholder="Dépôt (ex: chaud-devant)"
+          className="p-2.5 rounded-xl border border-blue-200 bg-white text-sm font-bold outline-none"
+        />
+        <input
+          value={cfg.branch}
+          onChange={e=>setCfg(c=>({...c,branch:e.target.value}))}
+          placeholder="Branche (ex: main)"
+          className="p-2.5 rounded-xl border border-blue-200 bg-white text-sm font-bold outline-none"
+        />
+      </div>
+      {rawBase && (
+        <div className="bg-white rounded-xl p-3 border border-blue-100 font-mono text-[11px] text-gray-500 break-all">
+          Base URL : <span className="text-blue-600">{rawBase}</span>
+        </div>
+      )}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={save}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-xl font-bold text-xs hover:scale-105 transition-transform"
+        >
+          <Save size={13}/>{saved ? '✅ Sauvegardé' : 'Sauvegarder'}
+        </button>
+      </div>
+      <details className="text-xs text-blue-500 cursor-pointer">
+        <summary className="font-bold hover:text-blue-700">Voir les exemples d'utilisation</summary>
+        <pre className="mt-2 bg-white border border-blue-100 rounded-xl p-3 overflow-x-auto text-[10px] text-gray-700">{`<!-- Image depuis le dépôt -->
+<img id="logo">
+<script>
+  document.getElementById('logo').src = XSite.asset('src/assets/logo.png');
+<\/script>
+
+<!-- Ou via XSite.img() directement -->
+<div id="container"></div>
+<script>
+  document.getElementById('container')
+    .appendChild(XSite.img('public/images/banner.jpg', 'Bannière'));
+<\/script>`}</pre>
+      </details>
+    </div>
+  );
+};
 
         {/* ADMIN */}
         {currentView==='edit'&&(
