@@ -5015,6 +5015,50 @@ const CommPanel = ({ config, user, onClose }: { config: SiteConfig, user: User, 
   );
 };
 
+const GithubConfigPanel = ({ db }: { db: any }) => {
+  const [cfg, setCfg] = useState({ owner: '', repo: '', branch: 'main' });
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    getDoc(doc(db, 'site_config', 'github')).then(s => {
+      if (s.exists()) setCfg(s.data() as any);
+    });
+  }, [db]);
+
+  const save = async () => {
+    setLoading(true);
+    await setDoc(doc(db, 'site_config', 'github'), cfg);
+    setMsg('✅ Config GitHub enregistrée');
+    setLoading(false);
+    setTimeout(() => setMsg(''), 3000);
+  };
+
+  return (
+    <div className="glass-panel p-6 space-y-4 border-2 border-black/5">
+      <h3 className="font-black flex items-center gap-2"><Code size={18} /> CONFIGURATION GITHUB</h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <input placeholder="Propriétaire (ex: GabrielF)" value={cfg.owner} onChange={e => setCfg({ ...cfg, owner: e.target.value })} className="p-3 bg-white/50 rounded-xl font-bold outline-none" />
+        <input placeholder="Dépôt (ex: Chaud-devant)" value={cfg.repo} onChange={e => setCfg({ ...cfg, repo: e.target.value })} className="p-3 bg-white/50 rounded-xl font-bold outline-none" />
+        <input placeholder="Branche (ex: main)" value={cfg.branch} onChange={e => setCfg({ ...cfg, branch: e.target.value })} className="p-3 bg-white/50 rounded-xl font-bold outline-none" />
+      </div>
+      <button onClick={save} disabled={loading} className="w-full py-3 bg-black text-white rounded-xl font-black flex items-center justify-center gap-2">
+        {loading ? <Loader2 className="animate-spin" /> : <Save size={18} />} SAUVEGARDER LA CONFIGURATION
+      </button>
+      {msg && <p className="text-center text-xs font-bold text-green-600 animate-bounce">{msg}</p>}
+      <details className="mt-4 opacity-50">
+        <summary className="text-xs font-bold cursor-pointer">Script de déploiement (XSite)</summary>
+        <pre className="text-[10px] bg-black text-green-400 p-4 rounded-lg mt-2 overflow-auto">{`<script src="https://cdn.jsdelivr.net/gh/${cfg.owner}/${cfg.repo}@${cfg.branch}/dist/xsite.js"></script>
+<script>
+  XSite.init('votre-id-page')
+    .render('#container')
+    .appendChild(XSite.img('public/images/banner.jpg', 'Bannière'));
+</script>`}</pre>
+      </details>
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User|null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
@@ -5948,86 +5992,7 @@ const interceptScript = `<script>
             </div>
           </div>
         ))}
-const GithubConfigPanel = ({ db }: { db: any }) => {
-  const [cfg, setCfg] = useState({ owner:'', repo:'', branch:'main' });
-  const [saved, setSaved] = useState(false);
 
-  useEffect(()=>{
-    getDoc(doc(db,'site_config','github')).then(snap=>{
-      if(snap.exists()) setCfg(snap.data() as any);
-    }).catch(()=>{});
-  },[]);
-
-  const save = async () => {
-    await setDoc(doc(db,'site_config','github'), cfg);
-    setSaved(true);
-    setTimeout(()=>setSaved(false), 2500);
-  };
-
-  const rawBase = cfg.owner && cfg.repo
-    ? `https://raw.githubusercontent.com/${cfg.owner}/${cfg.repo}/${cfg.branch||'main'}/`
-    : '';
-
-  return (
-    <div className="bg-blue-50/80 border border-blue-100 p-5 rounded-3xl space-y-3">
-      <h4 className="font-black text-xs uppercase tracking-widest text-blue-600 flex items-center gap-2">
-        <Link size={13}/> Assets GitHub — images & fichiers
-      </h4>
-      <p className="text-xs text-gray-500 leading-relaxed">
-        Configurez votre dépôt pour que les XSites accèdent aux fichiers via{' '}
-        <code className="bg-blue-100 px-1 rounded font-mono text-blue-700">XSite.asset("chemin/fichier.png")</code>.
-      </p>
-      <div className="grid grid-cols-3 gap-2">
-        <input
-          value={cfg.owner}
-          onChange={e=>setCfg(c=>({...c,owner:e.target.value}))}
-          placeholder="Propriétaire (ex: gabriel)"
-          className="p-2.5 rounded-xl border border-blue-200 bg-white text-sm font-bold outline-none"
-        />
-        <input
-          value={cfg.repo}
-          onChange={e=>setCfg(c=>({...c,repo:e.target.value}))}
-          placeholder="Dépôt (ex: chaud-devant)"
-          className="p-2.5 rounded-xl border border-blue-200 bg-white text-sm font-bold outline-none"
-        />
-        <input
-          value={cfg.branch}
-          onChange={e=>setCfg(c=>({...c,branch:e.target.value}))}
-          placeholder="Branche (ex: main)"
-          className="p-2.5 rounded-xl border border-blue-200 bg-white text-sm font-bold outline-none"
-        />
-      </div>
-      {rawBase && (
-        <div className="bg-white rounded-xl p-3 border border-blue-100 font-mono text-[11px] text-gray-500 break-all">
-          Base URL : <span className="text-blue-600">{rawBase}</span>
-        </div>
-      )}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={save}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-xl font-bold text-xs hover:scale-105 transition-transform"
-        >
-          <Save size={13}/>{saved ? '✅ Sauvegardé' : 'Sauvegarder'}
-        </button>
-      </div>
-      <details className="text-xs text-blue-500 cursor-pointer">
-        <summary className="font-bold hover:text-blue-700">Voir les exemples d'utilisation</summary>
-        <pre className="mt-2 bg-white border border-blue-100 rounded-xl p-3 overflow-x-auto text-[10px] text-gray-700">{`<!-- Image depuis le dépôt -->
-<img id="logo">
-<script>
-  document.getElementById('logo').src = XSite.asset('src/assets/logo.png');
-<\/script>
-
-<!-- Ou via XSite.img() directement -->
-<div id="container"></div>
-<script>
-  document.getElementById('container')
-    .appendChild(XSite.img('public/images/banner.jpg', 'Bannière'));
-<\/script>`}</pre>
-      </details>
-    </div>
-  );
-};
 
         {/* ADMIN */}
         {currentView==='edit'&&(
